@@ -6,3 +6,105 @@ datasource db {
   provider = "sqlserver"
   url      = env("DATABASE_URL")
 }
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  role         String   @default("customer") // "customer" | "admin"
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders       Order[]
+}
+
+model Product {
+  id          String         @id @default(cuid())
+  name        String
+  slug        String         @unique
+  description String?
+  price       Decimal        @db.Decimal(18, 2)
+  stock       Int            @default(0)
+  isActive    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  images      ProductImage[]
+  orderItems  OrderItem[]
+
+  @@index([isActive])
+  @@index([slug])
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  url       String
+  sortOrder Int      @default(0)
+
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+model Order {
+  id                  String   @id @default(cuid())
+  userId              String
+  status              String   @default("pending_payment") // pending_payment|paid|cancelled|refunded
+  total               Decimal  @db.Decimal(18, 2)
+
+  shippingName        String
+  shippingPhone       String
+  shippingAddressLine String
+  shippingCity        String
+  shippingZip         String
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user                User     @relation(fields: [userId], references: [id], onDelete: NoAction)
+  items               OrderItem[]
+  payments            Payment[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model OrderItem {
+  id           String   @id @default(cuid())
+  orderId      String
+  productId    String
+
+  // snapshots para que la orden no cambie si cambia el producto
+  nameSnapshot String
+  unitPrice    Decimal  @db.Decimal(18, 2)
+  quantity     Int
+  subtotal     Decimal  @db.Decimal(18, 2)
+
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [productId], references: [id], onDelete: NoAction)
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Payment {
+  id           String   @id @default(cuid())
+  orderId      String
+  provider     String   @default("mercadopago") // mercadopago
+  status       String   @default("pending")     // pending|approved|rejected|cancelled|refunded|unknown
+
+  preferenceId String?
+  paymentId    String?
+  rawJson      String?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([provider])
+  @@index([status])
+}
