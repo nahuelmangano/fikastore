@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { sendMail } from "@/lib/mailer";
+import { orderShippedTemplate } from "@/lib/email-templates";
+
 
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -35,6 +38,19 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       shippedAt: new Date(),
     },
   });
+  // Enviar mail al cliente
+  const user = await prisma.user.findUnique({ where: { id: updated.userId } });
+
+if (user?.email) {
+  await sendMail({
+    to: user.email,
+    subject: "FikaStore · Tu pedido fue enviado 📦",
+    html: orderShippedTemplate({
+      customerName: user.name ?? "",
+      orderId: updated.id,
+    }),
+  }).catch(() => {});
+}
 
   return NextResponse.json({ ok: true, order: updated });
 }

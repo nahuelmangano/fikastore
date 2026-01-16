@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { sendMail } from "@/lib/mailer";
+import { orderPaidTemplate } from "@/lib/email-templates";
 
 type MpWebhookBody = any;
 
@@ -34,7 +36,6 @@ async function fetchMerchantOrder(orderId: string) {
 }
 
 function normalizeStatus(mpStatus: string | undefined): string {
-  // MP statuses típicos: approved, rejected, cancelled, refunded, charged_back, in_process, pending, authorized...
   if (!mpStatus) return "unknown";
   const s = mpStatus.toLowerCase();
   if (s === "approved") return "approved";
@@ -54,17 +55,26 @@ async function upsertPaymentAndUpdateOrder(payment: any) {
     payment.additional_info?.items?.[0]?.id;
 
   if (!orderId || typeof orderId !== "string") {
-    await prisma.payment.create({
-      data: {
-        orderId: "unknown",
-        provider: "mercadopago",
-        status: mpStatus,
-        paymentId,
-        rawJson: JSON.stringify(payment).slice(0, 4000),
-      },
-    }).catch(() => {});
+    await prisma.payment
+      .create({
+        data: {
+          orderId: "unknown",
+          provider: "mercadopago",
+          status: mpStatus,
+          paymentId,
+          rawJson: JSON.stringify(payment).slice(0, 4000),
+        },
+      })
+      .catch(() => {});
     return;
   }
+
+  // Datos para enviar mail (solo si pasa a paid)
+  let shouldSendPaidEmail = false;
+  let emailTo: string | null = null;
+  let emailName = "";
+  let orderTotal = 0;
+  let orderItems: { name: string; qty: number; unit: number; subtotal: number }[] = [];
 
   await prisma.$transaction(async (tx) => {
     const existing = await tx.payment.findFirst({
@@ -99,11 +109,30 @@ async function upsertPaymentAndUpdateOrder(payment: any) {
     if (!order) return;
 
     if (mpStatus === "approved") {
+      // Solo si cambia de estado, enviamos mail (idempotente)
       if (order.status !== "paid") {
         await tx.order.update({
           where: { id: order.id },
           data: { status: "paid" },
         });
+
+        const user = await tx.user.findUnique({
+          where: { id: order.userId },
+          select: { email: true, name: true },
+        });
+
+        if (user?.email) {
+          shouldSendPaidEmail = true;
+          emailTo = user.email;
+          emailName = user.name ?? "";
+          orderTotal = Number(order.total);
+          orderItems = order.items.map((it: any) => ({
+            name: it.nameSnapshot,
+            qty: it.quantity,
+            unit: Number(it.unitPrice),
+            subtotal: Number(it.subtotal),
+          }));
+        }
       }
       return;
     }
@@ -123,23 +152,39 @@ async function upsertPaymentAndUpdateOrder(payment: any) {
       }
     }
   });
+
+  // ✅ Enviar email fuera de la transacción (mejor práctica)
+  if (shouldSendPaidEmail && emailTo) {
+    const html = orderPaidTemplate({
+      customerName: emailName,
+      orderId,
+      total: orderTotal,
+      items: orderItems,
+    });
+
+    await sendMail({
+      to: emailTo,
+      subject: "FikaStore · Pago confirmado ✅",
+      html,
+    }).catch(() => {});
+  }
 }
 
 export async function POST(req: Request) {
-  // Mercado Pago espera 200 rápido. Procesamos y devolvemos OK aunque haya casos raros.
   let body: MpWebhookBody = {};
   try {
     body = await req.json();
   } catch {
-    // some notifications may come without JSON parseable body
     body = {};
   }
 
-  // Soportar varios formatos:
-  // - Webhooks: { type: "payment", data: { id } }
-  // - IPN: query params topic/id o body con resource
   const url = new URL(req.url);
-  const topic = url.searchParams.get("topic") || url.searchParams.get("type") || body?.type || body?.topic;
+  const topic =
+    url.searchParams.get("topic") ||
+    url.searchParams.get("type") ||
+    body?.type ||
+    body?.topic;
+
   const dataId =
     url.searchParams.get("id") ||
     body?.data?.id ||
@@ -159,6 +204,7 @@ export async function POST(req: Request) {
 
       for (const p of payments) {
         if (!p?.id) continue;
+
         const payment =
           p?.status
             ? {
@@ -168,6 +214,7 @@ export async function POST(req: Request) {
                 preference_id: p.preference_id,
               }
             : await fetchPayment(String(p.id));
+
         await upsertPaymentAndUpdateOrder(payment);
       }
     } else {
@@ -178,7 +225,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("MP webhook error", e);
-    // Devolvemos 200 para evitar reintentos infinitos mientras debugueamos
     return NextResponse.json({ ok: true });
   }
 }
