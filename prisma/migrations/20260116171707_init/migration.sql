@@ -50,6 +50,8 @@ CREATE TABLE [dbo].[Order] (
     [shippingAddressLine] NVARCHAR(1000) NOT NULL,
     [shippingCity] NVARCHAR(1000) NOT NULL,
     [shippingZip] NVARCHAR(1000) NOT NULL,
+    [shippedAt] DATETIME2,
+    [notes] NVARCHAR(1000),
     [createdAt] DATETIME2 NOT NULL CONSTRAINT [Order_createdAt_df] DEFAULT CURRENT_TIMESTAMP,
     [updatedAt] DATETIME2 NOT NULL,
     CONSTRAINT [Order_pkey] PRIMARY KEY CLUSTERED ([id])
@@ -75,7 +77,7 @@ CREATE TABLE [dbo].[Payment] (
     [status] NVARCHAR(1000) NOT NULL CONSTRAINT [Payment_status_df] DEFAULT 'pending',
     [preferenceId] NVARCHAR(1000),
     [paymentId] NVARCHAR(1000),
-    [rawJson] NVARCHAR(1000),
+    [rawJson] NVARCHAR(max),
     [createdAt] DATETIME2 NOT NULL CONSTRAINT [Payment_createdAt_df] DEFAULT CURRENT_TIMESTAMP,
     [updatedAt] DATETIME2 NOT NULL,
     CONSTRAINT [Payment_pkey] PRIMARY KEY CLUSTERED ([id])
@@ -97,6 +99,9 @@ CREATE NONCLUSTERED INDEX [Order_userId_idx] ON [dbo].[Order]([userId]);
 CREATE NONCLUSTERED INDEX [Order_status_idx] ON [dbo].[Order]([status]);
 
 -- CreateIndex
+CREATE NONCLUSTERED INDEX [Order_shippedAt_idx] ON [dbo].[Order]([shippedAt]);
+
+-- CreateIndex
 CREATE NONCLUSTERED INDEX [OrderItem_orderId_idx] ON [dbo].[OrderItem]([orderId]);
 
 -- CreateIndex
@@ -110,6 +115,9 @@ CREATE NONCLUSTERED INDEX [Payment_provider_idx] ON [dbo].[Payment]([provider]);
 
 -- CreateIndex
 CREATE NONCLUSTERED INDEX [Payment_status_idx] ON [dbo].[Payment]([status]);
+
+-- CreateIndex
+CREATE NONCLUSTERED INDEX [Payment_paymentId_idx] ON [dbo].[Payment]([paymentId]);
 
 -- AddForeignKey
 ALTER TABLE [dbo].[ProductImage] ADD CONSTRAINT [ProductImage_productId_fkey] FOREIGN KEY ([productId]) REFERENCES [dbo].[Product]([id]) ON DELETE CASCADE ON UPDATE CASCADE;

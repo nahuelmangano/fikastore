@@ -14,6 +14,7 @@ type Shipping = {
 
 export default function CheckoutClient() {
   const [items, setItems] = useState<CartItem[]>([]);
+  const [orderItems, setOrderItems] = useState<CartItem[]>([]);
   const [shipping, setShipping] = useState<Shipping>({
     name: "",
     phone: "",
@@ -40,9 +41,10 @@ export default function CheckoutClient() {
     };
   }, []);
 
+  const summaryItems = orderId ? orderItems : items;
   const total = useMemo(
-    () => items.reduce((acc, it) => acc + it.price * it.quantity, 0),
-    [items]
+    () => summaryItems.reduce((acc, it) => acc + it.price * it.quantity, 0),
+    [summaryItems]
   );
 
   const canSubmit =
@@ -75,6 +77,7 @@ export default function CheckoutClient() {
         return;
       }
 
+      setOrderItems(items);
       setOrderId(data.orderId);
       clearCart(); // limpiamos carrito local porque ya generamos la orden
       setLoading(false);
@@ -90,7 +93,7 @@ export default function CheckoutClient() {
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
         <h2 className="text-lg font-semibold">Resumen</h2>
 
-        {items.length === 0 ? (
+        {summaryItems.length === 0 ? (
           <div className="mt-4 text-zinc-300">
             Tu carrito está vacío.{" "}
             <Link href="/" className="text-zinc-100 hover:underline">
@@ -100,7 +103,7 @@ export default function CheckoutClient() {
         ) : (
           <>
             <div className="mt-4 space-y-3">
-              {items.map((it) => (
+              {summaryItems.map((it) => (
                 <div key={it.productId} className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <div className="truncate font-medium">{it.name}</div>
@@ -117,9 +120,7 @@ export default function CheckoutClient() {
 
             <div className="mt-6 flex items-center justify-between border-t border-zinc-800 pt-4">
               <span className="text-zinc-300">Total</span>
-              <span className="text-xl font-semibold">
-                ${total.toLocaleString("es-AR")}
-              </span>
+              <span className="text-xl font-semibold">${total.toLocaleString("es-AR")}</span>
             </div>
 
             <div className="mt-4 text-sm text-zinc-500">
@@ -140,15 +141,7 @@ export default function CheckoutClient() {
         <h2 className="text-lg font-semibold">Datos de envío</h2>
 
         {orderId ? (
-          <div className="mt-4 rounded-2xl border border-emerald-900/40 bg-emerald-900/20 p-4">
-            <div className="font-semibold text-emerald-200">Pedido creado ✅</div>
-            <div className="mt-2 text-sm text-emerald-200/90">
-              ID de orden: <span className="font-mono">{orderId}</span>
-            </div>
-            <div className="mt-3 text-sm text-zinc-300">
-              Siguiente: integrar Mercado Pago para pagar esta orden.
-            </div>
-          </div>
+          <PayBlock orderId={orderId} />
         ) : (
           <>
             <div className="mt-4 grid gap-3">
@@ -201,6 +194,57 @@ export default function CheckoutClient() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function PayBlock({ orderId }: { orderId: string }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4">
+      <div className="font-semibold text-zinc-100">Pedido creado ✅</div>
+      <div className="mt-2 text-sm text-zinc-300">
+        ID de orden: <span className="font-mono">{orderId}</span>
+      </div>
+
+      {error && (
+        <div className="mt-3 rounded-xl border border-red-900/40 bg-red-900/20 p-3 text-sm text-red-200">
+          {error}
+        </div>
+      )}
+
+      <button
+        disabled={loading}
+        onClick={async () => {
+          setError(null);
+          setLoading(true);
+
+          const res = await fetch("/api/payments/mercadopago/create-preference", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ orderId }),
+          });
+
+          const data = await res.json().catch(() => ({}));
+          setLoading(false);
+
+          if (!res.ok) {
+            setError(data?.error || "No se pudo iniciar el pago.");
+            return;
+          }
+
+          window.location.href = data.initPoint;
+        }}
+        className="mt-4 w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
+      >
+        {loading ? "Redirigiendo..." : "Pagar con Mercado Pago"}
+      </button>
+
+      <p className="mt-3 text-xs text-zinc-500">
+        Al pagar, Mercado Pago nos notificará por webhook y actualizaremos el estado del pedido automáticamente.
+      </p>
     </div>
   );
 }

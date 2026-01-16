@@ -21,7 +21,15 @@ export default function CartLink() {
     };
   }, []);
 
-  return (
+return (
+  <div className="flex items-center gap-2">
+    <Link
+      href="/account/orders"
+      className="rounded-xl border border-zinc-800 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
+    >
+      Mis pedidos
+    </Link>
+
     <Link
       href="/cart"
       className="relative rounded-xl border border-zinc-800 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
@@ -33,5 +41,7 @@ export default function CartLink() {
         </span>
       )}
     </Link>
-  );
+  </div>
+);
+
 }

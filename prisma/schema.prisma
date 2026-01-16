@@ -51,7 +51,7 @@ model ProductImage {
 model Order {
   id                  String   @id @default(cuid())
   userId              String
-  status              String   @default("pending_payment") // pending_payment|paid|cancelled|refunded
+  status              String   @default("pending_payment") // pending_payment|paid|shipped|cancelled|refunded
   total               Decimal  @db.Decimal(18, 2)
 
   shippingName        String
@@ -59,6 +59,9 @@ model Order {
   shippingAddressLine String
   shippingCity        String
   shippingZip         String
+
+  shippedAt           DateTime? // ✅ cuando lo marcás como enviado
+  notes               String?   // ✅ notas internas/admin (opcional)
 
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -69,6 +72,7 @@ model Order {
 
   @@index([userId])
   @@index([status])
+  @@index([shippedAt])
 }
 
 model OrderItem {
@@ -96,8 +100,8 @@ model Payment {
   status       String   @default("pending")     // pending|approved|rejected|cancelled|refunded|unknown
 
   preferenceId String?
-  paymentId    String?
-  rawJson      String?
+  paymentId    String?  // ✅ evita duplicados cuando llega webhook más de una vez
+  rawJson      String?  @db.NVarChar(max) // ✅ SQL Server: permite guardar JSON grande sin truncar
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -107,4 +111,6 @@ model Payment {
   @@index([orderId])
   @@index([provider])
   @@index([status])
+  @@index([paymentId])
+
 }

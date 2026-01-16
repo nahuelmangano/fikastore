@@ -26,6 +26,13 @@ export async function POST(req: Request) {
   if (!userId) {
     return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
   }
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) {
+    return NextResponse.json(
+      { ok: false, error: "Usuario no encontrado. VolvÇ© a iniciar sesiÇ³n." },
+      { status: 401 }
+    );
+  }
 
   let body: Body;
   try {
