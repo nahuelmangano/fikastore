@@ -16,6 +16,13 @@ export default async function AdminProductsPage() {
       <div className="mx-auto max-w-6xl px-4 py-10">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold tracking-tight">Admin · Productos</h1>
+          <Link
+  href="/admin/products/new"
+  className="rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
+>
+  + Nuevo
+</Link>
+
           <Link href="/" className="text-sm text-zinc-400 hover:text-zinc-200">
             Volver a la tienda
           </Link>
