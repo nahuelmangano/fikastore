@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/auth";
+import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+
+export const runtime = "nodejs";
 
 function baseUrl(req: Request) {
   const envUrl = process.env.SITE_URL || process.env.NEXTAUTH_URL;
@@ -10,19 +11,16 @@ function baseUrl(req: Request) {
   const origin = req.headers.get("origin");
   if (origin) return origin.replace(/\/$/, "");
 
-  const host =
-    req.headers.get("x-forwarded-host") ||
-    req.headers.get("host");
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
   const proto = req.headers.get("x-forwarded-proto") || "http";
 
   if (host) return `${proto}://${host}`.replace(/\/$/, "");
-
   return "http://localhost:3000";
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-  const userId = (session?.user as any)?.id;
+  const session = await auth();
+  const userId = (session?.user as any)?.id as string | undefined;
 
   if (!userId) {
     return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
@@ -35,7 +33,10 @@ export async function POST(req: Request) {
 
   const order = await prisma.order.findFirst({
     where: { id: orderId, userId },
-    include: { items: true },
+    include: {
+      items: true,
+      payments: { orderBy: { createdAt: "desc" } },
+    },
   });
 
   if (!order) {
@@ -46,15 +47,31 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "La orden ya está pagada." }, { status: 400 });
   }
 
+  // 🔁 Si ya existe un payment con preference + initPoint → reutilizar
+  const existingPayment = order.payments.find(
+    (p) => p.provider === "mercadopago" && p.preferenceId && p.initPoint
+  );
+
+  if (existingPayment) {
+    return NextResponse.json({
+      ok: true,
+      preferenceId: existingPayment.preferenceId,
+      initPoint: existingPayment.initPoint,
+      reused: true,
+    });
+  }
+
   const token = process.env.MP_ACCESS_TOKEN;
   if (!token) {
-    return NextResponse.json({ ok: false, error: "MP_ACCESS_TOKEN no configurado." }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "MP_ACCESS_TOKEN no configurado." },
+      { status: 500 }
+    );
   }
 
   const site = baseUrl(req);
   const isLocalhost = /localhost|127\.0\.0\.1/i.test(site);
 
-  // Items para Mercado Pago
   const items = order.items.map((it) => ({
     title: it.nameSnapshot,
     quantity: it.quantity,
@@ -81,7 +98,6 @@ export async function POST(req: Request) {
     body.auto_return = "approved";
   }
 
-  // Crear preferencia (Checkout Pro)
   const mpRes = await fetch("https://api.mercadopago.com/checkout/preferences", {
     method: "POST",
     headers: {
@@ -110,15 +126,32 @@ export async function POST(req: Request) {
     );
   }
 
-  // Guardar/crear Payment asociado a la orden
-  await prisma.payment.create({
-    data: {
-      orderId: order.id,
-      provider: "mercadopago",
-      status: "pending",
-      preferenceId,
-    },
+  // 💾 Guardar preference + initPoint
+  const existing = await prisma.payment.findFirst({
+    where: { orderId: order.id, provider: "mercadopago" },
+    orderBy: { createdAt: "desc" },
   });
 
-  return NextResponse.json({ ok: true, preferenceId, initPoint });
+  if (existing) {
+    await prisma.payment.update({
+      where: { id: existing.id },
+      data: {
+        preferenceId,
+        initPoint,
+        status: "pending",
+      },
+    });
+  } else {
+    await prisma.payment.create({
+      data: {
+        orderId: order.id,
+        provider: "mercadopago",
+        status: "pending",
+        preferenceId,
+        initPoint,
+      },
+    });
+  }
+
+  return NextResponse.json({ ok: true, preferenceId, initPoint, reused: false });
 }

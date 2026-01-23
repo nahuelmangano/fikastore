@@ -100,6 +100,7 @@ model Payment {
   status       String   @default("pending")     // pending|approved|rejected|cancelled|refunded|unknown
 
   preferenceId String?
+  initPoint    String?   // 👈 NUEVO
   paymentId    String?  // ✅ evita duplicados cuando llega webhook más de una vez
   rawJson      String?  @db.NVarChar(max) // ✅ SQL Server: permite guardar JSON grande sin truncar
 

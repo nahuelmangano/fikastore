@@ -1,15 +1,12 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
+import { Prisma } from "@prisma/client";
 
-type CartItemInput = {
-  productId: string;
-  quantity: number;
-};
+export const runtime = "nodejs";
 
 type Body = {
-  items: CartItemInput[];
+  items: { productId: string; quantity: number }[];
   shipping: {
     name: string;
     phone: string;
@@ -19,145 +16,133 @@ type Body = {
   };
 };
 
+function bad(msg: string, status = 400) {
+  return NextResponse.json({ ok: false, error: msg }, { status });
+}
+
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-  const userId = (session?.user as any)?.id;
+  // ✅ requiere usuario logueado (como dijiste: para pagar tiene que tener cuenta)
+  const session = await auth();
+  const userId = (session?.user as any)?.id as string | undefined;
+  if (!userId) return bad("Tenés que iniciar sesión para continuar.", 401);
 
-  if (!userId) {
-    return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
-  }
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user) {
-    return NextResponse.json(
-      { ok: false, error: "Usuario no encontrado. VolvÇ© a iniciar sesiÇ³n." },
-      { status: 401 }
-    );
-  }
-
-  let body: Body;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Body inválido." }, { status: 400 });
-  }
+  const body = (await req.json().catch(() => null)) as Body | null;
+  if (!body) return bad("Body inválido.");
 
   const items = Array.isArray(body.items) ? body.items : [];
-  if (items.length === 0) {
-    return NextResponse.json({ ok: false, error: "El carrito está vacío." }, { status: 400 });
+  const shipping = body.shipping;
+
+  if (items.length === 0) return bad("El carrito está vacío.");
+
+  if (
+    !shipping?.name?.trim() ||
+    !shipping?.phone?.trim() ||
+    !shipping?.addressLine?.trim() ||
+    !shipping?.city?.trim() ||
+    !shipping?.zip?.trim()
+  ) {
+    return bad("Completá todos los datos de envío.");
   }
 
-  const s = body.shipping || ({} as any);
-  const shippingName = String(s.name || "").trim();
-  const shippingPhone = String(s.phone || "").trim();
-  const shippingAddressLine = String(s.addressLine || "").trim();
-  const shippingCity = String(s.city || "").trim();
-  const shippingZip = String(s.zip || "").trim();
-
-  if (!shippingName || !shippingPhone || !shippingAddressLine || !shippingCity || !shippingZip) {
-    return NextResponse.json(
-      { ok: false, error: "Completá todos los datos de envío." },
-      { status: 400 }
-    );
-  }
-
-  // Normalizar cantidades
+  // normalizamos y validamos cantidades
   const normalized = items
     .map((it) => ({
       productId: String(it.productId || "").trim(),
-      quantity: Number(it.quantity || 0),
+      quantity: Math.floor(Number(it.quantity)),
     }))
     .filter((it) => it.productId && Number.isFinite(it.quantity) && it.quantity > 0);
 
-  if (normalized.length === 0) {
-    return NextResponse.json({ ok: false, error: "Items inválidos." }, { status: 400 });
-  }
+  if (normalized.length === 0) return bad("Items inválidos.");
 
-  // Traer productos desde DB para validar precio/stock
-  const productIds = [...new Set(normalized.map((x) => x.productId))];
-
-  const products = await prisma.product.findMany({
-    where: { id: { in: productIds }, isActive: true },
-    include: { images: { orderBy: { sortOrder: "asc" }, take: 1 } },
-  });
-
-  const byId = new Map(products.map((p) => [p.id, p]));
-
-  // Validaciones + construir order items
-  const orderItems: {
-    productId: string;
-    nameSnapshot: string;
-    unitPrice: any; // Decimal as string is OK for Prisma
-    quantity: number;
-    subtotal: any;
-  }[] = [];
-
+  // merge por productId (por si viene duplicado)
+  const mergedMap = new Map<string, number>();
   for (const it of normalized) {
-    const p = byId.get(it.productId);
-    if (!p) {
-      return NextResponse.json(
-        { ok: false, error: "Uno o más productos ya no están disponibles." },
-        { status: 400 }
-      );
-    }
-
-    const qty = Math.min(it.quantity, p.stock);
-    if (qty <= 0) {
-      return NextResponse.json(
-        { ok: false, error: `Sin stock para: ${p.name}` },
-        { status: 400 }
-      );
-    }
-
-    const unitPriceNumber = Number(p.price);
-    const subtotalNumber = unitPriceNumber * qty;
-
-    orderItems.push({
-      productId: p.id,
-      nameSnapshot: p.name,
-      unitPrice: unitPriceNumber.toFixed(2),
-      quantity: qty,
-      subtotal: subtotalNumber.toFixed(2),
-    });
+    mergedMap.set(it.productId, (mergedMap.get(it.productId) ?? 0) + it.quantity);
   }
+  const merged = Array.from(mergedMap.entries()).map(([productId, quantity]) => ({
+    productId,
+    quantity,
+  }));
 
-  const totalNumber = orderItems.reduce((acc, it) => acc + Number(it.subtotal), 0);
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // Traemos productos
+      const products = await tx.product.findMany({
+        where: { id: { in: merged.map((x) => x.productId) } },
+        select: { id: true, name: true, price: true, stock: true, isActive: true },
+      });
 
-  // Crear orden + items en transacción
-  const order = await prisma.$transaction(async (tx) => {
-    const created = await tx.order.create({
-      data: {
-        userId,
-        status: "pending_payment",
-        total: totalNumber.toFixed(2),
-        shippingName,
-        shippingPhone,
-        shippingAddressLine,
-        shippingCity,
-        shippingZip,
-        items: {
-          create: orderItems.map((it) => ({
-            productId: it.productId,
-            nameSnapshot: it.nameSnapshot,
-            unitPrice: it.unitPrice,
-            quantity: it.quantity,
-            subtotal: it.subtotal,
-          })),
+      const byId = new Map(products.map((p) => [p.id, p]));
+
+      // Validaciones de existencia / activo / stock
+      for (const it of merged) {
+        const p = byId.get(it.productId);
+        if (!p) {
+          throw new Error(`Producto no encontrado: ${it.productId}`);
+        }
+        if (!p.isActive) {
+          throw new Error(`El producto "${p.name}" no está disponible.`);
+        }
+        if (p.stock < it.quantity) {
+          throw new Error(`Stock insuficiente para "${p.name}". Disponible: ${p.stock}.`);
+        }
+      }
+
+      // Calcular total (Decimal)
+      let total = new Prisma.Decimal(0);
+
+      const orderItemsData = merged.map((it) => {
+        const p = byId.get(it.productId)!;
+        const unitPrice = new Prisma.Decimal(p.price as any); // p.price ya es Decimal
+        const qty = new Prisma.Decimal(it.quantity);
+        const subtotal = unitPrice.mul(qty);
+        total = total.add(subtotal);
+
+        return {
+          productId: p.id,
+          nameSnapshot: p.name,
+          unitPrice,
+          quantity: it.quantity,
+          subtotal,
+        };
+      });
+
+      // ✅ Crear orden + items + descontar stock (todo dentro de la misma TX)
+      const order = await tx.order.create({
+        data: {
+          userId,
+          status: "pending_payment",
+          total,
+          shippingName: shipping.name.trim(),
+          shippingPhone: shipping.phone.trim(),
+          shippingAddressLine: shipping.addressLine.trim(),
+          shippingCity: shipping.city.trim(),
+          shippingZip: shipping.zip.trim(),
+          items: { create: orderItemsData },
+          payments: {
+            create: {
+              provider: "mercadopago",
+              status: "pending",
+            },
+          },
         },
-      },
-      include: { items: true },
+        select: { id: true },
+      });
+
+      // Descontar stock
+      for (const it of merged) {
+        await tx.product.update({
+          where: { id: it.productId },
+          data: { stock: { decrement: it.quantity } },
+        });
+      }
+
+      return { orderId: order.id };
     });
 
-    // Reservar stock (simple MVP): descontamos al crear orden
-    // Si después el pago vence/cancela, devolvemos stock.
-    for (const it of orderItems) {
-      await tx.product.update({
-        where: { id: it.productId },
-        data: { stock: { decrement: it.quantity } },
-      });
-    }
-
-    return created;
-  });
-
-  return NextResponse.json({ ok: true, orderId: order.id });
+    return NextResponse.json({ ok: true, orderId: result.orderId });
+  } catch (e: any) {
+    const msg = typeof e?.message === "string" ? e.message : "No se pudo crear el pedido.";
+    return bad(msg, 400);
+  }
 }
