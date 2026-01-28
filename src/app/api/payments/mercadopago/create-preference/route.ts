@@ -20,6 +20,16 @@ function baseUrl(req: Request) {
   return "http://localhost:3000";
 }
 
+function isLocalSite(url: string) {
+  return (
+    /localhost|127\.0\.0\.1|0\.0\.0\.0/i.test(url) ||
+    /(^|\/\/)192\.168\./i.test(url) ||
+    /(^|\/\/)10\./i.test(url) ||
+    /(^|\/\/)172\.(1[6-9]|2\d|3[0-1])\./i.test(url) ||
+    /\.local\b|\.lan\b/i.test(url)
+  );
+}
+
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as any)?.id;
@@ -52,7 +62,7 @@ export async function POST(req: Request) {
   }
 
   const site = baseUrl(req);
-  const isLocalhost = /localhost|127\.0\.0\.1/i.test(site);
+  const isLocalhost = isLocalSite(site);
 
   // Items para Mercado Pago
   const items = order.items.map((it) => ({
@@ -65,7 +75,6 @@ export async function POST(req: Request) {
   const body: Record<string, unknown> = {
     items,
     external_reference: order.id,
-    notification_url: `${site}/api/webhooks/mercadopago`,
     metadata: {
       order_id: order.id,
       user_id: userId,
@@ -73,6 +82,7 @@ export async function POST(req: Request) {
   };
 
   if (!isLocalhost) {
+    body.notification_url = `${site}/api/webhooks/mercadopago`;
     body.back_urls = {
       success: `${site}/pay/success?orderId=${order.id}`,
       failure: `${site}/pay/failure?orderId=${order.id}`,
@@ -94,6 +104,7 @@ export async function POST(req: Request) {
   const mpData = await mpRes.json().catch(() => ({}));
 
   if (!mpRes.ok) {
+    console.error("MP preference error", mpData);
     return NextResponse.json(
       { ok: false, error: "Error creando preferencia.", details: mpData },
       { status: 502 }

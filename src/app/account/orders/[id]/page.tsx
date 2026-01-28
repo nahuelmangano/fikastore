@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { notFound, redirect } from "next/navigation";
+import PayPendingButton from "@/components/PayPendingButton";
+import CancelOrderButton from "@/components/CancelOrderButton";
 
 function formatMoney(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
@@ -96,14 +98,12 @@ export default async function OrderDetailPage({ params }: { params: { id: string
             <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
               <div className="font-semibold">Pago pendiente</div>
               <p className="mt-2 text-sm text-zinc-400">
-                Podés reintentar el pago desde el checkout.
+                Podés reintentar el pago sin recrear el carrito.
               </p>
-              <Link
-                href="/checkout"
-                className="mt-4 inline-flex rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
-              >
-                Ir al checkout
-              </Link>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <PayPendingButton orderId={order.id} />
+                <CancelOrderButton orderId={order.id} />
+              </div>
             </div>
           )}
         </div>

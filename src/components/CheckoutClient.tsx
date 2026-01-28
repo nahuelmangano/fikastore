@@ -231,7 +231,13 @@ function PayBlock({ orderId }: { orderId: string }) {
           setLoading(false);
 
           if (!res.ok) {
-            setError(data?.error || "No se pudo iniciar el pago.");
+            const detail =
+              data?.details?.message ||
+              data?.details?.error ||
+              data?.details?.cause?.[0]?.description ||
+              data?.details?.cause?.[0]?.code;
+            setError(detail ? `${data?.error || "Error"} (${detail})` : data?.error || "No se pudo iniciar el pago.");
+            console.error("MP preference error", data);
             return;
           }
 
