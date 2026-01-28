@@ -11,6 +11,7 @@ export default function AdminOrderDetail({ order }: { order: any }) {
   const [status, setStatus] = useState<string>(order.status);
   const [shippedAt, setShippedAt] = useState<string | null>(order.shippedAt ? String(order.shippedAt) : null);
   const [loading, setLoading] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const lastPayment = order.payments?.[0];
@@ -125,6 +126,33 @@ export default function AdminOrderDetail({ order }: { order: any }) {
               className="w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50 sm:w-auto"
             >
               {loading ? "Marcando..." : "Marcar como enviado"}
+            </button>
+
+            <button
+              disabled={cancelLoading || status !== "pending_payment"}
+              onClick={async () => {
+                const ok = window.confirm("¿Cancelar este pedido? Se liberará el stock.");
+                if (!ok) return;
+
+                setMsg(null);
+                setCancelLoading(true);
+
+                const res = await fetch(`/api/admin/orders/${order.id}/cancel`, { method: "POST" });
+                const data = await res.json().catch(() => ({}));
+
+                setCancelLoading(false);
+
+                if (!res.ok) {
+                  setMsg(data?.error || "No se pudo cancelar el pedido.");
+                  return;
+                }
+
+                setStatus(data.order.status);
+                setMsg("✅ Pedido cancelado.");
+              }}
+              className="w-full rounded-2xl border border-red-900/40 bg-red-900/20 px-4 py-3 text-sm font-semibold text-red-200 hover:bg-red-900/30 disabled:opacity-50 sm:w-auto"
+            >
+              {cancelLoading ? "Cancelando..." : "Cancelar pedido"}
             </button>
 
             <Link
