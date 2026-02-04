@@ -71,11 +71,45 @@ model Order {
   user                User     @relation(fields: [userId], references: [id], onDelete: NoAction)
   items               OrderItem[]
   payments            Payment[]
+  epickShipment       EPickShipment?
 
   @@index([userId])
   @@index([status])
   @@index([shippedAt])
   @@unique([orderNumber])
+}
+
+model EPickShipment {
+  id               String   @id @default(cuid())
+  orderId          String   @unique
+  epickOrderId     String?
+  senderCode       String?
+  status           String   @default("PENDING") // PENDING|PAYED|CONFIRMED|COLLECTED|DELIVERED-TO-SERVICE|DELIVERED|CANCELED
+  mpUrl            String?
+  choUrl           String?
+  preferenceId     String?
+  qrImage          String?  @db.NVarChar(max)
+  lastPayloadJson  String?  @db.NVarChar(max)
+  lastTrackingJson String?  @db.NVarChar(max)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  order            Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  webhookEvents    EPickWebhookEvent[]
+
+  @@index([epickOrderId])
+  @@index([status])
+}
+
+model EPickWebhookEvent {
+  id              String   @id @default(cuid())
+  epickShipmentId String
+  payloadJson     String   @db.NVarChar(max)
+  createdAt       DateTime @default(now())
+
+  shipment        EPickShipment @relation(fields: [epickShipmentId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
 }
 
 model OrderItem {
