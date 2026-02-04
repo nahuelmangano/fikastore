@@ -32,7 +32,9 @@ export default async function AdminOrdersPage() {
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="text-xs text-zinc-500 font-mono">{o.id}</div>
+                    <div className="text-xs text-zinc-500 font-mono">
+                      #{o.orderNumber} · {o.id}
+                    </div>
                     <div className="mt-1 text-sm text-zinc-300">{o.user?.email}</div>
                     <div className="mt-1 text-xs text-zinc-500">
                       {new Date(o.createdAt).toLocaleString("es-AR")}

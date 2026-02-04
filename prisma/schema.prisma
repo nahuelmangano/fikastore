@@ -17,6 +17,7 @@ model User {
   updatedAt    DateTime @updatedAt
 
   orders       Order[]
+  cartSnapshot CartSnapshot?
 }
 
 model Product {
@@ -50,6 +51,7 @@ model ProductImage {
 
 model Order {
   id                  String   @id @default(cuid())
+  orderNumber         Int      @default(autoincrement())
   userId              String
   status              String   @default("pending_payment") // pending_payment|paid|shipped|cancelled|refunded
   total               Decimal  @db.Decimal(18, 2)
@@ -73,6 +75,7 @@ model Order {
   @@index([userId])
   @@index([status])
   @@index([shippedAt])
+  @@unique([orderNumber])
 }
 
 model OrderItem {
@@ -103,6 +106,8 @@ model Payment {
   initPoint    String?   // 👈 NUEVO
   paymentId    String?  // ✅ evita duplicados cuando llega webhook más de una vez
   rawJson      String?  @db.NVarChar(max) // ✅ SQL Server: permite guardar JSON grande sin truncar
+  pendingAt    DateTime?
+  pendingReminderSentAt DateTime?
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -114,4 +119,19 @@ model Payment {
   @@index([status])
   @@index([paymentId])
 
+}
+
+model CartSnapshot {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  itemsJson        String   @db.NVarChar(max)
+  itemCount        Int      @default(0)
+  reminderSentAt   DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([updatedAt])
+  @@index([reminderSentAt])
 }

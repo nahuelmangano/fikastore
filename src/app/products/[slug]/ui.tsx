@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { addToCart } from "@/lib/cart";
+import SiteHeader from "@/components/SiteHeader";
 
 function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
@@ -28,6 +29,7 @@ export default function ProductDetailClient({ product }: { product: any }) {
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto max-w-6xl px-4 py-10">
+        <SiteHeader />
         <Link href="/" className="text-sm text-zinc-400 hover:text-zinc-200">
           ← Volver
         </Link>
@@ -118,14 +120,18 @@ export default function ProductDetailClient({ product }: { product: any }) {
               <button
                 disabled={!canBuy}
                 onClick={() => {
-                  addToCart({
-                    productId: product.id,
-                    name: product.name,
-                    price,
-                    quantity: qty,
-                    imageUrl: images[0] ?? null,
-                  } as any);
-                  window.dispatchEvent(new Event("cart:changed"));
+                  addToCart(
+                    {
+                      productId: product.id,
+                      slug: product.slug,
+                      name: product.name,
+                      price,
+                      stock,
+                      imageUrl: images[0],
+                    },
+                    qty
+                  );
+                  window.dispatchEvent(new Event("cart:open"));
                 }}
                 className="mt-4 w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
               >

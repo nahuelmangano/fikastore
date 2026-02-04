@@ -56,7 +56,9 @@ export default async function OrdersPage() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <div className="text-sm text-zinc-400">
-                        Pedido <span className="font-mono text-zinc-300">{o.id.slice(0, 10)}…</span>
+                        Pedido{" "}
+                        <span className="font-mono text-zinc-300">#{o.orderNumber}</span>{" "}
+                        <span className="text-zinc-500">({o.id.slice(0, 10)}…)</span>
                       </div>
                       <div className="mt-1 text-lg font-semibold">
                         {formatMoney(Number(o.total))}

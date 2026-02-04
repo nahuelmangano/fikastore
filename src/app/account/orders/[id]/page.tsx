@@ -10,13 +10,22 @@ function formatMoney(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
 }
 
-export default async function OrderDetailPage({ params }: { params: { id: string } }) {
+export default async function OrderDetailPage({
+  params,
+}: {
+  params: { id?: string } | Promise<{ id?: string }>;
+}) {
+  const resolvedParams = await Promise.resolve(params);
+  const id = resolvedParams?.id?.trim();
+
   const session = await getServerSession(authOptions);
   const userId = (session?.user as any)?.id;
-  if (!userId) redirect(`/login?next=/account/orders/${params.id}`);
+  if (!userId) redirect(`/login?next=/account/orders/${id ?? ""}`);
+
+  if (!id) return notFound();
 
   const order = await prisma.order.findFirst({
-    where: { id: params.id, userId },
+    where: { id, userId },
     include: {
       items: true,
       payments: { orderBy: { createdAt: "desc" } },
@@ -37,7 +46,7 @@ export default async function OrderDetailPage({ params }: { params: { id: string
         <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h1 className="text-xl font-semibold">Pedido</h1>
+              <h1 className="text-xl font-semibold">Pedido #{order.orderNumber}</h1>
               <div className="mt-2 font-mono text-sm text-zinc-300">{order.id}</div>
               <div className="mt-2 text-xs text-zinc-500">
                 {new Date(order.createdAt).toLocaleString("es-AR")}

@@ -41,16 +41,17 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   // Enviar mail al cliente
   const user = await prisma.user.findUnique({ where: { id: updated.userId } });
 
-if (user?.email) {
-  await sendMail({
-    to: user.email,
-    subject: "FikaStore · Tu pedido fue enviado 📦",
-    html: orderShippedTemplate({
-      customerName: user.name ?? "",
-      orderId: updated.id,
-    }),
-  }).catch(() => {});
-}
+  if (user?.email) {
+    await sendMail({
+      to: user.email,
+      subject: "FikaStore · Tu pedido fue enviado 📦",
+      html: orderShippedTemplate({
+        customerName: user.name ?? "",
+        orderNumber: updated.orderNumber ?? undefined,
+        orderId: updated.id,
+      }),
+    }).catch(() => {});
+  }
 
   return NextResponse.json({ ok: true, order: updated });
 }

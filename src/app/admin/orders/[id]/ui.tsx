@@ -31,7 +31,7 @@ export default function AdminOrderDetail({ order }: { order: any }) {
         <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h1 className="text-xl font-semibold">Pedido</h1>
+              <h1 className="text-xl font-semibold">Pedido #{order.orderNumber}</h1>
               <div className="mt-2 font-mono text-sm text-zinc-300">{order.id}</div>
               <div className="mt-2 text-xs text-zinc-500">
                 {new Date(order.createdAt).toLocaleString("es-AR")}

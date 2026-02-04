@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import CartLink from "@/components/CartLink";
+import SiteHeader from "@/components/SiteHeader";
 
 const PAGE_SIZE = 18;
 
@@ -76,18 +76,7 @@ export default async function HomePage({
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto max-w-6xl px-4 py-10">
-        <header className="mb-8">
-          <div className="mb-6 flex items-center justify-between">
-            <div />
-            <CartLink />
-          </div>
-
-          <h1 className="text-3xl font-semibold tracking-tight">Fika Store</h1>
-          <p className="mt-2 text-zinc-400">
-            Pijamas pant, remerones y ropa cómoda para estar en casa ✨
-          </p>
-
-          {/* Filtros */}
+        <SiteHeader>
           <form className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4">
             <div className="grid gap-3 md:grid-cols-12">
               <div className="md:col-span-6">
@@ -145,7 +134,7 @@ export default async function HomePage({
               </div>
             </div>
           </form>
-        </header>
+        </SiteHeader>
 
         {products.length === 0 ? (
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-8">

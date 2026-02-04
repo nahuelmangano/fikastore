@@ -34,6 +34,7 @@ export default function AddToCartButton({ product }: Props) {
           },
           1
         );
+        window.dispatchEvent(new Event("cart:open"));
         setAdded(true);
         setTimeout(() => setAdded(false), 1200);
       }}

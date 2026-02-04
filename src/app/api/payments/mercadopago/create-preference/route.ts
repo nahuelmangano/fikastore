@@ -150,6 +150,8 @@ export async function POST(req: Request) {
         preferenceId,
         initPoint,
         status: "pending",
+        pendingAt: new Date(),
+        pendingReminderSentAt: null,
       },
     });
   } else {
@@ -160,6 +162,7 @@ export async function POST(req: Request) {
         status: "pending",
         preferenceId,
         initPoint,
+        pendingAt: new Date(),
       },
     });
   }

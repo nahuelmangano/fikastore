@@ -74,6 +74,7 @@ async function upsertPaymentAndUpdateOrder(payment: any) {
   let emailTo: string | null = null;
   let emailName = "";
   let orderTotal = 0;
+  let orderNumber: number | undefined;
   let orderItems: { name: string; qty: number; unit: number; subtotal: number }[] = [];
 
   await prisma.$transaction(async (tx) => {
@@ -126,6 +127,7 @@ async function upsertPaymentAndUpdateOrder(payment: any) {
           emailTo = user.email;
           emailName = user.name ?? "";
           orderTotal = Number(order.total);
+          orderNumber = order.orderNumber ?? undefined;
           orderItems = order.items.map((it: any) => ({
             name: it.nameSnapshot,
             qty: it.quantity,
@@ -157,6 +159,7 @@ async function upsertPaymentAndUpdateOrder(payment: any) {
   if (shouldSendPaidEmail && emailTo) {
     const html = orderPaidTemplate({
       customerName: emailName,
+      orderNumber,
       orderId,
       total: orderTotal,
       items: orderItems,

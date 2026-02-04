@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { signOut, useSession } from "next-auth/react";
 import { cartCount, readCart } from "@/lib/cart";
+import CartPanel from "@/components/CartPanel";
 
 export default function CartLink() {
   const [count, setCount] = useState(0);
   const [open, setOpen] = useState(false);
+  const [cartOpen, setCartOpen] = useState(false);
   const { data: session } = useSession();
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -18,10 +20,13 @@ export default function CartLink() {
     const onChange = () => sync();
     window.addEventListener("cart:changed", onChange);
     window.addEventListener("storage", onChange);
+    const onOpen = () => setCartOpen(true);
+    window.addEventListener("cart:open", onOpen);
 
     return () => {
       window.removeEventListener("cart:changed", onChange);
       window.removeEventListener("storage", onChange);
+      window.removeEventListener("cart:open", onOpen);
     };
   }, []);
 
@@ -81,8 +86,9 @@ export default function CartLink() {
         )}
       </div>
 
-      <Link
-        href="/cart"
+      <button
+        type="button"
+        onClick={() => setCartOpen(true)}
         className="relative rounded-xl border border-zinc-800 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
       >
         Carrito
@@ -91,7 +97,36 @@ export default function CartLink() {
             {count}
           </span>
         )}
-      </Link>
+      </button>
+
+      {cartOpen && (
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            onClick={() => setCartOpen(false)}
+            className="cart-overlay absolute inset-0 bg-black/60"
+            aria-label="Cerrar carrito"
+          />
+
+          <div className="cart-drawer absolute right-0 top-0 h-full w-full max-w-md bg-zinc-950 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+              <h2 className="text-lg font-semibold">Mi carrito</h2>
+              <button
+                type="button"
+                onClick={() => setCartOpen(false)}
+                className="rounded-lg border border-zinc-800 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-900/60"
+                aria-label="Cerrar"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="h-[calc(100%-64px)] overflow-y-auto px-5 py-4">
+              <CartPanel onClose={() => setCartOpen(false)} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

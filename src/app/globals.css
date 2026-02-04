@@ -78,3 +78,29 @@ body {
 [class~="hover:bg-white"]:hover {
   background-color: #6f451b !important;
 }
+
+@keyframes cart-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes cart-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.cart-overlay {
+  animation: cart-fade-in 180ms ease-out;
+}
+
+.cart-drawer {
+  animation: cart-slide-in 220ms ease-out;
+}
