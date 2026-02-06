@@ -12,7 +12,7 @@ type Shipping = {
   zip: string;
 };
 
-type ShippingMethod = "epick" | "pickup";
+type ShippingMethod = "epick" | "andreani" | "pickup";
 
 export default function CheckoutClient() {
   const [items, setItems] = useState<CartItem[]>([]);
@@ -31,6 +31,9 @@ export default function CheckoutClient() {
   const [shippingQuote, setShippingQuote] = useState<any>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [andreaniQuote, setAndreaniQuote] = useState<any>(null);
+  const [andreaniLoading, setAndreaniLoading] = useState(false);
+  const [andreaniError, setAndreaniError] = useState<string | null>(null);
   const [shippingMethod, setShippingMethod] = useState<ShippingMethod>("epick");
 
   useEffect(() => {
@@ -52,9 +55,13 @@ export default function CheckoutClient() {
     () => summaryItems.reduce((acc, it) => acc + it.price * it.quantity, 0),
     [summaryItems]
   );
+  const epickAmount = Number(shippingQuote?.price ?? shippingQuote?.total ?? 0);
+  const andreaniAmount = Number(andreaniQuote?.tarifaConIva?.total ?? 0);
   const shippingAmount =
     shippingMethod === "epick"
-      ? Number(shippingQuote?.price ?? shippingQuote?.total ?? 0)
+      ? epickAmount
+      : shippingMethod === "andreani"
+      ? andreaniAmount
       : 0;
   const total = subtotal + shippingAmount;
 
@@ -63,19 +70,41 @@ export default function CheckoutClient() {
     const t = setTimeout(async () => {
       setQuoteError(null);
       setQuoteLoading(true);
-      const res = await fetch("/api/shipping/quote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postalCode: shipping.zip.trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
+      setAndreaniError(null);
+      setAndreaniLoading(true);
+
+      const [epickRes, andreaniRes] = await Promise.all([
+        fetch("/api/shipping/quote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ postalCode: shipping.zip.trim() }),
+        }),
+        fetch("/api/shipping/andreani/quote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cpDestino: shipping.zip.trim() }),
+        }),
+      ]);
+
+      const epickData = await epickRes.json().catch(() => ({}));
+      const andreaniData = await andreaniRes.json().catch(() => ({}));
+
       setQuoteLoading(false);
-      if (!res.ok) {
-        setQuoteError(data?.error || "No se pudo cotizar.");
+      setAndreaniLoading(false);
+
+      if (!epickRes.ok) {
+        setQuoteError(epickData?.error || "No se pudo cotizar.");
         setShippingQuote(null);
-        return;
+      } else {
+        setShippingQuote(epickData.quote || null);
       }
-      setShippingQuote(data.quote || null);
+
+      if (!andreaniRes.ok) {
+        setAndreaniError(andreaniData?.error || "No se pudo cotizar Andreani.");
+        setAndreaniQuote(null);
+      } else {
+        setAndreaniQuote(andreaniData.quote || null);
+      }
     }, 500);
 
     return () => clearTimeout(t);
@@ -160,9 +189,9 @@ export default function CheckoutClient() {
               <div className="mt-2 flex items-center justify-between text-sm text-zinc-400">
                 <span>Envío</span>
                 <span>
-                  {shippingMethod === "epick"
-                    ? `$${shippingAmount.toLocaleString("es-AR")}`
-                    : "Gratis"}
+                  {shippingMethod === "pickup"
+                    ? "Gratis"
+                    : `$${shippingAmount.toLocaleString("es-AR")}`}
                 </span>
               </div>
               <div className="mt-3 flex items-center justify-between">
@@ -244,8 +273,37 @@ export default function CheckoutClient() {
                     </div>
                   </div>
                   <div className="text-sm font-semibold">
-                    {shippingAmount > 0
-                      ? `$${shippingAmount.toLocaleString("es-AR")}`
+                    {epickAmount > 0
+                      ? `$${epickAmount.toLocaleString("es-AR")}`
+                      : "—"}
+                  </div>
+                </label>
+
+                <label className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="radio"
+                      name="shippingMethod"
+                      checked={shippingMethod === "andreani"}
+                      onChange={() => setShippingMethod("andreani")}
+                      className="mt-1"
+                    />
+                    <div>
+                      <div className="text-sm font-medium">Envío a domicilio (Andreani)</div>
+                      <div className="text-xs text-zinc-500">
+                        {andreaniLoading
+                          ? "Cotizando..."
+                          : andreaniQuote?.tarifaConIva?.total
+                          ? `Estimado $${Number(
+                              andreaniQuote.tarifaConIva.total
+                            ).toLocaleString("es-AR")}`
+                          : "Ingresá tu CP para cotizar"}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-sm font-semibold">
+                    {andreaniAmount > 0
+                      ? `$${andreaniAmount.toLocaleString("es-AR")}`
                       : "—"}
                   </div>
                 </label>
@@ -272,6 +330,11 @@ export default function CheckoutClient() {
             {quoteError && (
               <div className="mt-3 rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
                 {quoteError}
+              </div>
+            )}
+            {andreaniError && (
+              <div className="mt-3 rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+                {andreaniError}
               </div>
             )}
 
