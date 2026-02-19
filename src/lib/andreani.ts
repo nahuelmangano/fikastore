@@ -1,3 +1,5 @@
+import { getProviderConfigValue } from "@/lib/shippingProviderConfig";
+
 type AndreaniToken = {
   token: string;
   expiresAt: number;
@@ -9,10 +11,10 @@ const PROD_BASE = "https://apis.andreani.com";
 let cache: AndreaniToken | null = null;
 let pendingLogin: Promise<string> | null = null;
 
-function baseUrl() {
-  const override = process.env.ANDREANI_BASE_URL;
+async function baseUrl() {
+  const override = await getProviderConfigValue("andreani", "ANDREANI_BASE_URL");
   if (override) return override.replace(/\/$/, "");
-  const env = (process.env.ANDREANI_ENV || "qa").toLowerCase();
+  const env = (await getProviderConfigValue("andreani", "ANDREANI_ENV", "qa")).toLowerCase();
   return env === "prod" ? PROD_BASE : QA_BASE;
 }
 
@@ -28,12 +30,12 @@ async function login(): Promise<string> {
   if (tokenValid(cache)) return cache!.token;
   if (pendingLogin) return pendingLogin;
 
-  const user = (process.env.ANDREANI_USER || "").trim();
-  const pass = (process.env.ANDREANI_PASS || "").trim();
+  const user = (await getProviderConfigValue("andreani", "ANDREANI_USER")).trim();
+  const pass = (await getProviderConfigValue("andreani", "ANDREANI_PASS")).trim();
   if (!user || !pass) throw new Error("ANDREANI_USER/ANDREANI_PASS missing");
 
   const auth = Buffer.from(`${user}:${pass}`).toString("base64");
-  const url = `${baseUrl()}/login`;
+  const url = `${await baseUrl()}/login`;
 
   pendingLogin = fetch(url, {
     method: "POST",
@@ -62,7 +64,7 @@ async function login(): Promise<string> {
 
 export async function andreaniRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await login();
-  const url = path.startsWith("http") ? path : `${baseUrl()}${path}`;
+  const url = path.startsWith("http") ? path : `${await baseUrl()}${path}`;
 
   const doFetch = async (tk: string) => {
     const res = await fetch(url, {

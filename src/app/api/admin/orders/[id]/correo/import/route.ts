@@ -4,22 +4,23 @@ import { authOptions } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { correoArgentinoRequest } from "@/lib/correoArgentino";
 import { isStaffRole } from "@/lib/roles";
+import { getProviderConfigValue } from "@/lib/shippingProviderConfig";
 
 export const runtime = "nodejs";
 
-function requireEnv(name: string) {
-  const v = process.env[name];
+async function requireEnv(name: string) {
+  const v = await getProviderConfigValue("correo", name);
   if (!v) throw new Error(`${name} no configurado.`);
   return v;
 }
 
-function envString(name: string, def = "") {
-  const v = process.env[name];
+async function envString(name: string, def = "") {
+  const v = await getProviderConfigValue("correo", name);
   return v ? String(v) : def;
 }
 
-function envInt(name: string, def: number) {
-  const v = Number(process.env[name]);
+async function envInt(name: string, def: number) {
+  const v = Number(await getProviderConfigValue("correo", name, String(def)));
   return Number.isFinite(v) && v > 0 ? Math.round(v) : def;
 }
 
@@ -72,42 +73,42 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
 
   let payload: any;
   try {
-    const weight = Math.min(25000, envInt("CORREO_ARG_PKG_WEIGHT_G", 1000));
-    const height = clampDim(envInt("CORREO_ARG_PKG_HEIGHT_CM", 10));
-    const width = clampDim(envInt("CORREO_ARG_PKG_WIDTH_CM", 20));
-    const length = clampDim(envInt("CORREO_ARG_PKG_LENGTH_CM", 30));
+    const weight = Math.min(25000, await envInt("CORREO_ARG_PKG_WEIGHT_G", 1000));
+    const height = clampDim(await envInt("CORREO_ARG_PKG_HEIGHT_CM", 10));
+    const width = clampDim(await envInt("CORREO_ARG_PKG_WIDTH_CM", 20));
+    const length = clampDim(await envInt("CORREO_ARG_PKG_LENGTH_CM", 30));
 
     const sender = {
-      name: requireEnv("CORREO_ARG_SENDER_NAME"),
-      phone: requireEnv("CORREO_ARG_SENDER_PHONE"),
-      cellPhone: envString("CORREO_ARG_SENDER_CELLPHONE"),
-      email: requireEnv("CORREO_ARG_SENDER_EMAIL"),
+      name: await requireEnv("CORREO_ARG_SENDER_NAME"),
+      phone: await requireEnv("CORREO_ARG_SENDER_PHONE"),
+      cellPhone: await envString("CORREO_ARG_SENDER_CELLPHONE"),
+      email: await requireEnv("CORREO_ARG_SENDER_EMAIL"),
       originAddress: {
-        streetName: requireEnv("CORREO_ARG_SENDER_STREET"),
-        streetNumber: requireEnv("CORREO_ARG_SENDER_NUMBER"),
-        floor: envString("CORREO_ARG_SENDER_FLOOR"),
-        apartment: envString("CORREO_ARG_SENDER_APARTMENT"),
-        city: requireEnv("CORREO_ARG_SENDER_CITY"),
-        provinceCode: requireEnv("CORREO_ARG_SENDER_PROVINCE_CODE"),
-        postalCode: requireEnv("CORREO_ARG_SENDER_POSTAL_CODE"),
+        streetName: await requireEnv("CORREO_ARG_SENDER_STREET"),
+        streetNumber: await requireEnv("CORREO_ARG_SENDER_NUMBER"),
+        floor: await envString("CORREO_ARG_SENDER_FLOOR"),
+        apartment: await envString("CORREO_ARG_SENDER_APARTMENT"),
+        city: await requireEnv("CORREO_ARG_SENDER_CITY"),
+        provinceCode: await requireEnv("CORREO_ARG_SENDER_PROVINCE_CODE"),
+        postalCode: await requireEnv("CORREO_ARG_SENDER_POSTAL_CODE"),
       },
     };
 
     const { streetName, streetNumber } = splitAddress(order.shippingAddressLine);
     const recipientEmail =
-      order.user?.email || envString("CORREO_ARG_RECIPIENT_EMAIL") || sender.email;
+      order.user?.email || (await envString("CORREO_ARG_RECIPIENT_EMAIL")) || sender.email;
     const recipientProvince =
       order.shippingProvinceCode ||
-      envString("CORREO_ARG_RECIPIENT_PROVINCE_CODE") ||
+      (await envString("CORREO_ARG_RECIPIENT_PROVINCE_CODE")) ||
       sender.originAddress.provinceCode;
 
-    const deliveryType = (process.env.CORREO_ARG_DELIVERY_TYPE || "D").toUpperCase();
-    if (deliveryType === "S" && !envString("CORREO_ARG_AGENCY")) {
+    const deliveryType = (await envString("CORREO_ARG_DELIVERY_TYPE", "D")).toUpperCase();
+    if (deliveryType === "S" && !(await envString("CORREO_ARG_AGENCY"))) {
       throw new Error("CORREO_ARG_AGENCY requerido para envíos a sucursal.");
     }
 
     payload = {
-      customerId: requireEnv("CORREO_ARG_CUSTOMER_ID"),
+      customerId: await requireEnv("CORREO_ARG_CUSTOMER_ID"),
       extOrderId: order.id,
       orderNumber: order.orderNumber || undefined,
       sender,
@@ -119,7 +120,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       },
       shipping: {
         deliveryType,
-        agency: deliveryType === "S" ? envString("CORREO_ARG_AGENCY") : null,
+        agency: deliveryType === "S" ? await envString("CORREO_ARG_AGENCY") : null,
         address: {
           streetName,
           streetNumber,
@@ -129,7 +130,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
           provinceCode: recipientProvince,
           postalCode: order.shippingZip,
         },
-        productType: envString("CORREO_ARG_PRODUCT_TYPE", "CP"),
+        productType: await envString("CORREO_ARG_PRODUCT_TYPE", "CP"),
         weight,
         declaredValue: Number(order.total) || 1,
         height,

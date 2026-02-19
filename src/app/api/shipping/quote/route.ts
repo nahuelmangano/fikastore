@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { epickRequest } from "@/lib/epick";
 import { isCarrierEnabled } from "@/lib/shippingCarriers";
+import { getProviderConfigValue } from "@/lib/shippingProviderConfig";
 
 export const runtime = "nodejs";
 
@@ -11,8 +12,8 @@ type Body = {
   postalCode?: string;
 };
 
-function envNumber(name: string, def: number) {
-  const v = Number(process.env[name]);
+async function envNumber(name: string, def: number) {
+  const v = Number(await getProviderConfigValue("epick", name, String(def)));
   return Number.isFinite(v) && v > 0 ? v : def;
 }
 
@@ -51,12 +52,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "E-pick no está habilitado." }, { status: 409 });
   }
 
-  const long = envNumber("EPICK_PKG_LONG", 30);
-  const width = envNumber("EPICK_PKG_WIDTH", 20);
-  const height = envNumber("EPICK_PKG_HEIGHT", 10);
-  const weight = envNumber("EPICK_PKG_WEIGHT", 1);
+  const long = await envNumber("EPICK_PKG_LONG", 30);
+  const width = await envNumber("EPICK_PKG_WIDTH", 20);
+  const height = await envNumber("EPICK_PKG_HEIGHT", 10);
+  const weight = await envNumber("EPICK_PKG_WEIGHT", 1);
 
-  const senderPostal = process.env.EPICK_SENDER_POSTAL_CODE;
+  const senderPostal = await getProviderConfigValue("epick", "EPICK_SENDER_POSTAL_CODE");
   if (!senderPostal) {
     return NextResponse.json(
       { ok: false, error: "EPICK_SENDER_POSTAL_CODE no configurado." },

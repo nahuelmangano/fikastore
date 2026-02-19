@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { epickRequest, mapEpickStatus } from "@/lib/epick";
 import { isStaffRole } from "@/lib/roles";
+import { getProviderConfigValue } from "@/lib/shippingProviderConfig";
 
 export const runtime = "nodejs";
 
@@ -10,13 +11,13 @@ type Body = {
   orderId: string;
 };
 
-function envNumber(name: string, def: number) {
-  const v = Number(process.env[name]);
+async function envNumber(name: string, def: number) {
+  const v = Number(await getProviderConfigValue("epick", name, String(def)));
   return Number.isFinite(v) && v > 0 ? v : def;
 }
 
-function requireEnv(name: string) {
-  const v = process.env[name];
+async function requireEnv(name: string) {
+  const v = await getProviderConfigValue("epick", name);
   if (!v) throw new Error(`${name} no configurado.`);
   return v;
 }
@@ -56,14 +57,14 @@ export async function POST(req: Request) {
 
   let payload: any;
   try {
-    const long = envNumber("EPICK_PKG_LONG", 30);
-    const width = envNumber("EPICK_PKG_WIDTH", 20);
-    const height = envNumber("EPICK_PKG_HEIGHT", 10);
-    const weight = envNumber("EPICK_PKG_WEIGHT", 1);
+    const long = await envNumber("EPICK_PKG_LONG", 30);
+    const width = await envNumber("EPICK_PKG_WIDTH", 20);
+    const height = await envNumber("EPICK_PKG_HEIGHT", 10);
+    const weight = await envNumber("EPICK_PKG_WEIGHT", 1);
 
     payload = {
       info: {
-        webhook: requireEnv("EPICK_WEBHOOK_URL"),
+        webhook: await requireEnv("EPICK_WEBHOOK_URL"),
       },
       package: {
         long,
@@ -73,26 +74,26 @@ export async function POST(req: Request) {
         value: Number(order.total) || 1,
       },
       sender: {
-        postal_code: requireEnv("EPICK_SENDER_POSTAL_CODE"),
-        name: requireEnv("EPICK_SENDER_NAME"),
-        phone: requireEnv("EPICK_SENDER_PHONE"),
-        email: requireEnv("EPICK_SENDER_EMAIL"),
-        street: requireEnv("EPICK_SENDER_STREET"),
-        number: requireEnv("EPICK_SENDER_NUMBER"),
-        city: requireEnv("EPICK_SENDER_CITY"),
-        province: requireEnv("EPICK_SENDER_PROVINCE"),
-        extra: process.env.EPICK_SENDER_EXTRA || "",
-        info: process.env.EPICK_SENDER_INFO || "",
+        postal_code: await requireEnv("EPICK_SENDER_POSTAL_CODE"),
+        name: await requireEnv("EPICK_SENDER_NAME"),
+        phone: await requireEnv("EPICK_SENDER_PHONE"),
+        email: await requireEnv("EPICK_SENDER_EMAIL"),
+        street: await requireEnv("EPICK_SENDER_STREET"),
+        number: await requireEnv("EPICK_SENDER_NUMBER"),
+        city: await requireEnv("EPICK_SENDER_CITY"),
+        province: await requireEnv("EPICK_SENDER_PROVINCE"),
+        extra: await getProviderConfigValue("epick", "EPICK_SENDER_EXTRA"),
+        info: await getProviderConfigValue("epick", "EPICK_SENDER_INFO"),
       },
       addressee: {
         postal_code: order.shippingZip,
         name: order.shippingName,
         phone: order.shippingPhone,
-        email: order.user?.email || requireEnv("EPICK_SENDER_EMAIL"),
+        email: order.user?.email || (await requireEnv("EPICK_SENDER_EMAIL")),
         street: order.shippingAddressLine,
         number: order.shippingAddressLine,
         city: order.shippingCity,
-        province: process.env.EPICK_ADDRESSEE_PROVINCE || order.shippingCity,
+        province: (await getProviderConfigValue("epick", "EPICK_ADDRESSEE_PROVINCE")) || order.shippingCity,
         extra: "",
         info: "",
       },

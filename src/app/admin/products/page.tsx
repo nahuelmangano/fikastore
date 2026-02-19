@@ -218,8 +218,8 @@ export default async function AdminProductsPage({
                           className={[
                             "inline-flex rounded-full border px-2 py-0.5 text-xs",
                             p.isActive
-                              ? "border-emerald-900/40 bg-emerald-900/20 text-emerald-200"
-                              : "border-zinc-800 bg-zinc-900/40 text-zinc-300",
+                              ? "border-amber-700/40 bg-amber-50 text-amber-900"
+                              : "border-zinc-700/40 bg-zinc-100 text-zinc-700",
                           ].join(" ")}
                         >
                           {p.isActive ? "Activo" : "Inactivo"}

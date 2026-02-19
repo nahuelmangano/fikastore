@@ -1,3 +1,5 @@
+import { getProviderConfigValue } from "@/lib/shippingProviderConfig";
+
 type CorreoArgentinoToken = {
   token: string;
   expiresAt: number;
@@ -9,10 +11,10 @@ const PROD_BASE = "https://api.correoargentino.com.ar/micorreo/v1";
 let cache: CorreoArgentinoToken | null = null;
 let pendingLogin: Promise<string> | null = null;
 
-function baseUrl() {
-  const override = process.env.CORREO_ARG_BASE_URL;
+async function baseUrl() {
+  const override = await getProviderConfigValue("correo", "CORREO_ARG_BASE_URL");
   if (override) return override.replace(/\/$/, "");
-  const env = (process.env.CORREO_ARG_ENV || "qa").toLowerCase();
+  const env = (await getProviderConfigValue("correo", "CORREO_ARG_ENV", "qa")).toLowerCase();
   return env === "prod" ? PROD_BASE : QA_BASE;
 }
 
@@ -39,12 +41,12 @@ async function login(): Promise<string> {
   if (tokenValid(cache)) return cache!.token;
   if (pendingLogin) return pendingLogin;
 
-  const user = (process.env.CORREO_ARG_USER || "").trim();
-  const pass = (process.env.CORREO_ARG_PASS || "").trim();
+  const user = (await getProviderConfigValue("correo", "CORREO_ARG_USER")).trim();
+  const pass = (await getProviderConfigValue("correo", "CORREO_ARG_PASS")).trim();
   if (!user || !pass) throw new Error("CORREO_ARG_USER/CORREO_ARG_PASS missing");
 
   const auth = Buffer.from(`${user}:${pass}`).toString("base64");
-  const url = `${baseUrl()}/token`;
+  const url = `${await baseUrl()}/token`;
 
   pendingLogin = fetch(url, {
     method: "POST",
@@ -75,7 +77,7 @@ async function login(): Promise<string> {
 
 export async function correoArgentinoRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await login();
-  const url = path.startsWith("http") ? path : `${baseUrl()}${path}`;
+  const url = path.startsWith("http") ? path : `${await baseUrl()}${path}`;
 
   const doFetch = async (tk: string) => {
     try {

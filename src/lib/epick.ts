@@ -1,9 +1,9 @@
+import { getProviderConfigValue } from "@/lib/shippingProviderConfig";
+
 type EpickToken = {
   token: string;
   expiresAt: number;
 };
-
-const EPICK_BASE = process.env.EPICK_BASE_URL || "https://dev-ar.e-pick.com.ar";
 
 let cache: EpickToken | null = null;
 let pendingLogin: Promise<string> | null = null;
@@ -20,13 +20,14 @@ async function login(): Promise<string> {
   if (tokenValid(cache)) return cache!.token;
   if (pendingLogin) return pendingLogin;
 
-  const phone = process.env.EPICK_PHONE;
-  const password = process.env.EPICK_PASSWORD;
+  const phone = await getProviderConfigValue("epick", "EPICK_PHONE");
+  const password = await getProviderConfigValue("epick", "EPICK_PASSWORD");
+  const baseUrl = await getProviderConfigValue("epick", "EPICK_BASE_URL", "https://dev-ar.e-pick.com.ar");
   if (!phone || !password) {
     throw new Error("EPICK_PHONE/EPICK_PASSWORD missing");
   }
 
-  pendingLogin = fetch(`${EPICK_BASE}/api/users/login`, {
+  pendingLogin = fetch(`${baseUrl}/api/users/login`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -51,8 +52,9 @@ async function login(): Promise<string> {
 }
 
 export async function epickRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const baseUrl = await getProviderConfigValue("epick", "EPICK_BASE_URL", "https://dev-ar.e-pick.com.ar");
   const token = await login();
-  const url = path.startsWith("http") ? path : `${EPICK_BASE}${path}`;
+  const url = path.startsWith("http") ? path : `${baseUrl}${path}`;
 
   const doFetch = async (tk: string) => {
     const res = await fetch(url, {

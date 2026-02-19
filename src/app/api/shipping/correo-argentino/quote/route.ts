@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { correoArgentinoRequest } from "@/lib/correoArgentino";
 import { isCarrierEnabled } from "@/lib/shippingCarriers";
+import { getProviderConfigValue } from "@/lib/shippingProviderConfig";
 
 export const runtime = "nodejs";
 
@@ -8,13 +9,13 @@ type Body = {
   postalCode?: string;
 };
 
-function envNumber(name: string, def: number) {
-  const v = Number(process.env[name]);
+async function envNumber(name: string, def: number) {
+  const v = Number(await getProviderConfigValue("correo", name, String(def)));
   return Number.isFinite(v) && v > 0 ? v : def;
 }
 
-function envInt(name: string, def: number) {
-  const v = envNumber(name, def);
+async function envInt(name: string, def: number) {
+  const v = await envNumber(name, def);
   return Math.max(1, Math.round(v));
 }
 
@@ -22,8 +23,8 @@ function clampDim(n: number) {
   return Math.min(150, Math.max(1, Math.round(n)));
 }
 
-function requireEnv(name: string) {
-  const v = process.env[name];
+async function requireEnv(name: string) {
+  const v = await getProviderConfigValue("correo", name);
   if (!v) throw new Error(`${name} no configurado.`);
   return v;
 }
@@ -41,14 +42,14 @@ export async function POST(req: Request) {
 
   let payload: any;
   try {
-    const weight = Math.min(25000, envInt("CORREO_ARG_PKG_WEIGHT_G", 1000));
-    const height = clampDim(envInt("CORREO_ARG_PKG_HEIGHT_CM", 10));
-    const width = clampDim(envInt("CORREO_ARG_PKG_WIDTH_CM", 20));
-    const length = clampDim(envInt("CORREO_ARG_PKG_LENGTH_CM", 30));
+    const weight = Math.min(25000, await envInt("CORREO_ARG_PKG_WEIGHT_G", 1000));
+    const height = clampDim(await envInt("CORREO_ARG_PKG_HEIGHT_CM", 10));
+    const width = clampDim(await envInt("CORREO_ARG_PKG_WIDTH_CM", 20));
+    const length = clampDim(await envInt("CORREO_ARG_PKG_LENGTH_CM", 30));
 
     payload = {
-      customerId: requireEnv("CORREO_ARG_CUSTOMER_ID"),
-      postalCodeOrigin: requireEnv("CORREO_ARG_POSTAL_ORIGIN"),
+      customerId: await requireEnv("CORREO_ARG_CUSTOMER_ID"),
+      postalCodeOrigin: await requireEnv("CORREO_ARG_POSTAL_ORIGIN"),
       postalCodeDestination: postalCode,
       dimensions: {
         weight,
@@ -58,10 +59,10 @@ export async function POST(req: Request) {
       },
     };
 
-    const productType = (process.env.CORREO_ARG_PRODUCT_TYPE || "").trim();
+    const productType = (await getProviderConfigValue("correo", "CORREO_ARG_PRODUCT_TYPE")).trim();
     if (productType) payload.productType = productType;
 
-    const deliveredType = (process.env.CORREO_ARG_DELIVERY_TYPE || "").trim().toUpperCase();
+    const deliveredType = (await getProviderConfigValue("correo", "CORREO_ARG_DELIVERY_TYPE")).trim().toUpperCase();
     if (deliveredType === "D" || deliveredType === "S") {
       payload.deliveredType = deliveredType;
     }

@@ -175,6 +175,19 @@ model ShippingCarrier {
   @@index([enabled])
 }
 
+model ShippingProviderSetting {
+  id        String   @id @default(cuid())
+  provider  String
+  key       String
+  value     String
+  isSecret  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, key])
+  @@index([provider])
+}
+
 model OrderItem {
   id           String   @id @default(cuid())
   orderId      String

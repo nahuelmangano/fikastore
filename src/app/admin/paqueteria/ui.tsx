@@ -76,6 +76,12 @@ export default function AdminPaqueteria({ carriers }: { carriers: Carrier[] }) {
                   >
                     {busy ? "Actualizando..." : c.enabled ? "Habilitado" : "Deshabilitado"}
                   </button>
+                  <Link
+                    href={`/admin/paqueteria/${c.key}`}
+                    className="rounded-xl border border-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
+                  >
+                    Configurar
+                  </Link>
                 </div>
               </div>
             );
