@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { isStaffRole } from "@/lib/roles";
 
 export async function POST(
   _req: Request,
@@ -11,7 +12,7 @@ export async function POST(
   const session = await getServerSession(authOptions);
   const role = (session?.user as any)?.role;
 
-  if (role !== "admin") {
+  if (!isStaffRole(role)) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { epickRequest, mapEpickStatus } from "@/lib/epick";
+import { isStaffRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
 
@@ -18,7 +19,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const shipment = await prisma.ePickShipment.findFirst({
     where: {
       OR: [{ orderId: id }, { epickOrderId: id }],
-      ...(role === "admin" ? {} : { order: { userId } }),
+      ...(isStaffRole(role) ? {} : { order: { userId } }),
     },
   });
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { epickRequest } from "@/lib/epick";
+import { isCarrierEnabled } from "@/lib/shippingCarriers";
 
 export const runtime = "nodejs";
 
@@ -18,9 +19,6 @@ function envNumber(name: string, def: number) {
 export async function POST(req: Request) {
   const session = await auth();
   const userId = (session?.user as any)?.id as string | undefined;
-  if (!userId) {
-    return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
-  }
 
   const body = (await req.json().catch(() => null)) as Body | null;
   const orderId = body?.orderId?.trim();
@@ -34,6 +32,9 @@ export async function POST(req: Request) {
   let zip = postalCode || "";
 
   if (orderId) {
+    if (!userId) {
+      return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
+    }
     const order = await prisma.order.findFirst({ where: { id: orderId, userId } });
     if (!order) {
       return NextResponse.json({ ok: false, error: "Orden no encontrada." }, { status: 404 });
@@ -44,6 +45,10 @@ export async function POST(req: Request) {
 
   if (!zip) {
     return NextResponse.json({ ok: false, error: "Código postal inválido." }, { status: 400 });
+  }
+
+  if (!(await isCarrierEnabled("epick"))) {
+    return NextResponse.json({ ok: false, error: "E-pick no está habilitado." }, { status: 409 });
   }
 
   const long = envNumber("EPICK_PKG_LONG", 30);

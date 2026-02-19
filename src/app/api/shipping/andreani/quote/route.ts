@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { andreaniRequest, buildAndreaniQuery } from "@/lib/andreani";
+import { isCarrierEnabled } from "@/lib/shippingCarriers";
 
 export const runtime = "nodejs";
 
@@ -15,16 +15,14 @@ function envString(name: string) {
 }
 
 export async function POST(req: Request) {
-  const session = await auth();
-  const userId = (session?.user as any)?.id as string | undefined;
-  if (!userId) {
-    return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
-  }
-
   const body = (await req.json().catch(() => null)) as Body | null;
   const cpDestino = body?.cpDestino?.trim();
   if (!cpDestino) {
     return NextResponse.json({ ok: false, error: "cpDestino requerido." }, { status: 400 });
+  }
+
+  if (!(await isCarrierEnabled("andreani"))) {
+    return NextResponse.json({ ok: false, error: "Andreani no está habilitado." }, { status: 409 });
   }
 
   let params: URLSearchParams;

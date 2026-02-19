@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { isAdminRole, isStaffRole } from "@/lib/roles";
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -20,10 +21,28 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Admin-only
+  // Admin area
   if (pathname.startsWith("/admin")) {
-    const role = (token as any).role;
-    if (role !== "admin") {
+    const role = (token as { role?: string } | null)?.role;
+
+    // Solo admin puede gestionar alta/edición de staff.
+    if (pathname === "/admin/users/new" || pathname.startsWith("/admin/users/new/")) {
+      if (!isAdminRole(role)) {
+        return NextResponse.redirect(new URL("/", req.url));
+      }
+      return NextResponse.next();
+    }
+
+    // Staff puede entrar al listado de usuarios.
+    if (pathname === "/admin/users" || pathname.startsWith("/admin/users/")) {
+      if (!isStaffRole(role)) {
+        return NextResponse.redirect(new URL("/", req.url));
+      }
+      return NextResponse.next();
+    }
+
+    // merchant y admin pueden usar las secciones operativas del admin.
+    if (!isStaffRole(role)) {
       return NextResponse.redirect(new URL("/", req.url));
     }
   }

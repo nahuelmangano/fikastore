@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { epickRequest, mapEpickStatus } from "@/lib/epick";
+import { isStaffRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
 
@@ -35,7 +36,7 @@ export async function POST(req: Request) {
   }
 
   const order = await prisma.order.findFirst({
-    where: role === "admin" ? { id: orderId } : { id: orderId, userId },
+    where: isStaffRole(role) ? { id: orderId } : { id: orderId, userId },
     include: { user: true },
   });
   if (!order) {

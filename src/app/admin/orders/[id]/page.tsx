@@ -17,6 +17,7 @@ export default async function AdminOrderDetailPage({
       items: true,
       payments: { orderBy: { createdAt: "desc" } },
       epickShipment: true,
+      correoShipment: true,
     },
   });
 

@@ -4,6 +4,7 @@ import { authOptions } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { sendMail } from "@/lib/mailer";
 import { orderShippedTemplate } from "@/lib/email-templates";
+import { isStaffRole } from "@/lib/roles";
 
 
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -11,7 +12,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   const session = await getServerSession(authOptions);
   const role = (session?.user as any)?.role;
 
-  if (role !== "admin") {
+  if (!isStaffRole(role)) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 

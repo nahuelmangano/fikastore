@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { getSession, signIn } from "next-auth/react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -43,7 +43,10 @@ export default function LoginPage() {
               return;
             }
 
-            router.push(next);
+            const session = await getSession();
+            const role = (session?.user as { role?: string } | undefined)?.role;
+            const destination = role === "admin" || role === "merchant" ? "/admin" : "/";
+            router.push(destination);
           }}
         >
           <div>
@@ -95,8 +98,8 @@ export default function LoginPage() {
         </div>
 
         <div className="mt-6">
-          <Link href="/cart" className="text-sm text-zinc-400 hover:text-zinc-200">
-            ← Volver al carrito
+          <Link href="/" className="text-sm text-zinc-400 hover:text-zinc-200">
+            ← Volver a la tienda
           </Link>
         </div>
       </div>

@@ -52,15 +52,24 @@ export default function CartLink() {
       </Link>
 
       <div className="relative" ref={menuRef}>
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="rounded-xl border border-zinc-800 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
-        >
-          Cuenta
-        </button>
+        {session?.user?.email ? (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="rounded-xl border border-zinc-800 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
+          >
+            Cuenta
+          </button>
+        ) : (
+          <Link
+            href="/login"
+            className="rounded-xl border border-zinc-800 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
+          >
+            Iniciar sesión
+          </Link>
+        )}
 
-        {open && (
+        {open && session?.user?.email && (
           <div className="absolute right-0 mt-2 w-56 rounded-xl border border-zinc-800 bg-zinc-950 p-2 text-sm text-zinc-200 shadow-lg">
             <div className="px-2 py-2 text-xs text-zinc-400">Sesión</div>
             <div className="px-2 pb-2 text-sm text-zinc-100">

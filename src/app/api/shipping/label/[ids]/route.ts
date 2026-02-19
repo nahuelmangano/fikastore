@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { epickGetToken } from "@/lib/epick";
+import { isStaffRole } from "@/lib/roles";
 
 const EPICK_BASE = process.env.EPICK_BASE_URL || "https://dev-ar.e-pick.com.ar";
 
@@ -10,7 +11,7 @@ export const runtime = "nodejs";
 export async function GET(req: Request, { params }: { params: Promise<{ ids: string }> }) {
   const session = await auth();
   const role = (session?.user as any)?.role;
-  if (role !== "admin") {
+  if (!isStaffRole(role)) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 

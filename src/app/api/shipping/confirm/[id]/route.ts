@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { epickRequest, mapEpickStatus } from "@/lib/epick";
+import { isStaffRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
 
@@ -24,7 +25,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     return NextResponse.json({ ok: false, error: "Envío no encontrado." }, { status: 404 });
   }
 
-  if (role !== "admin" && shipment.order.userId !== userId) {
+  if (!isStaffRole(role) && shipment.order.userId !== userId) {
     return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 403 });
   }
 

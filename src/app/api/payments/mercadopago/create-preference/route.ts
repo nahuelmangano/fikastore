@@ -89,6 +89,15 @@ export async function POST(req: Request) {
     currency_id: "ARS",
   }));
 
+  if (Number(order.shippingAmount || 0) > 0) {
+    items.push({
+      title: "Envío",
+      quantity: 1,
+      unit_price: Number(order.shippingAmount),
+      currency_id: "ARS",
+    });
+  }
+
   const body: Record<string, unknown> = {
     items,
     external_reference: order.id,
