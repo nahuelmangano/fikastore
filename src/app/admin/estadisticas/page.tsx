@@ -107,24 +107,29 @@ export default async function AdminEstadisticasPage() {
                         <div className="mt-0.5 font-mono text-xs text-zinc-500">/products/{p.slug}</div>
                       </td>
                       <td className="px-4 py-3">
-                        <span
-                          className={[
-                            "inline-flex min-w-8 justify-center rounded-full border px-2 py-0.5 text-xs font-semibold",
-                            p.stock <= 0
-                              ? "border-amber-700/40 bg-amber-100 text-amber-900"
-                              : "border-amber-600/40 bg-amber-50 text-amber-800",
-                          ].join(" ")}
-                        >
-                          {p.stock}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={[
+                              "inline-flex min-w-8 justify-center rounded-md border px-2 py-0.5 text-xs font-semibold",
+                              p.stock <= 0
+                                ? "border-rose-700/40 bg-rose-100 text-rose-800"
+                                : "border-amber-700/40 bg-amber-100 text-amber-800",
+                            ].join(" ")}
+                          >
+                            {p.stock}
+                          </span>
+                          {p.stock <= 0 && (
+                            <span className="text-xs font-medium text-rose-700">Sin stock</span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <span
                           className={[
-                            "inline-flex rounded-full border px-2 py-0.5 text-xs",
+                            "inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold",
                             p.isActive
-                              ? "border-amber-700/40 bg-amber-50 text-amber-900"
-                              : "border-zinc-700/40 bg-zinc-100 text-zinc-700",
+                              ? "border-emerald-700/50 bg-emerald-100 text-emerald-900"
+                              : "border-slate-600/60 bg-slate-200 text-slate-900",
                           ].join(" ")}
                         >
                           {p.isActive ? "Activo" : "Inactivo"}
