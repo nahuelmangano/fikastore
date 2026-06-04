@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import SiteHeader from "@/components/SiteHeader";
+import { getAutomaticDiscountsForProducts } from "@/lib/promotions";
 
 const PAGE_SIZE = 18;
 
@@ -24,15 +25,19 @@ function buildHref(base: string, params: Record<string, string | number | null |
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: { q?: string; page?: string; availability?: string; sort?: string };
+  searchParams:
+    | { q?: string; page?: string; availability?: string; sort?: string }
+    | Promise<{ q?: string; page?: string; availability?: string; sort?: string }>;
 }) {
-  const q = (searchParams.q ?? "").trim();
-  const page = toInt(searchParams.page ?? "1", 1);
+  const resolvedSearchParams = await Promise.resolve(searchParams);
+
+  const q = (resolvedSearchParams.q ?? "").trim();
+  const page = toInt(resolvedSearchParams.page ?? "1", 1);
 
   // availability: available | all | oos
-  const availability = (searchParams.availability ?? "available").toLowerCase();
+  const availability = (resolvedSearchParams.availability ?? "available").toLowerCase();
   // sort: newest | price_asc | price_desc | stock_desc
-  const sort = (searchParams.sort ?? "newest").toLowerCase();
+  const sort = (resolvedSearchParams.sort ?? "newest").toLowerCase();
 
   const where: any = { isActive: true };
 
@@ -69,6 +74,7 @@ export default async function HomePage({
       include: { images: { orderBy: { sortOrder: "asc" }, take: 1 } },
     }),
   ]);
+  const promoMap = await getAutomaticDiscountsForProducts(products.map((p) => p.id));
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const baseParams = { q, availability, sort };
@@ -147,6 +153,10 @@ export default async function HomePage({
                 const img =
                   p.images[0]?.url ?? "https://placehold.co/900x900/png?text=Fika";
                 const isOos = p.stock <= 0;
+                const basePrice = Number(p.price);
+                const promoPercent = promoMap.get(p.id) ?? 0;
+                const finalPrice =
+                  promoPercent > 0 ? Math.round(basePrice * (1 - promoPercent / 100) * 100) / 100 : basePrice;
 
                 const Card = (
                   <div className="group rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4 transition hover:border-zinc-700 hover:bg-zinc-900/50">
@@ -177,12 +187,21 @@ export default async function HomePage({
                       </div>
 
                       <div className="shrink-0 text-right">
-                        <div className="text-base font-semibold">
-                          ${Number(p.price).toLocaleString("es-AR")}
-                        </div>
-                        <div className="mt-1 text-xs text-zinc-500">
-                          Stock: {p.stock}
-                        </div>
+                        {promoPercent > 0 ? (
+                          <>
+                            <div className="text-xs text-zinc-500 line-through">
+                              ${basePrice.toLocaleString("es-AR")}
+                            </div>
+                            <div className="text-base font-semibold">
+                              ${finalPrice.toLocaleString("es-AR")}{" "}
+                              <span className="text-xs text-zinc-400">({promoPercent}% OFF)</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-base font-semibold">
+                            ${basePrice.toLocaleString("es-AR")}
+                          </div>
+                        )}
                       </div>
                     </div>
 

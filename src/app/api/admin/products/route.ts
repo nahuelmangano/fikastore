@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/slug";
+import { isStaffRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   const session = await auth();
   const role = (session?.user as any)?.role;
-  if (role !== "admin") return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
 

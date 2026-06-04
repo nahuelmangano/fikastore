@@ -74,6 +74,7 @@ export default async function AdminProductsPage({
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const baseParams = { q, status, sort };
+  const exportHref = buildHref("/api/admin/products/export", baseParams);
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -86,12 +87,32 @@ export default async function AdminProductsPage({
             </p>
           </div>
 
-          <Link
-            href="/admin/products/new"
-            className="rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
-          >
-            + Nuevo
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/admin"
+              className="rounded-xl border border-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
+            >
+              Volver
+            </Link>
+            <Link
+              href="/admin/products/import"
+              className="rounded-xl border border-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
+            >
+              Importar XLSX
+            </Link>
+            <a
+              href={exportHref}
+              className="rounded-xl border border-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
+            >
+              Exportar XLSX
+            </a>
+            <Link
+              href="/admin/products/new"
+              className="rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
+            >
+              + Nuevo
+            </Link>
+          </div>
         </div>
 
         {/* Filtros */}
@@ -200,27 +221,32 @@ export default async function AdminProductsPage({
                       </td>
 
                       <td className="px-4 py-3">
-                        <span className={isOos ? "text-amber-200" : "text-zinc-200"}>
-                          {p.stock}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={[
+                              "inline-flex min-w-8 justify-center rounded-md border px-2 py-0.5 text-xs font-semibold",
+                              isOos
+                                ? "border-rose-700/40 bg-rose-100 text-rose-800"
+                                : "border-emerald-700/40 bg-emerald-100 text-emerald-800",
+                            ].join(" ")}
+                          >
+                            {p.stock}
+                          </span>
+                          {isOos && <span className="text-xs font-medium text-rose-700">Sin stock</span>}
+                        </div>
                       </td>
 
                       <td className="px-4 py-3">
                         <span
                           className={[
-                            "inline-flex rounded-full border px-2 py-0.5 text-xs",
+                            "inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold",
                             p.isActive
-                              ? "border-emerald-900/40 bg-emerald-900/20 text-emerald-200"
-                              : "border-zinc-800 bg-zinc-900/40 text-zinc-300",
+                              ? "border-emerald-700/50 bg-emerald-100 text-emerald-900"
+                              : "border-slate-600/60 bg-slate-200 text-slate-900",
                           ].join(" ")}
                         >
                           {p.isActive ? "Activo" : "Inactivo"}
                         </span>
-                        {isOos && (
-                          <span className="ml-2 inline-flex rounded-full border border-amber-900/40 bg-amber-900/20 px-2 py-0.5 text-xs text-amber-200">
-                            Sin stock
-                          </span>
-                        )}
                       </td>
 
                       <td className="px-4 py-3">

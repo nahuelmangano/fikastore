@@ -16,6 +16,8 @@ export default async function AdminOrderDetailPage({
       user: { select: { email: true, name: true } },
       items: true,
       payments: { orderBy: { createdAt: "desc" } },
+      epickShipment: true,
+      correoShipment: true,
     },
   });
 

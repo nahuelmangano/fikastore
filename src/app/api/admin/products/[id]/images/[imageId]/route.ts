@@ -3,13 +3,14 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import path from "path";
 import { unlink } from "fs/promises";
+import { isStaffRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
 
 export async function DELETE(_: Request, { params }: { params: { id: string; imageId: string } }) {
   const session = await auth();
   const role = (session?.user as any)?.role;
-  if (role !== "admin") return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const img = await prisma.productImage.findFirst({
     where: { id: params.imageId, productId: params.id },

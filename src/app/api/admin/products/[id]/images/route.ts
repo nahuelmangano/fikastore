@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import path from "path";
 import { mkdir, writeFile } from "fs/promises";
+import { isStaffRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
 
@@ -16,7 +17,7 @@ export async function POST(
 ) {
   const session = await auth();
   const role = (session?.user as any)?.role;
-  if (role !== "admin") return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const form = await req.formData();
   const file = form.get("file");

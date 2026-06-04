@@ -1,0 +1,20 @@
+BEGIN TRY
+
+BEGIN TRAN;
+
+-- AlterTable
+ALTER TABLE [dbo].[Order] ADD [shippingProvince] NVARCHAR(1000) NOT NULL CONSTRAINT [Order_shippingProvince_df] DEFAULT '',
+[shippingProvinceCode] NVARCHAR(1000) NOT NULL CONSTRAINT [Order_shippingProvinceCode_df] DEFAULT '';
+
+COMMIT TRAN;
+
+END TRY
+BEGIN CATCH
+
+IF @@TRANCOUNT > 0
+BEGIN
+    ROLLBACK TRAN;
+END;
+THROW
+
+END CATCH

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { Prisma } from "@prisma/client";
+import { normalizePromoCode, priceCartItems } from "@/lib/promotions";
 
 export const runtime = "nodejs";
 
@@ -12,8 +13,13 @@ type Body = {
     phone: string;
     addressLine: string;
     city: string;
+    province: string;
+    provinceCode: string;
     zip: string;
   };
+  shippingMethod?: string;
+  shippingAmount?: number;
+  promoCode?: string | null;
 };
 
 function bad(msg: string, status = 400) {
@@ -39,10 +45,18 @@ export async function POST(req: Request) {
     !shipping?.phone?.trim() ||
     !shipping?.addressLine?.trim() ||
     !shipping?.city?.trim() ||
+    !shipping?.province?.trim() ||
+    !shipping?.provinceCode?.trim() ||
     !shipping?.zip?.trim()
   ) {
     return bad("Completá todos los datos de envío.");
   }
+
+  const shippingMethod = String(body.shippingMethod || "").trim();
+  const promoCode = normalizePromoCode(body.promoCode ?? null);
+  const rawShippingAmount = Number(body.shippingAmount);
+  const shippingAmount =
+    Number.isFinite(rawShippingAmount) && rawShippingAmount >= 0 ? rawShippingAmount : 0;
 
   // normalizamos y validamos cantidades
   const normalized = items
@@ -90,10 +104,13 @@ export async function POST(req: Request) {
 
       // Calcular total (Decimal)
       let total = new Prisma.Decimal(0);
+      const priced = await priceCartItems(merged, promoCode);
+      const pricedById = new Map(priced.items.map((it) => [it.productId, it]));
 
       const orderItemsData = merged.map((it) => {
         const p = byId.get(it.productId)!;
-        const unitPrice = new Prisma.Decimal(p.price as any); // p.price ya es Decimal
+        const unit = pricedById.get(it.productId)?.finalPrice ?? Number(p.price);
+        const unitPrice = new Prisma.Decimal(unit.toFixed(2));
         const qty = new Prisma.Decimal(it.quantity);
         const subtotal = unitPrice.mul(qty);
         total = total.add(subtotal);
@@ -112,12 +129,16 @@ export async function POST(req: Request) {
         data: {
           userId,
           status: "pending_payment",
-          total,
+          total: total.add(new Prisma.Decimal(shippingAmount || 0)),
           shippingName: shipping.name.trim(),
           shippingPhone: shipping.phone.trim(),
           shippingAddressLine: shipping.addressLine.trim(),
           shippingCity: shipping.city.trim(),
+          shippingProvince: shipping.province.trim(),
+          shippingProvinceCode: shipping.provinceCode.trim().toUpperCase(),
           shippingZip: shipping.zip.trim(),
+          shippingMethod: shippingMethod || null,
+          shippingAmount: new Prisma.Decimal(shippingAmount || 0),
           items: { create: orderItemsData },
           payments: {
             create: {

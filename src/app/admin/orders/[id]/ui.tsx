@@ -12,9 +12,20 @@ export default function AdminOrderDetail({ order }: { order: any }) {
   const [shippedAt, setShippedAt] = useState<string | null>(order.shippedAt ? String(order.shippedAt) : null);
   const [loading, setLoading] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [shipLoading, setShipLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [epick, setEpick] = useState<any>(order.epickShipment ?? null);
+  const [epickMsg, setEpickMsg] = useState<string | null>(null);
+  const [correo, setCorreo] = useState<any>(order.correoShipment ?? null);
+  const [correoMsg, setCorreoMsg] = useState<string | null>(null);
+  const [correoLoading, setCorreoLoading] = useState(false);
 
   const lastPayment = order.payments?.[0];
+  const itemsSubtotal = order.items.reduce(
+    (acc: number, it: any) => acc + Number(it.subtotal || 0),
+    0
+  );
+  const shippingAmount = Number(order.shippingAmount || 0);
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -66,7 +77,7 @@ export default function AdminOrderDetail({ order }: { order: any }) {
               <div className="mt-2 text-sm text-zinc-300">{order.shippingName}</div>
               <div className="mt-1 text-sm text-zinc-400">{order.shippingPhone}</div>
               <div className="mt-2 text-sm text-zinc-300">
-                {order.shippingAddressLine}, {order.shippingCity} ({order.shippingZip})
+                {order.shippingAddressLine}, {order.shippingCity}, {order.shippingProvince} ({order.shippingZip})
               </div>
             </div>
           </div>
@@ -90,9 +101,19 @@ export default function AdminOrderDetail({ order }: { order: any }) {
               ))}
             </div>
 
-            <div className="mt-5 flex items-center justify-between border-t border-zinc-800 pt-4">
-              <span className="text-zinc-300">Total</span>
-              <span className="text-lg font-semibold">{money(Number(order.total))}</span>
+            <div className="mt-5 border-t border-zinc-800 pt-4">
+              <div className="flex items-center justify-between text-sm text-zinc-400">
+                <span>Subtotal</span>
+                <span>{money(itemsSubtotal)}</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between text-sm text-zinc-400">
+                <span>Envío</span>
+                <span>{shippingAmount > 0 ? money(shippingAmount) : "Gratis"}</span>
+              </div>
+              <div className="mt-3 flex items-center justify-between">
+                <span className="text-zinc-300">Total</span>
+                <span className="text-lg font-semibold">{money(Number(order.total))}</span>
+              </div>
             </div>
           </div>
 
@@ -168,6 +189,165 @@ export default function AdminOrderDetail({ order }: { order: any }) {
               * Solo se puede marcar “enviado” si el pedido está en estado <b>paid</b>.
             </p>
           )}
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-semibold">Envío (Correo Argentino)</div>
+              <div className="mt-1 text-xs text-zinc-500">
+                Estado: <span className="text-zinc-200">{correo?.status ?? "—"}</span>
+              </div>
+            </div>
+          </div>
+
+          {correo?.shippingId && (
+            <div className="mt-3 text-xs text-zinc-500 font-mono">ShippingId: {correo.shippingId}</div>
+          )}
+
+          {correoMsg && (
+            <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 text-sm text-zinc-200">
+              {correoMsg}
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              disabled={correoLoading}
+              onClick={async () => {
+                setCorreoMsg(null);
+                setCorreoLoading(true);
+                const res = await fetch(`/api/admin/orders/${order.id}/correo/import`, { method: "POST" });
+                const data = await res.json().catch(() => ({}));
+                setCorreoLoading(false);
+                if (!res.ok) {
+                  setCorreoMsg(data?.error || "No se pudo importar el envío.");
+                  return;
+                }
+                setCorreo(data.shipment);
+                setCorreoMsg(data.reused ? "✅ Envío existente cargado." : "✅ Envío importado.");
+              }}
+              className="rounded-2xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60"
+            >
+              {correoLoading ? "Importando..." : correo ? "Reimportar envío" : "Importar envío"}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-semibold">Envío (E-pick)</div>
+              <div className="mt-1 text-xs text-zinc-500">
+                Estado: <span className="text-zinc-200">{epick?.status ?? "—"}</span>
+              </div>
+            </div>
+            {epick?.epickOrderId && (
+              <a
+                href={`https://dev-ar.e-pick.com.ar/tracking?id=${epick.epickOrderId}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-zinc-400 hover:text-zinc-200"
+              >
+                Tracking público
+              </a>
+            )}
+          </div>
+
+          {epick?.epickOrderId && (
+            <div className="mt-3 text-xs text-zinc-500 font-mono">
+              {epick.epickOrderId} · {epick.senderCode}
+            </div>
+          )}
+
+          {epickMsg && (
+            <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 text-sm text-zinc-200">
+              {epickMsg}
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              disabled={shipLoading}
+              onClick={async () => {
+                setEpickMsg(null);
+                setShipLoading(true);
+                const res = await fetch("/api/shipping/create", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ orderId: order.id }),
+                });
+                const data = await res.json().catch(() => ({}));
+                setShipLoading(false);
+                if (!res.ok) {
+                  setEpickMsg(data?.error || "No se pudo crear el envío.");
+                  return;
+                }
+                setEpick(data.shipment);
+                setEpickMsg(data.reused ? "✅ Envío existente cargado." : "✅ Envío creado.");
+                if (data.shipment?.mpUrl) {
+                  window.open(data.shipment.mpUrl, "_blank");
+                }
+              }}
+              className="rounded-2xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60"
+            >
+              {shipLoading ? "Creando..." : epick ? "Recrear/Refrescar envío" : "Crear envío"}
+            </button>
+
+            <button
+              disabled={!epick || epick?.status !== "PAYED"}
+              onClick={async () => {
+                setEpickMsg(null);
+                const res = await fetch(`/api/shipping/confirm/${order.id}`, { method: "GET" });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                  setEpickMsg(data?.error || "No se pudo confirmar.");
+                  return;
+                }
+                setEpick(data.shipment);
+                setEpickMsg("✅ Envío confirmado.");
+              }}
+              className="rounded-2xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60 disabled:opacity-50"
+            >
+              Confirmar retiro
+            </button>
+
+            <button
+              disabled={!epick}
+              onClick={async () => {
+                setEpickMsg(null);
+                const res = await fetch(`/api/shipping/tracking/${order.id}`, { method: "GET" });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                  setEpickMsg(data?.error || "No se pudo consultar tracking.");
+                  return;
+                }
+                setEpick((prev: any) => ({ ...prev, status: data.status }));
+                setEpickMsg(`Tracking actualizado: ${data.status}`);
+              }}
+              className="rounded-2xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60 disabled:opacity-50"
+            >
+              Consultar tracking
+            </button>
+
+            <a
+              href={`/api/shipping/label/${order.id}?type=normal`}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-2xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60"
+            >
+              Etiqueta A4
+            </a>
+
+            <a
+              href={`/api/shipping/label/${order.id}?type=thermal`}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-2xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60"
+            >
+              Etiqueta 10x15
+            </a>
+          </div>
         </div>
       </div>
     </main>

@@ -12,7 +12,7 @@ model User {
   email        String   @unique
   name         String?
   passwordHash String
-  role         String   @default("customer") // "customer" | "admin"
+  role         String   @default("customer") // "customer" | "merchant" | "admin"
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -33,9 +33,40 @@ model Product {
 
   images      ProductImage[]
   orderItems  OrderItem[]
+  promotions  PromotionProduct[]
 
   @@index([isActive])
   @@index([slug])
+}
+
+model Promotion {
+  id        String   @id @default(cuid())
+  name      String
+  type      String   // global | product | code
+  percent   Int
+  code      String?
+  isActive  Boolean  @default(true)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products  PromotionProduct[]
+
+  @@index([type])
+  @@index([isActive])
+  @@index([code])
+}
+
+model PromotionProduct {
+  promotionId String
+  productId   String
+
+  promotion Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([promotionId, productId])
+  @@index([productId])
 }
 
 model ProductImage {
@@ -61,6 +92,10 @@ model Order {
   shippingAddressLine String
   shippingCity        String
   shippingZip         String
+  shippingProvince    String  @default("")
+  shippingProvinceCode String @default("")
+  shippingMethod      String?  // epick|andreani|correo|pickup
+  shippingAmount      Decimal  @db.Decimal(18, 2) @default(0)
 
   shippedAt           DateTime? // ✅ cuando lo marcás como enviado
   notes               String?   // ✅ notas internas/admin (opcional)
@@ -71,11 +106,86 @@ model Order {
   user                User     @relation(fields: [userId], references: [id], onDelete: NoAction)
   items               OrderItem[]
   payments            Payment[]
+  epickShipment       EPickShipment?
+  correoShipment      CorreoShipment?
 
   @@index([userId])
   @@index([status])
   @@index([shippedAt])
   @@unique([orderNumber])
+}
+
+model EPickShipment {
+  id               String   @id @default(cuid())
+  orderId          String   @unique
+  epickOrderId     String?
+  senderCode       String?
+  status           String   @default("PENDING") // PENDING|PAYED|CONFIRMED|COLLECTED|DELIVERED-TO-SERVICE|DELIVERED|CANCELED
+  mpUrl            String?
+  choUrl           String?
+  preferenceId     String?
+  qrImage          String?  @db.NVarChar(max)
+  lastPayloadJson  String?  @db.NVarChar(max)
+  lastTrackingJson String?  @db.NVarChar(max)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  order            Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  webhookEvents    EPickWebhookEvent[]
+
+  @@index([epickOrderId])
+  @@index([status])
+}
+
+model EPickWebhookEvent {
+  id              String   @id @default(cuid())
+  epickShipmentId String
+  payloadJson     String   @db.NVarChar(max)
+  createdAt       DateTime @default(now())
+
+  shipment        EPickShipment @relation(fields: [epickShipmentId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+}
+
+model CorreoShipment {
+  id               String   @id @default(cuid())
+  orderId          String   @unique
+  shippingId       String?
+  status           String   @default("IMPORTED")
+  lastPayloadJson  String?  @db.NVarChar(max)
+  lastResponseJson String?  @db.NVarChar(max)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  order            Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([shippingId])
+  @@index([status])
+}
+
+model ShippingCarrier {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  name      String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enabled])
+}
+
+model ShippingProviderSetting {
+  id        String   @id @default(cuid())
+  provider  String
+  key       String
+  value     String
+  isSecret  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, key])
+  @@index([provider])
 }
 
 model OrderItem {

@@ -70,7 +70,7 @@ export default async function OrderDetailPage({
               <div>{order.shippingName}</div>
               <div className="text-zinc-400">{order.shippingPhone}</div>
               <div className="mt-2">
-                {order.shippingAddressLine}, {order.shippingCity} ({order.shippingZip})
+                {order.shippingAddressLine}, {order.shippingCity}, {order.shippingProvince} ({order.shippingZip})
               </div>
             </div>
           </div>

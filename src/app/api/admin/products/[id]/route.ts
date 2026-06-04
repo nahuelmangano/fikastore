@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/slug";
+import { isStaffRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
 
@@ -11,7 +12,7 @@ export async function PATCH(
 ) {
   const session = await auth();
   const role = (session?.user as any)?.role;
-  if (role !== "admin") return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const resolvedParams = await Promise.resolve(params);
   const id = resolvedParams?.id?.trim();
@@ -72,7 +73,7 @@ export async function DELETE(
 ) {
   const session = await auth();
   const role = (session?.user as any)?.role;
-  if (role !== "admin") return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const resolvedParams = await Promise.resolve(params);
   const id = resolvedParams?.id?.trim();

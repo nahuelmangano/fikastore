@@ -9,6 +9,7 @@ export type CartItem = {
 };
 
 const KEY = "fikastore_cart_v1";
+const PROMO_KEY = "fikastore_promo_code_v1";
 
 export function readCart(): CartItem[] {
   if (typeof window === "undefined") return [];
@@ -66,4 +67,26 @@ export function setQuantity(productId: string, quantity: number) {
 
 export function clearCart() {
   writeCart([]);
+}
+
+export function readPromoCode(): string {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem(PROMO_KEY) || "";
+}
+
+export function writePromoCode(code: string) {
+  if (typeof window === "undefined") return;
+  const value = String(code || "").trim().toUpperCase();
+  if (!value) {
+    localStorage.removeItem(PROMO_KEY);
+  } else {
+    localStorage.setItem(PROMO_KEY, value);
+  }
+  window.dispatchEvent(new Event("cart:changed"));
+}
+
+export function clearPromoCode() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(PROMO_KEY);
+  window.dispatchEvent(new Event("cart:changed"));
 }
