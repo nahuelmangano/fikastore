@@ -57,8 +57,8 @@ export default async function AdminDashboardPage() {
   const routes = isAdmin ? [...ADMIN_ROUTES, ...ADMIN_ONLY_ROUTES] : ADMIN_ROUTES;
 
   const usersWhere = isAdmin
-    ? { role: { in: ["admin", "merchant"] as const } }
-    : { role: "customer" as const };
+    ? { role: { in: ["admin", "merchant"] } }
+    : { role: "customer" };
 
   const users = await prisma.user.findMany({
     where: usersWhere,

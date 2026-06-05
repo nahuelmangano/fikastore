@@ -1,0 +1,95 @@
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: fikastore-db
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-FikaStore!2026}
+    ports:
+      - "${MSSQL_PORT:-1433}:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/127.0.0.1/1433'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  db-init:
+    image: mcr.microsoft.com/mssql-tools:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-FikaStore!2026}
+      MSSQL_DATABASE: ${MSSQL_DATABASE:-fikastore}
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - |
+        SQLCMD=/opt/mssql-tools18/bin/sqlcmd
+        SQLCMD_EXTRA=-C
+        if [ ! -x "$$SQLCMD" ]; then
+          SQLCMD=/opt/mssql-tools/bin/sqlcmd
+          SQLCMD_EXTRA=
+        fi
+        "$$SQLCMD" \
+          -S db \
+          -U sa \
+          -P "$$MSSQL_SA_PASSWORD" \
+          $$SQLCMD_EXTRA \
+          -Q "IF DB_ID(N'$$MSSQL_DATABASE') IS NULL CREATE DATABASE [$$MSSQL_DATABASE];"
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fikastore-web
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-sqlserver://db:1433;database=fikastore;user=sa;password=FikaStore!2026;encrypt=true;trustServerCertificate=true}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      SITE_URL: ${SITE_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-change-this-secret-before-production}
+      MP_ACCESS_TOKEN: ${MP_ACCESS_TOKEN:-}
+      CRON_SECRET: ${CRON_SECRET:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      EPICK_BASE_URL: ${EPICK_BASE_URL:-https://dev-ar.e-pick.com.ar}
+      EPICK_PHONE: ${EPICK_PHONE:-}
+      EPICK_PASSWORD: ${EPICK_PASSWORD:-}
+      EPICK_WEBHOOK_URL: ${EPICK_WEBHOOK_URL:-http://localhost:3000/api/epick/webhook}
+      EPICK_SENDER_NAME: ${EPICK_SENDER_NAME:-}
+      EPICK_SENDER_PHONE: ${EPICK_SENDER_PHONE:-}
+      EPICK_SENDER_EMAIL: ${EPICK_SENDER_EMAIL:-}
+      EPICK_SENDER_STREET: ${EPICK_SENDER_STREET:-}
+      EPICK_SENDER_NUMBER: ${EPICK_SENDER_NUMBER:-}
+      EPICK_SENDER_CITY: ${EPICK_SENDER_CITY:-}
+      EPICK_SENDER_PROVINCE: ${EPICK_SENDER_PROVINCE:-}
+      EPICK_SENDER_POSTAL_CODE: ${EPICK_SENDER_POSTAL_CODE:-}
+      EPICK_SENDER_EXTRA: ${EPICK_SENDER_EXTRA:-}
+      EPICK_SENDER_INFO: ${EPICK_SENDER_INFO:-}
+      EPICK_ADDRESSEE_PROVINCE: ${EPICK_ADDRESSEE_PROVINCE:-}
+      EPICK_PKG_LONG: ${EPICK_PKG_LONG:-30}
+      EPICK_PKG_WIDTH: ${EPICK_PKG_WIDTH:-20}
+      EPICK_PKG_HEIGHT: ${EPICK_PKG_HEIGHT:-10}
+      EPICK_PKG_WEIGHT: ${EPICK_PKG_WEIGHT:-1}
+      CORREO_ARG_DEBUG: ${CORREO_ARG_DEBUG:-0}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - uploads:/app/public/uploads
+    command: ["sh", "-c", "npx prisma migrate deploy && npm run start"]
+    restart: unless-stopped
+
+volumes:
+  mssql-data:
+  uploads:

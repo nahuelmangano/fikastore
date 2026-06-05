@@ -4,14 +4,15 @@ import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
-export async function GET(_: Request, { params }: { params: { id: string } }) {
+export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const session = await auth();
   const userId = (session?.user as any)?.id as string | undefined;
   if (!userId) {
     return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
   }
 
-  const orderId = params.id;
+  const orderId = id;
   if (!orderId) {
     return NextResponse.json({ ok: false, error: "orderId inválido." }, { status: 400 });
   }
