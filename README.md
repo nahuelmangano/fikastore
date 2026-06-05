@@ -1,41 +1,42 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# FikaStore
 
-## Getting Started
+Resumen del proyecto
 
-First, run the development server:
+FikaStore es un e-commerce desarrollado con Next.js (App Router) y TypeScript. Incluye funcionalidades completas para venta online: catálogo y gestión de productos, carrito de compras, proceso de checkout, pasarelas de pago, gestión de usuarios y pedidos, y un panel de administración.
+
+Características principales
+
+- Frontend en Next.js (App Router) con componentes reutilizables para carrito, checkout y sesión.
+- Autenticación y cuentas de usuario, historial de pedidos y páginas de cuenta.
+- Carrito sincronizado y flujo de checkout completo.
+- Integración con múltiples proveedores de envío (E-pick, Andreani, Correo Argentino) con cotización, creación de envíos, etiquetas y tracking.
+- Panel administrativo para productos, pedidos, usuarios, promociones, paquetería y estadísticas.
+- Promociones y cupones, gestión de descuentos.
+- Notificaciones por email (plantillas y envío) y webhooks para eventos externos.
+- Tareas programadas/cron para recordatorios (carritos abandonados, etc.).
+- Persistencia con Prisma (migraciones y seed) y almacenamiento de archivos en `public/uploads`.
+
+Getting started
+
+Instalar dependencias y ejecutar en modo desarrollo:
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# o: pnpm install && pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abre http://localhost:3000 en tu navegador.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Estructura y puntos importantes
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Rutas de la app y páginas bajo `app/`.
+- APIs en `src/app/api/` para `auth`, `cart`, `checkout`, `orders`, `payments`, `shipping`, `epick`, `promotions`, `webhooks`, etc.
+- Lógica reusable en `src/lib/` (envíos, mailer, promociones, prisma, carriers).
+- Componentes UI en `src/components/` (AddToCartButton, CartPanel, CheckoutClient, SiteHeader, etc.).
+- Prisma schema en `prisma/schema.prisma` y scripts de seed/migrations en `prisma/`.
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-
-## E-pick (envios)
+E-pick (envíos)
 
 ### Variables de entorno
 
@@ -68,20 +69,20 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 - `POST /api/epick/webhook`
 - `GET /api/shipping/label/:ids?type=normal|thermal`
 
-### Ejemplos
+Ejemplos
 
-Cotizacion:
+Cotización:
 ```bash
-curl -X POST http://localhost:3000/api/shipping/quote \\
-  -H \"Content-Type: application/json\" \\
-  -d '{\"postalCode\":\"1414\"}'
+curl -X POST http://localhost:3000/api/shipping/quote \
+  -H "Content-Type: application/json" \
+  -d '{"postalCode":"1414"}'
 ```
 
-Crear envio:
+Crear envío:
 ```bash
-curl -X POST http://localhost:3000/api/shipping/create \\
-  -H \"Content-Type: application/json\" \\
-  -d '{\"orderId\":\"ORDER_ID\"}'
+curl -X POST http://localhost:3000/api/shipping/create \
+  -H "Content-Type: application/json" \
+  -d '{"orderId":"ORDER_ID"}'
 ```
 
 Confirmar retiro:
@@ -96,5 +97,6 @@ curl http://localhost:3000/api/shipping/tracking/ORDER_ID
 
 Etiqueta:
 ```bash
-curl \"http://localhost:3000/api/shipping/label/ORDER_ID?type=normal\"
+curl "http://localhost:3000/api/shipping/label/ORDER_ID?type=normal"
 ```
+
