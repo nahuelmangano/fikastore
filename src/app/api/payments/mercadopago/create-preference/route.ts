@@ -20,6 +20,7 @@ function baseUrl(req: Request) {
   const proto = req.headers.get("x-forwarded-proto") || "http";
 
   if (host) return `${proto}://${host}`.replace(/\/$/, "");
+
   return "http://localhost:3000";
 }
 
@@ -28,13 +29,19 @@ export async function POST(req: Request) {
   const userId = (session?.user as any)?.id as string | undefined;
 
   if (!userId) {
-    return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, error: "No autorizado." },
+      { status: 401 }
+    );
   }
 
   const { orderId } = await req.json().catch(() => ({}));
 
   if (!orderId || typeof orderId !== "string") {
-    return NextResponse.json({ ok: false, error: "orderId inválido." }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "orderId inválido." },
+      { status: 400 }
+    );
   }
 
   const order = await prisma.order.findFirst({
@@ -46,24 +53,10 @@ export async function POST(req: Request) {
   });
 
   if (!order) {
-    return NextResponse.json({ ok: false, error: "Orden no encontrada." }, { status: 404 });
-  }
-
-  if (order.status === "paid") {
-    return NextResponse.json({ ok: false, error: "La orden ya está pagada." }, { status: 400 });
-  }
-
-  const existingPayment = order.payments.find(
-    (p) => p.provider === "mercadopago" && p.preferenceId && p.initPoint
-  );
-
-  if (existingPayment) {
-    return NextResponse.json({
-      ok: true,
-      preferenceId: existingPayment.preferenceId,
-      initPoint: existingPayment.initPoint,
-      reused: true,
-    });
+    return NextResponse.json(
+      { ok: false, error: "Orden no encontrada." },
+      { status: 404 }
+    );
   }
 
   const token = process.env.MP_ACCESS_TOKEN;
@@ -84,91 +77,54 @@ export async function POST(req: Request) {
     currency_id: "ARS",
   }));
 
-  if (Number(order.shippingAmount || 0) > 0) {
-    items.push({
-      title: "Envío",
-      quantity: 1,
-      unit_price: Number(order.shippingAmount),
-      currency_id: "ARS",
-    });
-  }
-
-  const body: Record<string, unknown> = {
+  const body = {
     items,
     external_reference: order.id,
-    metadata: {
-      order_id: order.id,
-      user_id: userId,
-    },
     notification_url: `${site}/api/webhooks/mercadopago`,
     back_urls: {
       success: `${site}/pay/success?orderId=${order.id}`,
       failure: `${site}/pay/failure?orderId=${order.id}`,
       pending: `${site}/pay/pending?orderId=${order.id}`,
     },
-    auto_return: "approved",
+    auto_return: "approved" as const,
   };
 
-  console.log("MP site:", site);
-  console.log("MP body:", JSON.stringify(body, null, 2));
+  console.log("SITE =", site);
+  console.log("BODY =", JSON.stringify(body, null, 2));
 
-  const mpRes = await fetch("https://api.mercadopago.com/checkout/preferences", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  const mpRes = await fetch(
+    "https://api.mercadopago.com/checkout/preferences",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    }
+  );
 
-  const mpData = await mpRes.json().catch(() => ({}));
+  const mpData = await mpRes.json();
+
+  console.log("MP STATUS =", mpRes.status);
+  console.log("MP RESPONSE =", JSON.stringify(mpData, null, 2));
 
   if (!mpRes.ok) {
     console.error("MP preference error", mpData);
+
     return NextResponse.json(
-      { ok: false, error: "Error creando preferencia.", details: mpData },
+      {
+        ok: false,
+        error: "Error creando preferencia.",
+        details: mpData,
+      },
       { status: 502 }
     );
   }
 
-  const preferenceId = mpData.id as string | undefined;
-  const initPoint = mpData.init_point as string | undefined;
-
-  if (!preferenceId || !initPoint) {
-    return NextResponse.json(
-      { ok: false, error: "Respuesta inválida de Mercado Pago.", details: mpData },
-      { status: 502 }
-    );
-  }
-
-  const existing = await prisma.payment.findFirst({
-    where: { orderId: order.id, provider: "mercadopago" },
-    orderBy: { createdAt: "desc" },
+  return NextResponse.json({
+    ok: true,
+    preferenceId: mpData.id,
+    initPoint: mpData.init_point,
   });
-
-  if (existing) {
-    await prisma.payment.update({
-      where: { id: existing.id },
-      data: {
-        preferenceId,
-        initPoint,
-        status: "pending",
-        pendingAt: new Date(),
-        pendingReminderSentAt: null,
-      },
-    });
-  } else {
-    await prisma.payment.create({
-      data: {
-        orderId: order.id,
-        provider: "mercadopago",
-        status: "pending",
-        preferenceId,
-        initPoint,
-        pendingAt: new Date(),
-      },
-    });
-  }
-
-  return NextResponse.json({ ok: true, preferenceId, initPoint, reused: false });
 }
