@@ -23,6 +23,69 @@ function buildHref(base: string, params: Record<string, string | number | null |
   return qs ? `${base}?${qs}` : base;
 }
 
+function splitProductName(name: string) {
+  const [base, ...rest] = name.split(/\s+—\s+/);
+  return {
+    baseName: (base || name).trim(),
+    variantName: rest.join(" — ").trim(),
+  };
+}
+
+type ListedProduct = Prisma.ProductGetPayload<{
+  include: { images: { orderBy: { sortOrder: "asc" }; take: 1 } };
+}>;
+
+type ProductGroup = {
+  id: string;
+  name: string;
+  description: string | null;
+  slug: string;
+  price: number;
+  stock: number;
+  isActive: boolean;
+  createdAt: Date;
+  images: ListedProduct["images"];
+  products: ListedProduct[];
+};
+
+function groupProducts(products: ListedProduct[]) {
+  const groups = new Map<string, ProductGroup>();
+
+  for (const product of products) {
+    const { baseName } = splitProductName(product.name);
+    const key = baseName.toLowerCase();
+    const price = Number(product.price);
+    const existing = groups.get(key);
+
+    if (!existing) {
+      groups.set(key, {
+        id: product.id,
+        name: baseName,
+        description: product.description,
+        slug: product.slug,
+        price,
+        stock: product.stock,
+        isActive: product.isActive,
+        createdAt: product.createdAt,
+        images: product.images,
+        products: [product],
+      });
+      continue;
+    }
+
+    existing.products.push(product);
+    existing.stock += product.stock;
+    existing.price = Math.min(existing.price, price);
+    existing.createdAt = existing.createdAt > product.createdAt ? existing.createdAt : product.createdAt;
+    existing.isActive = existing.isActive || product.isActive;
+    if (!existing.description && product.description) existing.description = product.description;
+    if (existing.images.length === 0 && product.images.length > 0) existing.images = product.images;
+  }
+
+  return Array.from(groups.values());
+}
+
+
 export default async function AdminProductsPage({
   searchParams,
 }: {
@@ -49,31 +112,26 @@ export default async function AdminProductsPage({
 
   if (status === "active") where.isActive = true;
   if (status === "inactive") where.isActive = false;
-  if (status === "oos") where.stock = 0;
 
-  const orderBy: Prisma.ProductOrderByWithRelationInput =
-    sort === "name"
-      ? { name: "asc" }
-      : sort === "price_asc"
-      ? { price: "asc" }
-      : sort === "price_desc"
-      ? { price: "desc" }
-      : sort === "stock_asc"
-      ? { stock: "asc" }
-      : sort === "stock_desc"
-      ? { stock: "desc" }
-      : { createdAt: "desc" };
+  const allProducts = await prisma.product.findMany({
+    where,
+    include: { images: { orderBy: { sortOrder: "asc" }, take: 1 } },
+  });
 
-  const [total, products] = await Promise.all([
-    prisma.product.count({ where }),
-    prisma.product.findMany({
-      where,
-      orderBy,
-      take: PAGE_SIZE,
-      skip: (page - 1) * PAGE_SIZE,
-      include: { images: { orderBy: { sortOrder: "asc" }, take: 1 } },
-    }),
-  ]);
+  let productGroups = groupProducts(allProducts);
+  if (status === "oos") productGroups = productGroups.filter((group) => group.stock <= 0);
+
+  productGroups.sort((a, b) => {
+    if (sort === "name") return a.name.localeCompare(b.name);
+    if (sort === "price_asc") return a.price - b.price;
+    if (sort === "price_desc") return b.price - a.price;
+    if (sort === "stock_asc") return a.stock - b.stock;
+    if (sort === "stock_desc") return b.stock - a.stock;
+    return b.createdAt.getTime() - a.createdAt.getTime();
+  });
+
+  const total = productGroups.length;
+  const products = productGroups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -199,6 +257,7 @@ export default async function AdminProductsPage({
                 {products.map((p) => {
                   const img = p.images?.[0]?.url;
                   const isOos = p.stock <= 0;
+                  const variantsCount = p.products.length;
                   return (
                     <tr key={p.id} className="text-sm">
                       <td className="px-4 py-3">
@@ -213,15 +272,15 @@ export default async function AdminProductsPage({
                           </div>
                           <div className="min-w-0">
                             <div className="truncate font-medium">{p.name}</div>
-                            <div className="mt-0.5 truncate font-mono text-xs text-zinc-500">
-                              /products/{p.slug}
+                            <div className="mt-0.5 truncate text-xs text-zinc-500">
+                              {variantsCount} variante{variantsCount === 1 ? "" : "s"} · /products/{p.slug}
                             </div>
                           </div>
                         </div>
                       </td>
 
                       <td className="px-4 py-3">
-                        ${Number(p.price).toLocaleString("es-AR")}
+                        ${p.price.toLocaleString("es-AR")}
                       </td>
 
                       <td className="px-4 py-3">
