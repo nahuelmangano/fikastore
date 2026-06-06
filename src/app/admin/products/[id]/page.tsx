@@ -2,6 +2,14 @@ import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import AdminProductEditor from "./ui";
 
+function splitProductName(name: string) {
+  const [base, ...rest] = name.split(/\s+—\s+/);
+  return {
+    baseName: (base || name).trim(),
+    variantName: rest.join(" — ").trim(),
+  };
+}
+
 export default async function AdminProductEditPage({
   params,
 }: {
@@ -17,5 +25,15 @@ export default async function AdminProductEditPage({
   });
 
   if (!product) return notFound();
-  return <AdminProductEditor product={product as any} />;
+
+  const { baseName } = splitProductName(product.name);
+  const variants = await prisma.product.findMany({
+    where: {
+      OR: [{ name: baseName }, { name: { startsWith: `${baseName} —` } }],
+    },
+    include: { images: { orderBy: { sortOrder: "asc" } } },
+    orderBy: [{ name: "asc" }],
+  });
+
+  return <AdminProductEditor product={product} variants={variants.length > 0 ? variants : [product]} />;
 }

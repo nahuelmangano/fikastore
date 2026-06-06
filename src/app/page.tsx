@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import SiteHeader from "@/components/SiteHeader";
 import { getAutomaticDiscountsForProducts } from "@/lib/promotions";
@@ -22,6 +23,69 @@ function buildHref(base: string, params: Record<string, string | number | null |
   return qs ? `${base}?${qs}` : base;
 }
 
+function splitProductName(name: string) {
+  const [base, ...rest] = name.split(/\s+—\s+/);
+  return {
+    baseName: (base || name).trim(),
+    variantName: rest.join(" — ").trim(),
+  };
+}
+
+type ListedProduct = Prisma.ProductGetPayload<{
+  include: { images: { orderBy: { sortOrder: "asc" }; take: 1 } };
+}>;
+
+type ProductGroup = {
+  id: string;
+  name: string;
+  description: string | null;
+  slug: string;
+  price: number;
+  stock: number;
+  isActive: boolean;
+  createdAt: Date;
+  images: ListedProduct["images"];
+  products: ListedProduct[];
+};
+
+function groupProducts(products: ListedProduct[]) {
+  const groups = new Map<string, ProductGroup>();
+
+  for (const product of products) {
+    const { baseName } = splitProductName(product.name);
+    const key = baseName.toLowerCase();
+    const price = Number(product.price);
+    const existing = groups.get(key);
+
+    if (!existing) {
+      groups.set(key, {
+        id: product.id,
+        name: baseName,
+        description: product.description,
+        slug: product.slug,
+        price,
+        stock: product.stock,
+        isActive: product.isActive,
+        createdAt: product.createdAt,
+        images: product.images,
+        products: [product],
+      });
+      continue;
+    }
+
+    existing.products.push(product);
+    existing.stock += product.stock;
+    existing.price = Math.min(existing.price, price);
+    existing.createdAt = existing.createdAt > product.createdAt ? existing.createdAt : product.createdAt;
+    existing.isActive = existing.isActive || product.isActive;
+    if (!existing.description && product.description) existing.description = product.description;
+    if (existing.images.length === 0 && product.images.length > 0) existing.images = product.images;
+  }
+
+  return Array.from(groups.values());
+}
+
+
 export default async function HomePage({
   searchParams,
 }: {
@@ -39,7 +103,7 @@ export default async function HomePage({
   // sort: newest | price_asc | price_desc | stock_desc
   const sort = (resolvedSearchParams.sort ?? "newest").toLowerCase();
 
-  const where: any = { isActive: true };
+  const where: Prisma.ProductWhereInput = { isActive: true };
 
   if (q) {
     where.OR = [
@@ -49,31 +113,28 @@ export default async function HomePage({
     ];
   }
 
+  const allProducts = await prisma.product.findMany({
+    where,
+    include: { images: { orderBy: { sortOrder: "asc" }, take: 1 } },
+  });
+
+  let productGroups = groupProducts(allProducts);
+
   if (availability === "available") {
-    where.stock = { gt: 0 };
+    productGroups = productGroups.filter((group) => group.stock > 0);
   } else if (availability === "oos") {
-    where.stock = 0;
-  } // all => no stock filter
+    productGroups = productGroups.filter((group) => group.stock <= 0);
+  }
 
-  const orderBy: any =
-    sort === "price_asc"
-      ? { price: "asc" }
-      : sort === "price_desc"
-      ? { price: "desc" }
-      : sort === "stock_desc"
-      ? { stock: "desc" }
-      : { createdAt: "desc" };
+  productGroups.sort((a, b) => {
+    if (sort === "price_asc") return a.price - b.price;
+    if (sort === "price_desc") return b.price - a.price;
+    if (sort === "stock_desc") return b.stock - a.stock;
+    return b.createdAt.getTime() - a.createdAt.getTime();
+  });
 
-  const [total, products] = await Promise.all([
-    prisma.product.count({ where }),
-    prisma.product.findMany({
-      where,
-      orderBy,
-      take: PAGE_SIZE,
-      skip: (page - 1) * PAGE_SIZE,
-      include: { images: { orderBy: { sortOrder: "asc" }, take: 1 } },
-    }),
-  ]);
+  const total = productGroups.length;
+  const products = productGroups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const promoMap = await getAutomaticDiscountsForProducts(products.map((p) => p.id));
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -153,7 +214,7 @@ export default async function HomePage({
                 const img =
                   p.images[0]?.url ?? "https://placehold.co/900x900/png?text=Fika";
                 const isOos = p.stock <= 0;
-                const basePrice = Number(p.price);
+                const basePrice = p.price;
                 const promoPercent = promoMap.get(p.id) ?? 0;
                 const finalPrice =
                   promoPercent > 0 ? Math.round(basePrice * (1 - promoPercent / 100) * 100) / 100 : basePrice;
@@ -182,7 +243,9 @@ export default async function HomePage({
                       <div className="min-w-0">
                         <h2 className="truncate text-base font-medium">{p.name}</h2>
                         <p className="mt-1 line-clamp-2 text-sm text-zinc-400">
-                          {p.description ?? "Producto Fika"}
+                          {p.products.length > 1
+                            ? `${p.products.length} variantes disponibles`
+                            : p.description ?? "Producto Fika"}
                         </p>
                       </div>
 

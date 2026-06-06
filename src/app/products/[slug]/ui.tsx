@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { addToCart } from "@/lib/cart";
 import SiteHeader from "@/components/SiteHeader";
 
@@ -9,8 +9,50 @@ function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
 }
 
-export default function ProductDetailClient({ product, promoPercent = 0 }: { product: any; promoPercent?: number }) {
-  const images: string[] = (product.images ?? []).map((x: any) => x.url);
+function splitProductName(name: string) {
+  const [base, ...rest] = name.split(/\s+—\s+/);
+  return {
+    baseName: (base || name).trim(),
+    variantName: rest.join(" — ").trim(),
+  };
+}
+
+function variantLabel(name: string) {
+  const { variantName } = splitProductName(name);
+  return variantName || "Única variante";
+}
+
+type ProductVariant = {
+  id: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+  price: unknown;
+  stock: number;
+  isActive: boolean;
+  images?: Array<{ url: string }>;
+};
+
+type ShippingRate = {
+  deliveredType?: string;
+  price?: unknown;
+};
+
+export default function ProductDetailClient({
+  product,
+  variants = [product],
+  promoPercent = 0,
+  promoPercents = {},
+}: {
+  product: ProductVariant;
+  variants?: ProductVariant[];
+  promoPercent?: number;
+  promoPercents?: Record<string, number>;
+}) {
+  const [selectedId, setSelectedId] = useState<string>(product.id);
+  const selected = variants.find((variant) => variant.id === selectedId) ?? product;
+  const { baseName } = splitProductName(product.name);
+  const images: string[] = (selected.images ?? product.images ?? []).map((x) => x.url);
   const fallback = "https://placehold.co/800x800/png?text=Fika";
   const [active, setActive] = useState<string>(images[0] ?? fallback);
   const [qty, setQty] = useState<number>(1);
@@ -19,15 +61,12 @@ export default function ProductDetailClient({ product, promoPercent = 0 }: { pro
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [quoteRows, setQuoteRows] = useState<Array<{ label: string; amount: number }>>([]);
 
-  const price = useMemo(() => Number(product.price), [product.price]);
-  const promo = useMemo(() => Number(promoPercent || 0), [promoPercent]);
-  const finalPrice = useMemo(
-    () => (promo > 0 ? Math.round(price * (1 - promo / 100) * 100) / 100 : price),
-    [price, promo]
-  );
-  const stock = useMemo(() => Number(product.stock), [product.stock]);
+  const price = Number(selected.price);
+  const promo = Number(promoPercents[selected.id] ?? promoPercent ?? 0);
+  const finalPrice = promo > 0 ? Math.round(price * (1 - promo / 100) * 100) / 100 : price;
+  const stock = Number(selected.stock);
 
-  const canBuy = product.isActive && stock > 0;
+  const canBuy = selected.isActive && stock > 0;
 
   function clampQty(n: number) {
     if (!Number.isFinite(n)) return 1;
@@ -87,9 +126,10 @@ export default function ProductDetailClient({ product, promoPercent = 0 }: { pro
       if (Number.isFinite(amount) && amount > 0) rows.push({ label: "Andreani", amount });
     }
     if (isEnabled("correo") && correoRes.ok) {
-      const rate =
-        correoData?.quote?.rates?.find((r: any) => r?.deliveredType === "D") ||
-        correoData?.quote?.rates?.[0];
+      const rates = Array.isArray(correoData?.quote?.rates)
+        ? (correoData.quote.rates as ShippingRate[])
+        : [];
+      const rate = rates.find((r) => r?.deliveredType === "D") || rates[0];
       const amount = Number(rate?.price ?? 0);
       if (Number.isFinite(amount) && amount > 0) rows.push({ label: "Correo Argentino", amount });
     }
@@ -116,7 +156,7 @@ export default function ProductDetailClient({ product, promoPercent = 0 }: { pro
           <div>
             <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/30">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={active} alt={product.name} className="aspect-square w-full object-cover" />
+              <img src={active} alt={baseName} className="aspect-square w-full object-cover" />
             </div>
 
             {images.length > 1 && (
@@ -132,7 +172,7 @@ export default function ProductDetailClient({ product, promoPercent = 0 }: { pro
                     aria-label="Cambiar imagen"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url} alt={product.name} className="aspect-square w-full object-cover" />
+                    <img src={url} alt={baseName} className="aspect-square w-full object-cover" />
                   </button>
                 ))}
               </div>
@@ -141,7 +181,7 @@ export default function ProductDetailClient({ product, promoPercent = 0 }: { pro
 
           {/* Info */}
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
-            <h1 className="text-2xl font-semibold">{product.name}</h1>
+            <h1 className="text-2xl font-semibold">{baseName}</h1>
 
             <div className="mt-3 flex flex-wrap items-center gap-3">
               {promo > 0 ? (
@@ -161,6 +201,40 @@ export default function ProductDetailClient({ product, promoPercent = 0 }: { pro
               <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
                 {product.description}
               </p>
+            )}
+
+            {variants.length > 1 && (
+              <div className="mt-6">
+                <div className="text-sm font-medium text-zinc-300">Variantes</div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {variants.map((variant) => {
+                    const variantStock = Number(variant.stock);
+                    const selectedVariant = variant.id === selected.id;
+                    return (
+                      <button
+                        key={variant.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedId(variant.id);
+                          setActive((variant.images ?? [])[0]?.url ?? fallback);
+                          setQty(1);
+                        }}
+                        className={[
+                          "rounded-xl border px-3 py-2 text-left text-sm transition",
+                          selectedVariant
+                            ? "border-zinc-100 bg-zinc-100 text-zinc-900"
+                            : "border-zinc-800 bg-zinc-950 text-zinc-200 hover:bg-zinc-900/60",
+                        ].join(" ")}
+                      >
+                        <span className="block font-medium">{variantLabel(variant.name)}</span>
+                        <span className={selectedVariant ? "text-xs text-zinc-600" : "text-xs text-zinc-500"}>
+                          Stock: {variantStock}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             )}
 
             <div className="mt-6 grid gap-3">
@@ -199,9 +273,9 @@ export default function ProductDetailClient({ product, promoPercent = 0 }: { pro
                 onClick={() => {
                   addToCart(
                     {
-                      productId: product.id,
-                      slug: product.slug,
-                      name: product.name,
+                      productId: selected.id,
+                      slug: selected.slug,
+                      name: selected.name,
                       price,
                       stock,
                       imageUrl: images[0],
