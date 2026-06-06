@@ -107,10 +107,6 @@ export default async function AdminDashboardPage() {
             <h1 className="text-2xl font-semibold tracking-tight">Admin · Dashboard</h1>
             <p className="mt-1 text-sm text-zinc-400">Accesos rápidos y resumen de usuarios del sistema.</p>
           </div>
-
-          <Link href="/" className="text-sm text-zinc-400 hover:text-zinc-200">
-            Volver a la tienda
-          </Link>
         </div>
 
         <section className="mt-8">

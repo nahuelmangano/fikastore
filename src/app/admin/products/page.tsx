@@ -1,7 +1,10 @@
 import Link from "next/link";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 const PAGE_SIZE = 20;
+
+type AdminProductsSearchParams = { q?: string; page?: string; status?: string; sort?: string };
 
 function toInt(v: string | null, def: number) {
   const n = Number(v);
@@ -23,17 +26,18 @@ function buildHref(base: string, params: Record<string, string | number | null |
 export default async function AdminProductsPage({
   searchParams,
 }: {
-  searchParams: { q?: string; page?: string; status?: string; sort?: string };
+  searchParams: AdminProductsSearchParams | Promise<AdminProductsSearchParams>;
 }) {
-  const q = (searchParams.q ?? "").trim();
-  const page = toInt(searchParams.page ?? "1", 1);
+  const resolvedSearchParams = await Promise.resolve(searchParams);
+  const q = (resolvedSearchParams.q ?? "").trim();
+  const page = toInt(resolvedSearchParams.page ?? "1", 1);
 
   // status: all | active | inactive | oos
-  const status = (searchParams.status ?? "all").toLowerCase();
+  const status = (resolvedSearchParams.status ?? "all").toLowerCase();
   // sort: newest | name | price_asc | price_desc | stock_asc | stock_desc
-  const sort = (searchParams.sort ?? "newest").toLowerCase();
+  const sort = (resolvedSearchParams.sort ?? "newest").toLowerCase();
 
-  const where: any = {};
+  const where: Prisma.ProductWhereInput = {};
 
   if (q) {
     where.OR = [
@@ -47,7 +51,7 @@ export default async function AdminProductsPage({
   if (status === "inactive") where.isActive = false;
   if (status === "oos") where.stock = 0;
 
-  const orderBy: any =
+  const orderBy: Prisma.ProductOrderByWithRelationInput =
     sort === "name"
       ? { name: "asc" }
       : sort === "price_asc"
