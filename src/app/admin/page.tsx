@@ -57,8 +57,8 @@ export default async function AdminDashboardPage() {
   const routes = isAdmin ? [...ADMIN_ROUTES, ...ADMIN_ONLY_ROUTES] : ADMIN_ROUTES;
 
   const usersWhere = isAdmin
-    ? { role: { in: ["admin", "merchant"] as const } }
-    : { role: "customer" as const };
+    ? { role: { in: ["admin", "merchant"] } }
+    : { role: "customer" };
 
   const users = await prisma.user.findMany({
     where: usersWhere,
@@ -107,10 +107,6 @@ export default async function AdminDashboardPage() {
             <h1 className="text-2xl font-semibold tracking-tight">Admin · Dashboard</h1>
             <p className="mt-1 text-sm text-zinc-400">Accesos rápidos y resumen de usuarios del sistema.</p>
           </div>
-
-          <Link href="/" className="text-sm text-zinc-400 hover:text-zinc-200">
-            Volver a la tienda
-          </Link>
         </div>
 
         <section className="mt-8">

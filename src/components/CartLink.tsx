@@ -11,6 +11,7 @@ export default function CartLink() {
   const [open, setOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const { data: session } = useSession();
+  const isMerchant = session?.user?.role === "merchant";
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -75,6 +76,16 @@ export default function CartLink() {
             <div className="px-2 pb-2 text-sm text-zinc-100">
               {session?.user?.email || "No logueado"}
             </div>
+            {isMerchant && (
+              <Link
+                href="/admin"
+                className="block rounded-lg px-2 py-2 text-left text-sm text-zinc-200 hover:bg-zinc-900/60"
+                onClick={() => setOpen(false)}
+              >
+                Admin de tienda
+              </Link>
+            )}
+
             {session?.user?.email ? (
               <button
                 type="button"

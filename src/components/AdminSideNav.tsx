@@ -10,6 +10,7 @@ type AdminSideNavProps = {
 type NavItem = {
   href: string;
   label: string;
+  newTab?: boolean;
 };
 
 function isActivePath(pathname: string, href: string) {
@@ -28,6 +29,7 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
     { href: "/admin/products", label: "Productos" },
     { href: "/admin/orders", label: "Pedidos" },
     { href: "/admin/paqueteria", label: "Paquetería" },
+    { href: "/", label: "Ver Tienda", newTab: true },
   ];
 
   const adminOnlyItems: NavItem[] = [{ href: "/admin/users/new", label: "Alta merchant" }];
@@ -43,6 +45,8 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
               <Link
                 key={item.href}
                 href={item.href}
+                target={item.newTab ? "_blank" : undefined}
+                rel={item.newTab ? "noopener noreferrer" : undefined}
                 className={[
                   "whitespace-nowrap rounded-lg border px-3 py-1.5 text-sm",
                   active
@@ -70,6 +74,8 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
               <Link
                 key={item.href}
                 href={item.href}
+                target={item.newTab ? "_blank" : undefined}
+                rel={item.newTab ? "noopener noreferrer" : undefined}
                 className={[
                   "block rounded-xl border px-3 py-2 text-sm",
                   active

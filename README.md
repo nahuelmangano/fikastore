@@ -28,6 +28,26 @@ npm run dev
 
 Abre http://localhost:3000 en tu navegador.
 
+Docker
+
+Para levantar la app con SQL Server en contenedores:
+
+```bash
+cp docker.env.example docker.env
+docker compose --env-file docker.env up --build
+```
+
+La app queda disponible en http://localhost:3000. El contenedor ejecuta `prisma migrate deploy` antes de iniciar Next.js.
+
+Comandos utiles:
+
+```bash
+docker compose --env-file docker.env down
+docker compose --env-file docker.env down -v
+```
+
+`down -v` borra tambien la base y uploads. Antes de usarlo en produccion, cambia `MSSQL_SA_PASSWORD`, `DATABASE_URL` y `NEXTAUTH_SECRET` en `docker.env`.
+
 Estructura y puntos importantes
 
 - Rutas de la app y páginas bajo `app/`.

@@ -7,13 +7,14 @@ import { isStaffRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
 
-export async function DELETE(_: Request, { params }: { params: { id: string; imageId: string } }) {
+export async function DELETE(_: Request, { params }: { params: Promise<{ id: string; imageId: string }> }) {
+  const { id, imageId } = await params;
   const session = await auth();
   const role = (session?.user as any)?.role;
   if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const img = await prisma.productImage.findFirst({
-    where: { id: params.imageId, productId: params.id },
+    where: { id: imageId, productId: id },
   });
   if (!img) return NextResponse.json({ ok: false, error: "Imagen no existe" }, { status: 404 });
 
