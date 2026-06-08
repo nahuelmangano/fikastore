@@ -1,10 +1,11 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import BulkCategoryToolbar from "./BulkCategoryToolbar";
 
 const PAGE_SIZE = 20;
 
-type AdminProductsSearchParams = { q?: string; page?: string; status?: string; sort?: string };
+type AdminProductsSearchParams = { q?: string; page?: string; status?: string; sort?: string; category?: string };
 
 function toInt(v: string | null, def: number) {
   const n = Number(v);
@@ -32,7 +33,7 @@ function splitProductName(name: string) {
 }
 
 type ListedProduct = Prisma.ProductGetPayload<{
-  include: { images: { orderBy: { sortOrder: "asc" }; take: 1 } };
+  include: { images: { orderBy: { sortOrder: "asc" }; take: 1 }; category: true };
 }>;
 
 type ProductGroup = {
@@ -44,6 +45,7 @@ type ProductGroup = {
   stock: number;
   isActive: boolean;
   createdAt: Date;
+  categories: Array<{ name: string; slug: string }>;
   images: ListedProduct["images"];
   products: ListedProduct[];
 };
@@ -67,6 +69,7 @@ function groupProducts(products: ListedProduct[]) {
         stock: product.stock,
         isActive: product.isActive,
         createdAt: product.createdAt,
+        categories: product.category ? [{ name: product.category.name, slug: product.category.slug }] : [],
         images: product.images,
         products: [product],
       });
@@ -78,6 +81,12 @@ function groupProducts(products: ListedProduct[]) {
     existing.price = Math.min(existing.price, price);
     existing.createdAt = existing.createdAt > product.createdAt ? existing.createdAt : product.createdAt;
     existing.isActive = existing.isActive || product.isActive;
+    if (
+      product.category &&
+      !existing.categories.some((category) => category.slug === product.category?.slug)
+    ) {
+      existing.categories.push({ name: product.category.name, slug: product.category.slug });
+    }
     if (!existing.description && product.description) existing.description = product.description;
     if (existing.images.length === 0 && product.images.length > 0) existing.images = product.images;
   }
@@ -94,6 +103,7 @@ export default async function AdminProductsPage({
   const resolvedSearchParams = await Promise.resolve(searchParams);
   const q = (resolvedSearchParams.q ?? "").trim();
   const page = toInt(resolvedSearchParams.page ?? "1", 1);
+  const category = (resolvedSearchParams.category ?? "all").trim();
 
   // status: all | active | inactive | oos
   const status = (resolvedSearchParams.status ?? "all").toLowerCase();
@@ -112,11 +122,21 @@ export default async function AdminProductsPage({
 
   if (status === "active") where.isActive = true;
   if (status === "inactive") where.isActive = false;
+  if (category === "uncategorized") where.categoryId = null;
+  if (category && category !== "all" && category !== "uncategorized") {
+    where.category = { slug: category };
+  }
 
-  const allProducts = await prisma.product.findMany({
-    where,
-    include: { images: { orderBy: { sortOrder: "asc" }, take: 1 } },
-  });
+  const [allProducts, categories] = await Promise.all([
+    prisma.product.findMany({
+      where,
+      include: { images: { orderBy: { sortOrder: "asc" }, take: 1 }, category: true },
+    }),
+    prisma.category.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, slug: true },
+    }),
+  ]);
 
   let productGroups = groupProducts(allProducts);
   if (status === "oos") productGroups = productGroups.filter((group) => group.stock <= 0);
@@ -135,7 +155,7 @@ export default async function AdminProductsPage({
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const baseParams = { q, status, sort };
+  const baseParams = { q, status, sort, category };
   const exportHref = buildHref("/api/admin/products/export", baseParams);
 
   return (
@@ -180,7 +200,7 @@ export default async function AdminProductsPage({
         {/* Filtros */}
         <form className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4">
           <div className="grid gap-3 md:grid-cols-12">
-            <div className="md:col-span-6">
+            <div className="md:col-span-4">
               <label className="text-xs text-zinc-400">Buscar</label>
               <input
                 name="q"
@@ -190,7 +210,7 @@ export default async function AdminProductsPage({
               />
             </div>
 
-            <div className="md:col-span-3">
+            <div className="md:col-span-2">
               <label className="text-xs text-zinc-400">Estado</label>
               <select
                 name="status"
@@ -201,6 +221,23 @@ export default async function AdminProductsPage({
                 <option value="active">Activos</option>
                 <option value="inactive">Inactivos</option>
                 <option value="oos">Sin stock</option>
+              </select>
+            </div>
+
+            <div className="md:col-span-3">
+              <label className="text-xs text-zinc-400">Categoria</label>
+              <select
+                name="category"
+                defaultValue={category}
+                className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
+              >
+                <option value="all">Todas</option>
+                <option value="uncategorized">Sin categoria</option>
+                {categories.map((item) => (
+                  <option key={item.id} value={item.slug}>
+                    {item.name}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -239,13 +276,17 @@ export default async function AdminProductsPage({
           </div>
         </form>
 
+        <BulkCategoryToolbar categories={categories} />
+
         {/* Tabla */}
         <div className="mt-6 overflow-hidden rounded-2xl border border-zinc-800">
           <div className="overflow-x-auto">
             <table className="min-w-full">
               <thead className="bg-zinc-900/40">
                 <tr className="text-left text-xs text-zinc-400">
+                  <th className="px-4 py-3">Sel.</th>
                   <th className="px-4 py-3">Producto</th>
+                  <th className="px-4 py-3">Categoria</th>
                   <th className="px-4 py-3">Precio</th>
                   <th className="px-4 py-3">Stock</th>
                   <th className="px-4 py-3">Estado</th>
@@ -260,6 +301,14 @@ export default async function AdminProductsPage({
                   const variantsCount = p.products.length;
                   return (
                     <tr key={p.id} className="text-sm">
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          name="bulkProductIds"
+                          value={p.products.map((item) => item.id).join(",")}
+                          aria-label={`Seleccionar ${p.name}`}
+                        />
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           <div className="h-10 w-10 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
@@ -277,6 +326,24 @@ export default async function AdminProductsPage({
                             </div>
                           </div>
                         </div>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        {p.categories.length === 0 ? (
+                          <span className="text-xs text-zinc-500">Sin categoria</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {p.categories.map((item) => (
+                              <Link
+                                key={item.slug}
+                                href={buildHref("/admin/products", { ...baseParams, category: item.slug, page: 1 })}
+                                className="rounded-full border border-zinc-800 px-2 py-0.5 text-xs hover:bg-zinc-900/60"
+                              >
+                                {item.name}
+                              </Link>
+                            ))}
+                          </div>
+                        )}
                       </td>
 
                       <td className="px-4 py-3">
@@ -326,7 +393,7 @@ export default async function AdminProductsPage({
 
                 {products.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-sm text-zinc-400">
+                    <td colSpan={7} className="px-4 py-10 text-center text-sm text-zinc-400">
                       No hay productos con esos filtros.
                     </td>
                   </tr>

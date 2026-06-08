@@ -18,6 +18,7 @@ export async function POST(req: Request) {
   const price = Number(body.price);
   const stock = Number(body.stock);
   const isActive = Boolean(body.isActive);
+  const categoryId = String(body.categoryId || "").trim() || null;
 
   let slug = String(body.slug || "").trim();
   slug = slugify(slug || name);
@@ -26,6 +27,10 @@ export async function POST(req: Request) {
   if (!slug) return NextResponse.json({ ok: false, error: "Slug inválido" }, { status: 400 });
   if (!Number.isFinite(price) || price <= 0) return NextResponse.json({ ok: false, error: "Precio inválido" }, { status: 400 });
   if (!Number.isFinite(stock) || stock < 0) return NextResponse.json({ ok: false, error: "Stock inválido" }, { status: 400 });
+  if (categoryId) {
+    const category = await prisma.category.findUnique({ where: { id: categoryId }, select: { id: true } });
+    if (!category) return NextResponse.json({ ok: false, error: "Categoria invalida" }, { status: 400 });
+  }
 
   const exists = await prisma.product.findUnique({ where: { slug } });
   if (exists) return NextResponse.json({ ok: false, error: "Ese slug ya existe" }, { status: 409 });
@@ -38,6 +43,7 @@ export async function POST(req: Request) {
       price: price.toFixed(2),
       stock,
       isActive,
+      categoryId,
     },
   });
 

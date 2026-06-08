@@ -21,7 +21,7 @@ export default async function AdminProductEditPage({
 
   const product = await prisma.product.findUnique({
     where: { id },
-    include: { images: { orderBy: { sortOrder: "asc" } } },
+    include: { images: { orderBy: { sortOrder: "asc" } }, category: true },
   });
 
   if (!product) return notFound();
@@ -31,9 +31,20 @@ export default async function AdminProductEditPage({
     where: {
       OR: [{ name: baseName }, { name: { startsWith: `${baseName} —` } }],
     },
-    include: { images: { orderBy: { sortOrder: "asc" } } },
+    include: { images: { orderBy: { sortOrder: "asc" } }, category: true },
     orderBy: [{ name: "asc" }],
   });
 
-  return <AdminProductEditor product={product} variants={variants.length > 0 ? variants : [product]} />;
+  const categories = await prisma.category.findMany({
+    orderBy: { name: "asc" },
+    select: { id: true, name: true },
+  });
+
+  return (
+    <AdminProductEditor
+      product={product}
+      variants={variants.length > 0 ? variants : [product]}
+      categories={categories}
+    />
+  );
 }

@@ -40,6 +40,11 @@ const ADMIN_ROUTES: AdminRoute[] = [
     title: "Paquetería",
     description: "Habilitar/deshabilitar proveedores de envío.",
   },
+  {
+    href: "/admin/settings",
+    title: "Configuracion",
+    description: "Editar el texto superior de promociones en la tienda.",
+  },
 ];
 
 const ADMIN_ONLY_ROUTES: AdminRoute[] = [

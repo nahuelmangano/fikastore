@@ -25,6 +25,8 @@ type ProductImage = {
 
 type EditableProduct = {
   id: string;
+  categoryId?: string | null;
+  category?: { id: string; name: string } | null;
   name: string;
   slug: string;
   description?: string | null;
@@ -34,12 +36,19 @@ type EditableProduct = {
   images?: ProductImage[];
 };
 
+type CategoryOption = {
+  id: string;
+  name: string;
+};
+
 export default function AdminProductEditor({
   product,
   variants,
+  categories,
 }: {
   product: EditableProduct;
   variants: EditableProduct[];
+  categories: CategoryOption[];
 }) {
   const [items, setItems] = useState<EditableProduct[]>(variants);
   const [selectedId, setSelectedId] = useState(product.id);
@@ -52,6 +61,7 @@ export default function AdminProductEditor({
   const [price, setPrice] = useState<number>(Number(selected.price));
   const [stock, setStock] = useState<number>(selected.stock);
   const [isActive, setIsActive] = useState<boolean>(selected.isActive);
+  const [categoryId, setCategoryId] = useState<string>(selected.categoryId ?? "");
   const [images, setImages] = useState<ProductImage[]>(selected.images ?? []);
 
   const mainImg = useMemo(() => images?.[0]?.url, [images]);
@@ -68,6 +78,7 @@ export default function AdminProductEditor({
     setPrice(Number(item.price));
     setStock(item.stock);
     setIsActive(item.isActive);
+    setCategoryId(item.categoryId ?? "");
     setImages(item.images ?? []);
     setMsg(null);
   }
@@ -83,7 +94,7 @@ export default function AdminProductEditor({
     const res = await fetch(`/api/admin/products/${selected.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, slug, description, price, stock, isActive }),
+      body: JSON.stringify({ name, slug, description, price, stock, isActive, categoryId }),
     });
 
     const data = await res.json().catch(() => ({}));
@@ -94,7 +105,8 @@ export default function AdminProductEditor({
       return;
     }
 
-    patchSelected({ name, slug, description: description || null, price, stock, isActive, images });
+    const category = categories.find((item) => item.id === categoryId) ?? null;
+    patchSelected({ name, slug, description: description || null, price, stock, isActive, categoryId, category, images });
     setMsg("Cambios guardados.");
   }
 
@@ -215,6 +227,9 @@ No se puede deshacer.`);
                     <span className={active ? "text-xs text-zinc-600" : "text-xs text-zinc-500"}>
                       Stock {item.stock} · ${Number(item.price).toLocaleString("es-AR")}
                     </span>
+                    <span className={active ? "block truncate text-xs text-zinc-600" : "block truncate text-xs text-zinc-500"}>
+                      {item.category?.name ?? "Sin categoria"}
+                    </span>
                   </button>
                 );
               })}
@@ -265,6 +280,22 @@ No se puede deshacer.`);
                   rows={4}
                   className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
                 />
+              </div>
+
+              <div>
+                <label className="text-sm text-zinc-300">Categoria</label>
+                <select
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
+                >
+                  <option value="">Sin categoria</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">

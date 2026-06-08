@@ -1,4 +1,11 @@
 import AdminProductCreate from "./ui";
-export default function NewProductPage() {
-  return <AdminProductCreate />;
+import { prisma } from "@/lib/prisma";
+
+export default async function NewProductPage() {
+  const categories = await prisma.category.findMany({
+    orderBy: { name: "asc" },
+    select: { id: true, name: true },
+  });
+
+  return <AdminProductCreate categories={categories} />;
 }

@@ -11,6 +11,8 @@ type ParsedRow = {
   rowNumber: number;
   name: string;
   slug: string;
+  categoryName: string | null;
+  categorySlug: string | null;
   description: string | null;
   price: number;
   stock: number;
@@ -153,6 +155,7 @@ export async function POST(req: Request) {
     const descriptionRaw = toCleanString(
       getField(map, ["description", "descripcion", "descripción", "detalle"])
     );
+    const categoryRaw = toCleanString(getField(map, ["category", "categoria", "categoría", "rubro"]));
     const priceRaw = getField(map, ["price", "precio", "valor"]);
     const stockRaw = getField(map, ["stock", "cantidad", "qty"]);
     const isActiveRaw = getField(map, ["isActive", "activo", "publicado", "enabled"]);
@@ -200,6 +203,8 @@ export async function POST(req: Request) {
       rowNumber,
       name,
       slug,
+      categoryName: categoryRaw || null,
+      categorySlug: categoryRaw ? slugify(categoryRaw) : null,
       description: descriptionRaw || null,
       price,
       stock,
@@ -238,6 +243,34 @@ export async function POST(req: Request) {
   });
 
   const created: Array<{ row: number; id: string; slug: string; name: string }> = [];
+  const categorySlugs = Array.from(new Set(toCreate.map((r) => r.categorySlug).filter(Boolean))) as string[];
+  const categoryIdBySlug = new Map<string, string>();
+
+  if (categorySlugs.length > 0) {
+    const existingCategories = await prisma.category.findMany({
+      where: { slug: { in: categorySlugs } },
+      select: { id: true, slug: true },
+    });
+
+    for (const category of existingCategories) {
+      categoryIdBySlug.set(category.slug, category.id);
+    }
+
+    for (const slug of categorySlugs) {
+      if (categoryIdBySlug.has(slug)) continue;
+      const source = toCreate.find((row) => row.categorySlug === slug);
+      if (!source?.categoryName) continue;
+
+      const category = await prisma.category.create({
+        data: {
+          name: source.categoryName,
+          slug,
+        },
+        select: { id: true, slug: true },
+      });
+      categoryIdBySlug.set(category.slug, category.id);
+    }
+  }
 
   for (const row of toCreate) {
     try {
@@ -249,6 +282,7 @@ export async function POST(req: Request) {
           price: row.price.toFixed(2),
           stock: row.stock,
           isActive: row.isActive,
+          categoryId: row.categorySlug ? categoryIdBySlug.get(row.categorySlug) ?? null : null,
         },
         select: { id: true, slug: true, name: true },
       });

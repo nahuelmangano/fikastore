@@ -17,11 +17,14 @@ export async function GET(req: Request) {
   const q = (searchParams.get("q") ?? "").trim();
   const status = (searchParams.get("status") ?? "all").toLowerCase();
   const sort = (searchParams.get("sort") ?? "newest").toLowerCase();
+  const category = (searchParams.get("category") ?? "all").trim();
 
   const where: {
     OR?: Array<{ name?: { contains: string }; slug?: { contains: string }; description?: { contains: string } }>;
     isActive?: boolean;
     stock?: number;
+    categoryId?: string | null;
+    category?: { slug: string };
   } = {};
 
   if (q) {
@@ -31,6 +34,10 @@ export async function GET(req: Request) {
   if (status === "active") where.isActive = true;
   if (status === "inactive") where.isActive = false;
   if (status === "oos") where.stock = 0;
+  if (category === "uncategorized") where.categoryId = null;
+  if (category && category !== "all" && category !== "uncategorized") {
+    where.category = { slug: category };
+  }
 
   const orderBy: { [k: string]: "asc" | "desc" } =
     sort === "name"
@@ -49,6 +56,7 @@ export async function GET(req: Request) {
     where,
     orderBy,
     include: {
+      category: true,
       images: {
         orderBy: { sortOrder: "asc" },
         select: { url: true },
@@ -60,6 +68,8 @@ export async function GET(req: Request) {
     id: p.id,
     name: p.name,
     slug: p.slug,
+    category: p.category?.name ?? "",
+    categorySlug: p.category?.slug ?? "",
     description: p.description ?? "",
     price: Number(p.price),
     stock: p.stock,
@@ -75,6 +85,8 @@ export async function GET(req: Request) {
       "id",
       "name",
       "slug",
+      "category",
+      "categorySlug",
       "description",
       "price",
       "stock",
