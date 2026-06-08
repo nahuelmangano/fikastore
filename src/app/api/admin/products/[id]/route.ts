@@ -59,6 +59,17 @@ export async function PATCH(
     data.isActive = Boolean(body.isActive);
   }
 
+  if (body.categoryId !== undefined) {
+    const categoryId = String(body.categoryId || "").trim();
+    if (!categoryId) {
+      data.categoryId = null;
+    } else {
+      const category = await prisma.category.findUnique({ where: { id: categoryId }, select: { id: true } });
+      if (!category) return NextResponse.json({ ok: false, error: "Categoria invalida" }, { status: 400 });
+      data.categoryId = categoryId;
+    }
+  }
+
   const updated = await prisma.product.update({
     where: { id },
     data,

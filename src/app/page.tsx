@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import SiteHeader from "@/components/SiteHeader";
 import { getAutomaticDiscountsForProducts } from "@/lib/promotions";
+import { getHomeCategoryTiles } from "@/lib/storeSettings";
 
 const PAGE_SIZE = 18;
 
@@ -90,13 +91,14 @@ export default async function HomePage({
   searchParams,
 }: {
   searchParams:
-    | { q?: string; page?: string; availability?: string; sort?: string }
-    | Promise<{ q?: string; page?: string; availability?: string; sort?: string }>;
+    | { q?: string; page?: string; availability?: string; sort?: string; category?: string }
+    | Promise<{ q?: string; page?: string; availability?: string; sort?: string; category?: string }>;
 }) {
   const resolvedSearchParams = await Promise.resolve(searchParams);
 
   const q = (resolvedSearchParams.q ?? "").trim();
   const page = toInt(resolvedSearchParams.page ?? "1", 1);
+  const category = (resolvedSearchParams.category ?? "all").trim();
 
   // availability: available | all | oos
   const availability = (resolvedSearchParams.availability ?? "available").toLowerCase();
@@ -112,11 +114,17 @@ export default async function HomePage({
       { description: { contains: q } },
     ];
   }
+  if (category && category !== "all") {
+    where.category = { slug: category };
+  }
 
-  const allProducts = await prisma.product.findMany({
-    where,
-    include: { images: { orderBy: { sortOrder: "asc" }, take: 1 } },
-  });
+  const [allProducts, homeTiles] = await Promise.all([
+    prisma.product.findMany({
+      where,
+      include: { images: { orderBy: { sortOrder: "asc" }, take: 1 } },
+    }),
+    getHomeCategoryTiles(),
+  ]);
 
   let productGroups = groupProducts(allProducts);
 
@@ -138,69 +146,40 @@ export default async function HomePage({
   const promoMap = await getAutomaticDiscountsForProducts(products.map((p) => p.id));
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const baseParams = { q, availability, sort };
+  const baseParams = { q, availability, sort, category };
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
+      {homeTiles.length > 0 && (
+        <section className="bg-white px-4 py-4 sm:px-8">
+          <div className="mx-auto grid max-w-[1720px] gap-4 lg:grid-cols-2">
+            {homeTiles.map((tile) => (
+              <Link
+                key={tile.id}
+                href={`/?category=${tile.categorySlug}`}
+                className="group relative block aspect-[1.45/1] min-h-72 overflow-hidden bg-zinc-200"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={tile.imageUrl}
+                  alt={tile.title}
+                  className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                />
+                <div className="absolute inset-0 bg-black/45 transition group-hover:bg-black/35" />
+                <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-3xl font-bold uppercase tracking-wide text-white">
+                  {tile.title}
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
       <div className="mx-auto max-w-6xl px-4 py-10">
         <SiteHeader>
-          <form className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4">
-            <div className="grid gap-3 md:grid-cols-12">
-              <div className="md:col-span-6">
-                <label className="text-xs text-zinc-400">Buscar</label>
-                <input
-                  name="q"
-                  defaultValue={q}
-                  placeholder="Buscar productos…"
-                  className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
-                />
-              </div>
-
-              <div className="md:col-span-3">
-                <label className="text-xs text-zinc-400">Disponibilidad</label>
-                <select
-                  name="availability"
-                  defaultValue={availability}
-                  className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
-                >
-                  <option value="available">Disponibles</option>
-                  <option value="all">Todos</option>
-                  <option value="oos">Sin stock</option>
-                </select>
-              </div>
-
-              <div className="md:col-span-3">
-                <label className="text-xs text-zinc-400">Orden</label>
-                <select
-                  name="sort"
-                  defaultValue={sort}
-                  className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
-                >
-                  <option value="newest">Nuevos</option>
-                  <option value="price_asc">Precio ↑</option>
-                  <option value="price_desc">Precio ↓</option>
-                  <option value="stock_desc">Mayor stock</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button className="rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white">
-                Aplicar
-              </button>
-
-              <Link
-                href="/"
-                className="rounded-xl border border-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
-              >
-                Limpiar
-              </Link>
-
-              <div className="ml-auto text-xs text-zinc-500">
-                {total} resultado{total === 1 ? "" : "s"} · Página {page}/{totalPages}
-              </div>
-            </div>
-          </form>
+          <div className="mb-6 text-right text-xs text-zinc-500">
+            {total} resultado{total === 1 ? "" : "s"} · Página {page}/{totalPages}
+          </div>
         </SiteHeader>
 
         {products.length === 0 ? (

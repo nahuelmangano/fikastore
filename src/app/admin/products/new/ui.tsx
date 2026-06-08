@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useState } from "react";
 import { slugify } from "@/lib/slug";
 
-export default function AdminProductCreate() {
+type CategoryOption = {
+  id: string;
+  name: string;
+};
+
+export default function AdminProductCreate({ categories }: { categories: CategoryOption[] }) {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
@@ -12,6 +17,7 @@ export default function AdminProductCreate() {
   const [price, setPrice] = useState<number>(1000);
   const [stock, setStock] = useState<number>(0);
   const [isActive, setIsActive] = useState(true);
+  const [categoryId, setCategoryId] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -63,6 +69,22 @@ export default function AdminProductCreate() {
               />
             </div>
 
+            <div>
+              <label className="text-sm text-zinc-300">Categoria</label>
+              <select
+                value={categoryId}
+                onChange={(e) => setCategoryId(e.target.value)}
+                className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
+              >
+                <option value="">Sin categoria</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="text-sm text-zinc-300">Precio (ARS)</label>
@@ -109,7 +131,7 @@ export default function AdminProductCreate() {
                 const res = await fetch("/api/admin/products", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ name, slug, description, price, stock, isActive }),
+                  body: JSON.stringify({ name, slug, description, price, stock, isActive, categoryId }),
                 });
 
                 const data = await res.json().catch(() => ({}));

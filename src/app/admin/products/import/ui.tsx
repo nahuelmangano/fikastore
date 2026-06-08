@@ -79,11 +79,12 @@ export default function AdminProductsImportPage() {
           <h2 className="text-sm font-semibold text-zinc-200">Formato esperado</h2>
           <p className="mt-2 text-sm text-zinc-400">
             Encabezados recomendados: <span className="font-mono">name</span>, <span className="font-mono">slug</span>,{" "}
-            <span className="font-mono">description</span>, <span className="font-mono">price</span>,{" "}
+            <span className="font-mono">category</span>, <span className="font-mono">description</span>, <span className="font-mono">price</span>,{" "}
             <span className="font-mono">stock</span>, <span className="font-mono">isActive</span>.
           </p>
           <p className="mt-2 text-xs text-zinc-500">
             `slug` es opcional (si falta, se genera desde `name`). `isActive` acepta: true/false, si/no, 1/0.
+            `category` es opcional; si no existe, se crea.
           </p>
           <p className="mt-1 text-xs text-zinc-500">Máximo 1000 filas por archivo.</p>
 

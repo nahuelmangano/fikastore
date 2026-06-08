@@ -27,8 +27,10 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
     { href: "/admin/promociones", label: "Promociones" },
     { href: "/admin/estadisticas", label: "Estadísticas" },
     { href: "/admin/products", label: "Productos" },
+    { href: "/admin/categories", label: "Categorias" },
     { href: "/admin/orders", label: "Pedidos" },
     { href: "/admin/paqueteria", label: "Paquetería" },
+    { href: "/admin/settings", label: "Configuracion" },
     { href: "/", label: "Ver Tienda", newTab: true },
   ];
 

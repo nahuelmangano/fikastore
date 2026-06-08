@@ -1,12 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { signOut, useSession } from "next-auth/react";
 import { cartCount, readCart } from "@/lib/cart";
 import CartPanel from "@/components/CartPanel";
 
-export default function CartLink() {
+export default function CartLink({
+  variant = "default",
+  searchSlot,
+}: {
+  variant?: "default" | "store";
+  searchSlot?: ReactNode;
+}) {
   const [count, setCount] = useState(0);
   const [open, setOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
@@ -43,43 +50,55 @@ export default function CartLink() {
     return () => document.removeEventListener("mousedown", onClick);
   }, [open]);
 
+  const isStore = variant === "store";
+  const buttonClass = isStore
+    ? "px-1 text-sm font-medium uppercase text-black hover:text-zinc-600"
+    : "rounded-xl border border-zinc-800 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60";
+  const menuClass = isStore
+    ? "absolute right-0 top-full z-50 mt-8 w-56 border border-zinc-200 bg-white p-2 text-sm text-black shadow-xl"
+    : "absolute right-0 top-full z-50 mt-2 w-56 rounded-xl border border-zinc-800 bg-zinc-950 p-2 text-sm text-zinc-200 shadow-lg";
+  const menuItemClass = isStore
+    ? "block w-full px-3 py-2 text-left text-sm uppercase text-black hover:bg-zinc-50"
+    : "block rounded-lg px-2 py-2 text-left text-sm text-zinc-200 hover:bg-zinc-900/60";
+
   return (
     <div className="flex items-center gap-2">
-      <Link
-        href="/account/orders"
-        className="rounded-xl border border-zinc-800 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
-      >
-        Mis pedidos
-      </Link>
-
       <div className="relative" ref={menuRef}>
         {session?.user?.email ? (
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="rounded-xl border border-zinc-800 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
+            className={buttonClass}
           >
             Cuenta
+            {isStore && <span className="ml-2 inline-block border-x-[5px] border-t-[6px] border-x-transparent border-t-black align-middle" />}
           </button>
         ) : (
           <Link
             href="/login"
-            className="rounded-xl border border-zinc-800 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
+            className={buttonClass}
           >
             Iniciar sesión
           </Link>
         )}
 
         {open && session?.user?.email && (
-          <div className="absolute right-0 mt-2 w-56 rounded-xl border border-zinc-800 bg-zinc-950 p-2 text-sm text-zinc-200 shadow-lg">
-            <div className="px-2 py-2 text-xs text-zinc-400">Sesión</div>
-            <div className="px-2 pb-2 text-sm text-zinc-100">
+          <div className={menuClass}>
+            <div className={isStore ? "px-3 py-2 text-xs uppercase text-zinc-500" : "px-2 py-2 text-xs text-zinc-400"}>Sesión</div>
+            <div className={isStore ? "px-3 pb-2 text-sm text-zinc-700" : "px-2 pb-2 text-sm text-zinc-100"}>
               {session?.user?.email || "No logueado"}
             </div>
+            <Link
+              href="/account/orders"
+              className={menuItemClass}
+              onClick={() => setOpen(false)}
+            >
+              Mis pedidos
+            </Link>
             {isMerchant && (
               <Link
                 href="/admin"
-                className="block rounded-lg px-2 py-2 text-left text-sm text-zinc-200 hover:bg-zinc-900/60"
+                className={menuItemClass}
                 onClick={() => setOpen(false)}
               >
                 Admin de tienda
@@ -90,14 +109,14 @@ export default function CartLink() {
               <button
                 type="button"
                 onClick={() => signOut({ callbackUrl: "/" })}
-                className="w-full rounded-lg px-2 py-2 text-left text-sm text-zinc-200 hover:bg-zinc-900/60"
+                className={menuItemClass}
               >
                 Cerrar sesión
               </button>
             ) : (
               <Link
                 href="/login"
-                className="block rounded-lg px-2 py-2 text-left text-sm text-zinc-200 hover:bg-zinc-900/60"
+                className={menuItemClass}
               >
                 Iniciar sesión
               </Link>
@@ -106,14 +125,23 @@ export default function CartLink() {
         )}
       </div>
 
+      {isStore && (
+        <>
+          <Link href="/register" className="text-sm font-medium uppercase text-black hover:text-zinc-600">
+            Contacto
+          </Link>
+          {searchSlot}
+        </>
+      )}
+
       <button
         type="button"
         onClick={() => setCartOpen(true)}
-        className="relative rounded-xl border border-zinc-800 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
+        className={isStore ? "relative text-sm font-medium uppercase text-black hover:text-zinc-600" : "relative rounded-xl border border-zinc-800 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"}
       >
-        Carrito
+        {isStore ? "🛒" : "Carrito"}
         {count > 0 && (
-          <span className="ml-2 inline-flex min-w-6 justify-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-900">
+          <span className={isStore ? "ml-1 text-sm font-semibold text-black" : "ml-2 inline-flex min-w-6 justify-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-900"}>
             {count}
           </span>
         )}
