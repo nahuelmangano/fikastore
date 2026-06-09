@@ -17,6 +17,26 @@ type HomeCategoryTile = {
   imageUrl: string;
 };
 
+type BrowserCryptoWithUuid = Crypto & {
+  randomUUID?: () => string;
+};
+
+function createClientId() {
+  const browserCrypto = globalThis.crypto as BrowserCryptoWithUuid | undefined;
+
+  if (typeof browserCrypto?.randomUUID === "function") {
+    return browserCrypto.randomUUID();
+  }
+
+  if (typeof browserCrypto?.getRandomValues === "function") {
+    const bytes = new Uint8Array(16);
+    browserCrypto.getRandomValues(bytes);
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export default function AdminSettingsPage({
   announcementText,
   logoUrl,
@@ -94,7 +114,7 @@ export default function AdminSettingsPage({
     setTiles((prev) => [
       ...prev,
       {
-        id: crypto.randomUUID(),
+        id: createClientId(),
         categoryId: category.id,
         categorySlug: category.slug,
         title: category.name,
