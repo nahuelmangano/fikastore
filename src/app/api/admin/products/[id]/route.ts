@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/slug";
 import { isStaffRole } from "@/lib/roles";
+import { sanitizeRichText } from "@/lib/richText";
 
 export const runtime = "nodejs";
 
@@ -11,15 +13,15 @@ export async function PATCH(
   { params }: { params: { id?: string } | Promise<{ id?: string }> }
 ) {
   const session = await auth();
-  const role = (session?.user as any)?.role;
+  const role = (session?.user as { role?: string } | undefined)?.role;
   if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const resolvedParams = await Promise.resolve(params);
   const id = resolvedParams?.id?.trim();
   if (!id) return NextResponse.json({ ok: false, error: "Producto no existe" }, { status: 404 });
 
-  const body = await req.json().catch(() => ({}));
-  const data: any = {};
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const data: Prisma.ProductUncheckedUpdateInput = {};
 
   if (body.name !== undefined) {
     const name = String(body.name || "").trim();
@@ -39,7 +41,7 @@ export async function PATCH(
   }
 
   if (body.description !== undefined) {
-    const desc = String(body.description || "").trim();
+    const desc = sanitizeRichText(String(body.description || ""));
     data.description = desc || null;
   }
 
@@ -83,7 +85,7 @@ export async function DELETE(
   { params }: { params: { id?: string } | Promise<{ id?: string }> }
 ) {
   const session = await auth();
-  const role = (session?.user as any)?.role;
+  const role = (session?.user as { role?: string } | undefined)?.role;
   if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const resolvedParams = await Promise.resolve(params);

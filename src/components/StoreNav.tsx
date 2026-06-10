@@ -23,20 +23,20 @@ export default async function StoreNav() {
           </Link>
 
           <div className="group relative flex items-stretch">
-            <Link href="/" className="flex items-center gap-2 bg-zinc-50 px-4 text-sm font-medium uppercase">
+            <Link href="/products" className="flex items-center gap-2 bg-zinc-50 px-4 text-sm font-medium uppercase">
               Productos
               <span className="border-x-[5px] border-t-[6px] border-x-transparent border-t-black" />
             </Link>
             <div className="invisible absolute left-0 top-full z-40 w-64 border border-zinc-200 bg-white py-2 opacity-0 shadow-lg transition group-hover:visible group-hover:opacity-100">
               {categories.length === 0 ? (
-                <Link href="/" className="block px-4 py-3 text-sm uppercase hover:bg-zinc-50">
+                <Link href="/products" className="block px-4 py-3 text-sm uppercase hover:bg-zinc-50">
                   Todos los productos
                 </Link>
               ) : (
                 categories.map((category) => (
                   <Link
                     key={category.id}
-                    href={`/?category=${category.slug}`}
+                    href={`/products?category=${category.slug}`}
                     className="flex items-center justify-between px-4 py-3 text-sm uppercase hover:bg-zinc-50"
                   >
                     {category.name}

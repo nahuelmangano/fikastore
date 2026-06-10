@@ -86,10 +86,9 @@ services:
     ports:
       - "${APP_PORT:-3000}:3000"
     volumes:
-      - uploads:/app/public/uploads
+      - ${UPLOADS_DIR:-./data/uploads}:/app/public/uploads
     command: ["sh", "-c", "npx prisma migrate deploy && npm run start"]
     restart: unless-stopped
 
 volumes:
   mssql-data:
-  uploads:

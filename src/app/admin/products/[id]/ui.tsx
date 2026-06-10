@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { slugify } from "@/lib/slug";
+import { sanitizeRichText } from "@/lib/richText";
 
 function splitProductName(name: string) {
   const [base, ...rest] = name.split(/\s+—\s+/);
@@ -41,6 +42,13 @@ type CategoryOption = {
   name: string;
 };
 
+const FONT_OPTIONS = [
+  { label: "Sans", value: "Arial" },
+  { label: "Serif", value: "Georgia" },
+  { label: "Mono", value: "Courier New" },
+  { label: "Elegante", value: "Times New Roman" },
+];
+
 export default function AdminProductEditor({
   product,
   variants,
@@ -69,6 +77,7 @@ export default function AdminProductEditor({
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const descriptionRef = useRef<HTMLDivElement | null>(null);
 
   function selectVariant(item: EditableProduct) {
     setSelectedId(item.id);
@@ -85,6 +94,16 @@ export default function AdminProductEditor({
 
   function patchSelected(next: Partial<EditableProduct>) {
     setItems((prev) => prev.map((item) => (item.id === selected.id ? { ...item, ...next } : item)));
+  }
+
+  function syncDescriptionFromEditor() {
+    setDescription(sanitizeRichText(descriptionRef.current?.innerHTML ?? ""));
+  }
+
+  function formatDescription(command: string, value?: string) {
+    descriptionRef.current?.focus();
+    document.execCommand(command, false, value);
+    syncDescriptionFromEditor();
   }
 
   async function save() {
@@ -114,6 +133,9 @@ export default function AdminProductEditor({
     setMsg(null);
     const fd = new FormData();
     fd.append("file", file);
+    for (const item of items) {
+      fd.append("productIds", item.id);
+    }
 
     const res = await fetch(`/api/admin/products/${selected.id}/images`, {
       method: "POST",
@@ -126,10 +148,25 @@ export default function AdminProductEditor({
       return;
     }
 
-    const nextImages = [...images, data.image as ProductImage];
+    const uploadedImages = Array.isArray(data.images) ? (data.images as Array<ProductImage & { productId?: string }>) : [];
+    const selectedImage =
+      uploadedImages.find((image) => image.productId === selected.id) ?? (data.image as ProductImage | undefined);
+
+    if (!selectedImage) {
+      setMsg("Imagen subida, pero no se pudo actualizar la vista.");
+      return;
+    }
+
+    const nextImages = [...images, selectedImage];
     setImages(nextImages);
-    patchSelected({ images: nextImages });
-    setMsg("Imagen agregada.");
+    setItems((prev) =>
+      prev.map((item) => {
+        const image = uploadedImages.find((uploaded) => uploaded.productId === item.id);
+        if (!image) return item;
+        return { ...item, images: [...(item.images ?? []), image] };
+      })
+    );
+    setMsg(`Imagen agregada a ${uploadedImages.length || items.length} variante(s).`);
   }
 
   async function removeImage(imageId: string) {
@@ -193,7 +230,7 @@ No se puede deshacer.`);
 
             <button
               onClick={deleteProduct}
-              className="rounded-xl border border-red-900/40 bg-red-900/20 px-3 py-2 text-sm text-red-200 hover:bg-red-900/30"
+              className="rounded-xl border border-red-700 bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
             >
               Borrar variante
             </button>
@@ -274,12 +311,68 @@ No se puede deshacer.`);
 
               <div>
                 <label className="text-sm text-zinc-300">Descripción</label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={4}
-                  className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
-                />
+                <div className="mt-2 rounded-xl border border-zinc-800 bg-zinc-950">
+                  <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={() => formatDescription("bold")}
+                      className="h-8 min-w-8 rounded-lg border border-zinc-800 px-2 text-sm font-bold hover:bg-zinc-900/60"
+                    >
+                      B
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => formatDescription("italic")}
+                      className="h-8 min-w-8 rounded-lg border border-zinc-800 px-2 text-sm italic hover:bg-zinc-900/60"
+                    >
+                      I
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => formatDescription("underline")}
+                      className="h-8 min-w-8 rounded-lg border border-zinc-800 px-2 text-sm underline hover:bg-zinc-900/60"
+                    >
+                      U
+                    </button>
+
+                    <select
+                      defaultValue=""
+                      onChange={(event) => {
+                        if (!event.target.value) return;
+                        formatDescription("fontName", event.target.value);
+                        event.target.value = "";
+                      }}
+                      className="h-8 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-sm"
+                    >
+                      <option value="">Tipografía</option>
+                      {FONT_OPTIONS.map((font) => (
+                        <option key={font.value} value={font.value}>
+                          {font.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <label className="flex h-8 items-center gap-2 rounded-lg border border-zinc-800 px-2 text-sm">
+                      Color
+                      <input
+                        type="color"
+                        defaultValue="#8a4f1d"
+                        onChange={(event) => formatDescription("foreColor", event.target.value)}
+                        className="h-5 w-8 border-0 bg-transparent p-0"
+                      />
+                    </label>
+                  </div>
+
+                  <div
+                    key={selected.id}
+                    ref={descriptionRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onInput={syncDescriptionFromEditor}
+                    className="min-h-28 w-full px-3 py-2 text-sm leading-6 outline-none"
+                    dangerouslySetInnerHTML={{ __html: sanitizeRichText(description) }}
+                  />
+                </div>
               </div>
 
               <div>
@@ -329,10 +422,8 @@ No se puede deshacer.`);
               <div className="mt-2 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold">Imágenes de esta variante</div>
-                    <div className="mt-1 text-xs text-zinc-500">
-                      Guardadas localmente en <span className="font-mono">public/uploads</span>
-                    </div>
+                    <div className="text-sm font-semibold">Imágenes de este productos</div>
+                   
                   </div>
 
                   <label className="cursor-pointer rounded-xl bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-white">
@@ -362,7 +453,7 @@ No se puede deshacer.`);
                         </div>
                         <button
                           onClick={() => removeImage(im.id)}
-                          className="mt-2 w-full rounded-lg border border-red-900/40 bg-red-900/20 px-2 py-1 text-xs text-red-200 hover:bg-red-900/30"
+                          className="mt-2 w-full rounded-lg border border-red-700 bg-red-600 px-2 py-1 text-xs font-semibold text-white hover:bg-red-700"
                         >
                           Borrar
                         </button>
@@ -383,7 +474,7 @@ No se puede deshacer.`);
                 onClick={save}
                 className="mt-2 w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
               >
-                {loading ? "Guardando..." : "Guardar variante"}
+                {loading ? "Guardando..." : "Guardar Producto"}
               </button>
             </div>
           </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 type CategoryOption = {
@@ -40,7 +41,7 @@ export default function StoreSearch({ categories }: { categories: CategoryOption
 
       {open && (
         <form
-          action="/"
+          action="/products"
           className="absolute right-0 top-full z-50 mt-8 w-[min(92vw,720px)] border border-zinc-200 bg-white p-4 text-black shadow-xl"
         >
           <div className="grid gap-3 md:grid-cols-2">
@@ -100,9 +101,9 @@ export default function StoreSearch({ categories }: { categories: CategoryOption
           </div>
 
           <div className="mt-4 flex items-center justify-end gap-2">
-            <a href="/" className="border border-zinc-300 px-4 py-2 text-sm uppercase hover:bg-zinc-50">
+            <Link href="/products" className="border border-zinc-300 px-4 py-2 text-sm uppercase hover:bg-zinc-50">
               Limpiar
-            </a>
+            </Link>
             <button type="submit" className="bg-black px-4 py-2 text-sm font-semibold uppercase text-white">
               Buscar
             </button>

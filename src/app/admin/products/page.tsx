@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import BulkCategoryToolbar from "./BulkCategoryToolbar";
+import CategoryFilterSelect from "./CategoryFilterSelect";
 
 const PAGE_SIZE = 20;
 
@@ -199,6 +200,7 @@ export default async function AdminProductsPage({
 
         {/* Filtros */}
         <form className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4">
+          <input type="hidden" name="page" value="1" />
           <div className="grid gap-3 md:grid-cols-12">
             <div className="md:col-span-4">
               <label className="text-xs text-zinc-400">Buscar</label>
@@ -225,20 +227,8 @@ export default async function AdminProductsPage({
             </div>
 
             <div className="md:col-span-3">
-              <label className="text-xs text-zinc-400">Categoria</label>
-              <select
-                name="category"
-                defaultValue={category}
-                className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
-              >
-                <option value="all">Todas</option>
-                <option value="uncategorized">Sin categoria</option>
-                {categories.map((item) => (
-                  <option key={item.id} value={item.slug}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
+              <label className="text-xs text-zinc-400">Filtrar por categoria</label>
+              <CategoryFilterSelect categories={categories} value={category} />
             </div>
 
             <div className="md:col-span-3">

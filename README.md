@@ -34,10 +34,12 @@ Para levantar la app con SQL Server en contenedores:
 
 ```bash
 cp docker.env.example docker.env
+mkdir -p data/uploads
+sudo chown -R 1000:1000 data/uploads
 docker compose --env-file docker.env up --build
 ```
 
-La app queda disponible en http://localhost:3000. El contenedor ejecuta `prisma migrate deploy` antes de iniciar Next.js.
+La app queda disponible en http://localhost:3000. El contenedor ejecuta `prisma migrate deploy` antes de iniciar Next.js. Las imagenes subidas quedan persistidas en `data/uploads` del host, configurable con `UPLOADS_DIR`.
 
 Comandos utiles:
 
@@ -119,4 +121,3 @@ Etiqueta:
 ```bash
 curl "http://localhost:3000/api/shipping/label/ORDER_ID?type=normal"
 ```
-

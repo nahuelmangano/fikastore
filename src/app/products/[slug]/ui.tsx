@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { addToCart } from "@/lib/cart";
 import SiteHeader from "@/components/SiteHeader";
+import { sanitizeRichText } from "@/lib/richText";
 
 function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
@@ -197,10 +198,11 @@ export default function ProductDetailClient({
               )}
             </div>
 
-            {product.description && (
-              <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
-                {product.description}
-              </p>
+            {selected.description && (
+              <div
+                className="mt-4 text-sm leading-6 text-zinc-300"
+                dangerouslySetInnerHTML={{ __html: sanitizeRichText(selected.description) }}
+              />
             )}
 
             {variants.length > 1 && (

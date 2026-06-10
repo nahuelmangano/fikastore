@@ -11,6 +11,22 @@ function splitProductName(name: string) {
   };
 }
 
+const SIZE_ORDER = ["XS", "S", "M", "L", "XL", "XXL"];
+
+function variantSizeRank(name: string) {
+  const match = name.match(/talle(?:\s+\w+)?\s*:\s*(?:pijama\s*)?(XXL|XL|XS|S|M|L)\b/i);
+  const size = match?.[1]?.toUpperCase();
+  const index = size ? SIZE_ORDER.indexOf(size) : -1;
+  return index >= 0 ? index : SIZE_ORDER.length;
+}
+
+function sortVariantsBySize<T extends { name: string }>(variants: T[]) {
+  return [...variants].sort((a, b) => {
+    const rankDiff = variantSizeRank(a.name) - variantSizeRank(b.name);
+    return rankDiff || a.name.localeCompare(b.name);
+  });
+}
+
 export default async function ProductDetailPage({
   params,
 }: {
@@ -37,7 +53,7 @@ export default async function ProductDetailPage({
     orderBy: [{ name: "asc" }],
   });
 
-  const activeVariants = variants.length > 0 ? variants : [product];
+  const activeVariants = sortVariantsBySize(variants.length > 0 ? variants : [product]);
   const promoMap = await getAutomaticDiscountsForProducts(activeVariants.map((variant) => variant.id));
   const promoPercent = promoMap.get(product.id) ?? 0;
 
