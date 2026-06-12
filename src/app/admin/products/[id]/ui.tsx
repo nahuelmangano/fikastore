@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { slugify } from "@/lib/slug";
 import { sanitizeRichText } from "@/lib/richText";
 
@@ -78,6 +78,11 @@ export default function AdminProductEditor({
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const descriptionRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!descriptionRef.current) return;
+    descriptionRef.current.innerHTML = sanitizeRichText(selected.description);
+  }, [selected.id, selected.description]);
 
   function selectVariant(item: EditableProduct) {
     setSelectedId(item.id);
@@ -370,7 +375,6 @@ No se puede deshacer.`);
                     suppressContentEditableWarning
                     onInput={syncDescriptionFromEditor}
                     className="min-h-28 w-full px-3 py-2 text-sm leading-6 outline-none"
-                    dangerouslySetInnerHTML={{ __html: sanitizeRichText(description) }}
                   />
                 </div>
               </div>
