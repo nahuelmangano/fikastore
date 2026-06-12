@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/slug";
@@ -92,9 +92,56 @@ export async function DELETE(
   const id = resolvedParams?.id?.trim();
   if (!id) return NextResponse.json({ ok: false, error: "Producto no existe" }, { status: 404 });
 
-  // Borra imágenes primero
-  await prisma.productImage.deleteMany({ where: { productId: id } });
-  await prisma.product.delete({ where: { id } });
+  const product = await prisma.product.findUnique({ where: { id }, select: { id: true } });
+  if (!product) return NextResponse.json({ ok: false, error: "Producto no existe" }, { status: 404 });
+
+  const orderItems = await prisma.orderItem.count({ where: { productId: id } });
+  if (orderItems > 0) {
+    const updated = await prisma.product.update({
+      where: { id },
+      data: {
+        isActive: false,
+        stock: 0,
+        promotions: {
+          deleteMany: {},
+        },
+      },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      mode: "deactivated",
+      product: updated,
+      message: "El producto tiene pedidos asociados. Se desactivó para conservar el historial de ventas.",
+    });
+  }
+
+  try {
+    await prisma.productImage.deleteMany({ where: { productId: id } });
+    await prisma.product.delete({ where: { id } });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      const updated = await prisma.product.update({
+        where: { id },
+        data: {
+          isActive: false,
+          stock: 0,
+          promotions: {
+            deleteMany: {},
+          },
+        },
+      });
+
+      return NextResponse.json({
+        ok: true,
+        mode: "deactivated",
+        product: updated,
+        message: "El producto tiene pedidos asociados. Se desactivó para conservar el historial de ventas.",
+      });
+    }
+
+    throw error;
+  }
 
   return NextResponse.json({ ok: true });
 }

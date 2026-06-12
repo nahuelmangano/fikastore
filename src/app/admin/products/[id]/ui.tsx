@@ -207,6 +207,19 @@ No se puede deshacer.`);
       return;
     }
 
+    if (data?.mode === "deactivated") {
+      const nextProduct = {
+        ...selected,
+        isActive: false,
+        stock: 0,
+      };
+      setIsActive(false);
+      setStock(0);
+      setItems((prev) => prev.map((item) => (item.id === selected.id ? nextProduct : item)));
+      setMsg(String(data?.message || "La variante tiene pedidos asociados. Se desactivó."));
+      return;
+    }
+
     const remaining = items.filter((item) => item.id !== selected.id);
     if (remaining.length === 0) {
       window.location.href = "/admin/products";
