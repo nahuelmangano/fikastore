@@ -8,12 +8,12 @@ export default async function HomePage() {
     <main className="min-h-screen w-full overflow-x-hidden bg-white text-black">
       {homeTiles.length > 0 ? (
         <section className="w-full overflow-hidden px-4 py-4 sm:px-8">
-          <div className="mx-auto grid w-full max-w-[1720px] grid-cols-1 gap-4">
+          <div className="mx-auto grid w-full max-w-[1720px] grid-cols-1 gap-4 md:grid-cols-2">
             {homeTiles.map((tile) => (
               <Link
                 key={tile.id}
                 href={`/products?category=${tile.categorySlug}`}
-                className="group relative block aspect-[4/3] w-full min-w-0 max-w-full overflow-hidden bg-zinc-200 sm:aspect-[1.45/1] lg:aspect-[1.45/1]"
+                className="group relative block aspect-[4/3] w-full min-w-0 max-w-full overflow-hidden bg-zinc-200 md:aspect-[1.43/1]"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
