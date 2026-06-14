@@ -1,9 +1,8 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import SiteHeader from "@/components/SiteHeader";
+import ProductSortSelect from "@/components/ProductSortSelect";
 import { getAutomaticDiscountsForProducts } from "@/lib/promotions";
-import { stripRichText } from "@/lib/richText";
 
 const PAGE_SIZE = 18;
 
@@ -30,6 +29,15 @@ function splitProductName(name: string) {
     baseName: (base || name).trim(),
     variantName: rest.join(" — ").trim(),
   };
+}
+
+function money(value: number) {
+  return value.toLocaleString("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 type ListedProduct = Prisma.ProductGetPayload<{
@@ -118,10 +126,18 @@ export default async function ProductsPage({
     where.category = { slug: category };
   }
 
-  const allProducts = await prisma.product.findMany({
-    where,
-    include: { images: { orderBy: { sortOrder: "asc" }, take: 1 } },
-  });
+  const [allProducts, selectedCategory] = await Promise.all([
+    prisma.product.findMany({
+      where,
+      include: { images: { orderBy: { sortOrder: "asc" }, take: 1 } },
+    }),
+    category && category !== "all"
+      ? prisma.category.findUnique({
+          where: { slug: category },
+          select: { name: true },
+        })
+      : null,
+  ]);
 
   let productGroups = groupProducts(allProducts);
 
@@ -144,23 +160,46 @@ export default async function ProductsPage({
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const baseParams = { q, availability, sort, category };
+  const breadcrumbItems = ["Inicio", "Productos"];
+  if (selectedCategory?.name) breadcrumbItems.push(selectedCategory.name);
+  if (q) breadcrumbItems.push(q);
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="mx-auto max-w-6xl px-4 py-10">
-        <SiteHeader>
-          <div className="mb-6 text-right text-xs text-zinc-500">
-            {total} resultado{total === 1 ? "" : "s"} · Página {page}/{totalPages}
+    <main className="min-h-screen bg-white text-black">
+      <div className="mx-auto w-full max-w-6xl px-4 py-4 sm:px-6 lg:px-8">
+        <nav className="mb-8 flex flex-wrap items-center gap-x-4 gap-y-1 text-base leading-6 text-black">
+          {breadcrumbItems.map((item, index) => (
+            <span key={`${item}-${index}`} className="flex items-center gap-4">
+              {index === 0 ? (
+                <Link href="/" className="hover:text-zinc-600">
+                  {item}
+                </Link>
+              ) : index === 1 ? (
+                <Link href="/products" className="hover:text-zinc-600">
+                  {item}
+                </Link>
+              ) : (
+                <span>{item}</span>
+              )}
+              {index < breadcrumbItems.length - 1 && <span>/</span>}
+            </span>
+          ))}
+        </nav>
+
+        <div className="mb-7 flex items-center justify-between gap-4">
+          <ProductSortSelect value={sort} />
+          <div className="hidden text-xs text-zinc-500 sm:block">
+            {total} resultado{total === 1 ? "" : "s"}
           </div>
-        </SiteHeader>
+        </div>
 
         {products.length === 0 ? (
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-8">
-            <p className="text-zinc-300">No hay productos con esos filtros.</p>
+          <div className="border border-zinc-200 bg-white p-8">
+            <p className="text-zinc-600">No hay productos con esos filtros.</p>
           </div>
         ) : (
           <>
-            <section className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <section className="grid grid-cols-2 gap-x-8 gap-y-8 sm:grid-cols-3 lg:grid-cols-4">
               {products.map((p) => {
                 const img =
                   p.images[0]?.url ?? "https://placehold.co/900x900/png?text=Fika";
@@ -170,77 +209,46 @@ export default async function ProductsPage({
                 const finalPrice =
                   promoPercent > 0 ? Math.round(basePrice * (1 - promoPercent / 100) * 100) / 100 : basePrice;
 
-                const Card = (
-                  <div className="group rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4 transition hover:border-zinc-700 hover:bg-zinc-900/50">
-                    <div className="relative aspect-square overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
+                return (
+                  <Link key={p.id} href={`/products/${p.slug}`} className="group block min-w-0 text-center">
+                    <div className="relative aspect-square w-full overflow-hidden bg-zinc-100">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={img}
                         alt={p.name}
                         className={[
-                          "h-full w-full object-cover transition",
+                          "h-full w-full object-cover transition duration-300",
                           isOos ? "opacity-60" : "group-hover:scale-[1.02]",
                         ].join(" ")}
                       />
 
                       {isOos && (
-                        <span className="absolute left-3 top-3 rounded-full border border-amber-900/40 bg-amber-900/20 px-3 py-1 text-xs text-amber-200">
+                        <span className="absolute left-2 top-2 bg-white/90 px-2 py-1 text-[11px] uppercase text-zinc-700">
                           Sin stock
                         </span>
                       )}
                     </div>
 
-                    <div className="mt-4 flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h2 className="truncate text-base font-medium">{p.name}</h2>
-                        <p className="mt-1 line-clamp-2 text-sm text-zinc-400">
-                          {p.products.length > 1
-                            ? `${p.products.length} variantes disponibles`
-                            : stripRichText(p.description) || "Producto Fika"}
-                        </p>
-                      </div>
-
-                      <div className="shrink-0 text-right">
-                        {promoPercent > 0 ? (
-                          <>
-                            <div className="text-xs text-zinc-500 line-through">
-                              ${basePrice.toLocaleString("es-AR")}
-                            </div>
-                            <div className="text-base font-semibold">
-                              ${finalPrice.toLocaleString("es-AR")}{" "}
-                              <span className="text-xs text-zinc-400">({promoPercent}% OFF)</span>
-                            </div>
-                          </>
-                        ) : (
-                          <div className="text-base font-semibold">
-                            ${basePrice.toLocaleString("es-AR")}
-                          </div>
-                        )}
-                      </div>
+                    <div className="mt-2 min-w-0">
+                      <h2 className="truncate text-sm font-normal leading-5 text-black">{p.name}</h2>
+                      {promoPercent > 0 && (
+                        <div className="text-xs leading-4 text-zinc-500 line-through">{money(basePrice)}</div>
+                      )}
+                      <div className="text-base font-normal leading-6 text-black">{money(finalPrice)}</div>
+                      <p className="mx-auto max-w-[11rem] text-xs leading-5 text-zinc-500">
+                        3 cuotas sin interes de {money(finalPrice / 3)}
+                      </p>
                     </div>
-
-                    {isOos && (
-                      <div className="mt-3 text-xs text-zinc-500">
-                        * Próximamente disponible.
-                      </div>
-                    )}
-                  </div>
+                  </Link>
                 );
-
-                return (
-  <Link key={p.id} href={`/products/${p.slug}`} className="block">
-    {Card}
-  </Link>
-);
-
               })}
             </section>
 
             {/* Paginación */}
-            <div className="mt-8 flex items-center justify-between">
+            <div className="mt-10 flex items-center justify-between gap-3">
               <Link
                 className={[
-                  "rounded-xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60",
+                  "border border-zinc-300 px-4 py-2 text-sm text-black hover:bg-zinc-50",
                   page <= 1 ? "pointer-events-none opacity-50" : "",
                 ].join(" ")}
                 href={buildHref("/products", { ...baseParams, page: page - 1 })}
@@ -248,13 +256,13 @@ export default async function ProductsPage({
                 ← Anterior
               </Link>
 
-              <div className="text-sm text-zinc-400">
-                Página <span className="text-zinc-200">{page}</span> / {totalPages}
+              <div className="text-sm text-zinc-500">
+                Pagina <span className="text-black">{page}</span> / {totalPages}
               </div>
 
               <Link
                 className={[
-                  "rounded-xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60",
+                  "border border-zinc-300 px-4 py-2 text-sm text-black hover:bg-zinc-50",
                   page >= totalPages ? "pointer-events-none opacity-50" : "",
                 ].join(" ")}
                 href={buildHref("/products", { ...baseParams, page: page + 1 })}

@@ -5,15 +5,15 @@ export default async function HomePage() {
   const homeTiles = await getHomeCategoryTiles();
 
   return (
-    <main className="min-h-screen bg-white text-black">
+    <main className="min-h-screen w-full overflow-x-hidden bg-white text-black">
       {homeTiles.length > 0 ? (
-        <section className="px-4 py-4 sm:px-8">
-          <div className="mx-auto grid max-w-[1720px] gap-4 lg:grid-cols-2">
+        <section className="w-full overflow-hidden px-4 py-4 sm:px-8">
+          <div className="mx-auto grid w-full max-w-[1720px] grid-cols-1 gap-4">
             {homeTiles.map((tile) => (
               <Link
                 key={tile.id}
                 href={`/products?category=${tile.categorySlug}`}
-                className="group relative block aspect-[1.45/1] min-h-72 overflow-hidden bg-zinc-200"
+                className="group relative block aspect-[4/3] w-full min-w-0 max-w-full overflow-hidden bg-zinc-200 sm:aspect-[1.45/1] lg:aspect-[1.45/1]"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -22,7 +22,7 @@ export default async function HomePage() {
                   className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
                 />
                 <div className="absolute inset-0 bg-black/45 transition group-hover:bg-black/35" />
-                <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-3xl font-bold uppercase tracking-wide text-white">
+                <div className="absolute inset-0 flex items-center justify-center px-5 text-center text-2xl font-bold uppercase tracking-wide text-white sm:text-3xl">
                   {tile.title}
                 </div>
               </Link>

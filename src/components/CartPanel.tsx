@@ -231,7 +231,7 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
             <input
               value={promoInput}
               onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
-              placeholder="EJ: FIKA10"
+              placeholder=""
               className="flex-1 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
             />
             <button
@@ -303,7 +303,7 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
             onClick={onClose}
             className="rounded-xl bg-zinc-100 px-5 py-2 text-center text-sm font-semibold text-zinc-900 hover:bg-white"
           >
-            Finalizar compra
+            Iniciar Compra
           </Link>
         </div>
       </div>
