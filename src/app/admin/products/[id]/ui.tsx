@@ -134,10 +134,12 @@ export default function AdminProductEditor({
     setMsg("Cambios guardados.");
   }
 
-  async function upload(file: File) {
+  async function upload(files: File[]) {
     setMsg(null);
     const fd = new FormData();
-    fd.append("file", file);
+    for (const file of files) {
+      fd.append("file", file);
+    }
     for (const item of items) {
       fd.append("productIds", item.id);
     }
@@ -154,24 +156,24 @@ export default function AdminProductEditor({
     }
 
     const uploadedImages = Array.isArray(data.images) ? (data.images as Array<ProductImage & { productId?: string }>) : [];
-    const selectedImage =
-      uploadedImages.find((image) => image.productId === selected.id) ?? (data.image as ProductImage | undefined);
+    const selectedImages = uploadedImages.filter((image) => image.productId === selected.id);
+    const fallbackImage = data.image as ProductImage | undefined;
 
-    if (!selectedImage) {
-      setMsg("Imagen subida, pero no se pudo actualizar la vista.");
+    if (selectedImages.length === 0 && !fallbackImage) {
+      setMsg("Imagenes subidas, pero no se pudo actualizar la vista.");
       return;
     }
 
-    const nextImages = [...images, selectedImage];
+    const nextImages = [...images, ...(selectedImages.length > 0 ? selectedImages : [fallbackImage as ProductImage])];
     setImages(nextImages);
     setItems((prev) =>
       prev.map((item) => {
-        const image = uploadedImages.find((uploaded) => uploaded.productId === item.id);
-        if (!image) return item;
-        return { ...item, images: [...(item.images ?? []), image] };
+        const itemImages = uploadedImages.filter((uploaded) => uploaded.productId === item.id);
+        if (itemImages.length === 0) return item;
+        return { ...item, images: [...(item.images ?? []), ...itemImages] };
       })
     );
-    setMsg(`Imagen agregada a ${uploadedImages.length || items.length} variante(s).`);
+    setMsg(`${files.length === 1 ? "Imagen agregada" : "Imagenes agregadas"} a ${items.length} variante(s).`);
   }
 
   async function removeImage(imageId: string) {
@@ -439,7 +441,7 @@ No se puede deshacer.`);
               <div className="mt-2 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold">Imágenes de este productos</div>
+                    <div className="text-sm font-semibold">Imágenes de este producto</div>
                    
                   </div>
 
@@ -448,10 +450,11 @@ No se puede deshacer.`);
                     <input
                       type="file"
                       accept="image/*"
+                      multiple
                       className="hidden"
                       onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) upload(f);
+                        const files = Array.from(e.target.files ?? []);
+                        if (files.length > 0) upload(files);
                         e.currentTarget.value = "";
                       }}
                     />

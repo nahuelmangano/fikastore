@@ -4,10 +4,14 @@ const STOREFRONT_SETTINGS_PROVIDER = "storefront";
 const ANNOUNCEMENT_TEXT_KEY = "announcement_text";
 const LOGO_URL_KEY = "logo_url";
 const HOME_CATEGORY_TILES_KEY = "home_category_tiles";
+const SITE_TITLE_KEY = "site_title";
+const FAVICON_URL_KEY = "favicon_url";
 
 export const DEFAULT_ANNOUNCEMENT_TEXT =
   "3 CUOTAS SIN INTERES A PARTIR DE $50.000 | 15% OFF ABONANDO EN EFECTIVO O TRANSFERENCIA | ENVIOS GRATIS A SUCURSAL A PARTIR DE $43000";
 export const DEFAULT_LOGO_URL = "/fika-logo.svg";
+export const DEFAULT_SITE_TITLE = "Fika Store";
+export const DEFAULT_FAVICON_URL = "/favicon.ico";
 
 export type HomeCategoryTile = {
   id: string;
@@ -81,6 +85,80 @@ export async function setStoreLogoUrl(value: string) {
     create: {
       provider: STOREFRONT_SETTINGS_PROVIDER,
       key: LOGO_URL_KEY,
+      value: url,
+      isSecret: false,
+    },
+    update: {
+      value: url,
+      isSecret: false,
+    },
+  });
+}
+
+export async function getSiteTitle() {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: SITE_TITLE_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  return row?.value?.trim() || DEFAULT_SITE_TITLE;
+}
+
+export async function setSiteTitle(value: string) {
+  const title = value.trim();
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: SITE_TITLE_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: SITE_TITLE_KEY,
+      value: title,
+      isSecret: false,
+    },
+    update: {
+      value: title,
+      isSecret: false,
+    },
+  });
+}
+
+export async function getFaviconUrl() {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: FAVICON_URL_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  return row?.value?.trim() || DEFAULT_FAVICON_URL;
+}
+
+export async function setFaviconUrl(value: string) {
+  const url = value.trim();
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: FAVICON_URL_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: FAVICON_URL_KEY,
       value: url,
       isSecret: false,
     },

@@ -41,21 +41,76 @@ export default function AdminSettingsPage({
   announcementText,
   logoUrl,
   homeCategoryTiles,
+  siteTitle,
+  faviconUrl,
   categories,
 }: {
   announcementText: string;
   logoUrl: string;
   homeCategoryTiles: HomeCategoryTile[];
+  siteTitle: string;
+  faviconUrl: string;
   categories: CategoryOption[];
 }) {
   const [text, setText] = useState(announcementText);
   const [logo, setLogo] = useState(logoUrl);
+  const [title, setTitle] = useState(siteTitle);
+  const [favicon, setFavicon] = useState(faviconUrl);
   const [tiles, setTiles] = useState<HomeCategoryTile[]>(homeCategoryTiles);
   const [loading, setLoading] = useState(false);
+  const [browserLoading, setBrowserLoading] = useState(false);
+  const [faviconLoading, setFaviconLoading] = useState(false);
   const [logoLoading, setLogoLoading] = useState(false);
   const [tilesLoading, setTilesLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [browserMsg, setBrowserMsg] = useState<string | null>(null);
   const [tileMsg, setTileMsg] = useState<string | null>(null);
+
+  async function saveBrowserTitle() {
+    setBrowserMsg(null);
+    setBrowserLoading(true);
+
+    const res = await fetch("/api/admin/settings/browser", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ siteTitle: title }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    setBrowserLoading(false);
+
+    if (!res.ok) {
+      setBrowserMsg(String(data?.error || "No se pudo guardar."));
+      return;
+    }
+
+    setTitle(data.siteTitle);
+    setBrowserMsg("Titulo de pestana guardado.");
+  }
+
+  async function uploadFavicon(file: File) {
+    setBrowserMsg(null);
+    setFaviconLoading(true);
+
+    const fd = new FormData();
+    fd.append("file", file);
+
+    const res = await fetch("/api/admin/settings/favicon", {
+      method: "POST",
+      body: fd,
+    });
+
+    const data = await res.json().catch(() => ({}));
+    setFaviconLoading(false);
+
+    if (!res.ok) {
+      setBrowserMsg(String(data?.error || "No se pudo subir el favicon."));
+      return;
+    }
+
+    setFavicon(data.faviconUrl);
+    setBrowserMsg("Favicon actualizado.");
+  }
 
   async function save() {
     setMsg(null);
@@ -186,7 +241,7 @@ export default function AdminSettingsPage({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Configuracion</h1>
-            <p className="mt-1 text-sm text-zinc-400">Texto superior visible en la tienda.</p>
+            <p className="mt-1 text-sm text-zinc-400">Ajustes visibles de la tienda.</p>
           </div>
 
           <Link
@@ -197,6 +252,59 @@ export default function AdminSettingsPage({
             Ver tienda
           </Link>
         </div>
+
+        <section className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
+          <h2 className="text-base font-semibold">Pestana del navegador</h2>
+          <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_220px]">
+            <div>
+              <label className="block text-sm text-zinc-300">Titulo de la pestana</label>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                maxLength={80}
+                className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
+              />
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={saveBrowserTitle}
+                  disabled={browserLoading}
+                  className="rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
+                >
+                  {browserLoading ? "Guardando..." : "Guardar titulo"}
+                </button>
+                <div className="text-xs text-zinc-500">{title.length}/80 caracteres</div>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-sm text-zinc-300">Favicon</div>
+              <div className="mt-2 flex items-center gap-4 rounded-xl border border-zinc-800 bg-zinc-950 p-3">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-zinc-800 bg-white p-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={favicon} alt="Favicon actual" className="max-h-full max-w-full object-contain" />
+                </div>
+                <label className="cursor-pointer rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white">
+                  {faviconLoading ? "Subiendo..." : "Cambiar favicon"}
+                  <input
+                    type="file"
+                    accept="image/*,.ico"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) uploadFavicon(file);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {browserMsg && (
+            <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 text-sm">{browserMsg}</div>
+          )}
+        </section>
 
         <section className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
           <h2 className="text-base font-semibold">Barra promocional</h2>

@@ -1,12 +1,20 @@
 import { prisma } from "@/lib/prisma";
-import { getAnnouncementText, getHomeCategoryTiles, getStoreLogoUrl } from "@/lib/storeSettings";
+import {
+  getAnnouncementText,
+  getFaviconUrl,
+  getHomeCategoryTiles,
+  getSiteTitle,
+  getStoreLogoUrl,
+} from "@/lib/storeSettings";
 import AdminSettingsPage from "./ui";
 
 export default async function SettingsPage() {
-  const [announcementText, logoUrl, homeCategoryTiles, categories] = await Promise.all([
+  const [announcementText, logoUrl, homeCategoryTiles, siteTitle, faviconUrl, categories] = await Promise.all([
     getAnnouncementText(),
     getStoreLogoUrl(),
     getHomeCategoryTiles(),
+    getSiteTitle(),
+    getFaviconUrl(),
     prisma.category.findMany({
       orderBy: { name: "asc" },
       select: { id: true, name: true, slug: true },
@@ -18,6 +26,8 @@ export default async function SettingsPage() {
       announcementText={announcementText}
       logoUrl={logoUrl}
       homeCategoryTiles={homeCategoryTiles}
+      siteTitle={siteTitle}
+      faviconUrl={faviconUrl}
       categories={categories}
     />
   );
