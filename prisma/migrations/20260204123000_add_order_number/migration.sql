@@ -1,0 +1,22 @@
+BEGIN TRY
+
+BEGIN TRAN;
+
+-- AlterTable
+ALTER TABLE [dbo].[Order] ADD [orderNumber] INT IDENTITY(1,1) NOT NULL;
+
+-- CreateIndex
+CREATE UNIQUE NONCLUSTERED INDEX [Order_orderNumber_key] ON [dbo].[Order]([orderNumber]);
+
+COMMIT TRAN;
+
+END TRY
+BEGIN CATCH
+
+IF @@TRANCOUNT > 0
+BEGIN
+    ROLLBACK TRAN;
+END;
+THROW
+
+END CATCH

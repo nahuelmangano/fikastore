@@ -1,0 +1,263 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  role         String   @default("customer") // "customer" | "merchant" | "admin"
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders       Order[]
+  cartSnapshot CartSnapshot?
+}
+
+model Product {
+  id          String         @id @default(cuid())
+  categoryId  String?
+  name        String
+  slug        String         @unique
+  description String?
+  price       Decimal        @db.Decimal(18, 2)
+  stock       Int            @default(0)
+  isActive    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  images      ProductImage[]
+  orderItems  OrderItem[]
+  promotions  PromotionProduct[]
+  category    Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([isActive])
+  @@index([slug])
+  @@index([categoryId])
+}
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  products    Product[]
+
+  @@index([slug])
+}
+
+model Promotion {
+  id        String   @id @default(cuid())
+  name      String
+  type      String   // global | product | code
+  percent   Int
+  code      String?
+  isActive  Boolean  @default(true)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products  PromotionProduct[]
+
+  @@index([type])
+  @@index([isActive])
+  @@index([code])
+}
+
+model PromotionProduct {
+  promotionId String
+  productId   String
+
+  promotion Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([promotionId, productId])
+  @@index([productId])
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  url       String
+  sortOrder Int      @default(0)
+
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+model Order {
+  id                  String   @id @default(cuid())
+  orderNumber         Int      @default(autoincrement())
+  userId              String
+  status              String   @default("pending_payment") // pending_payment|paid|shipped|cancelled|refunded
+  total               Decimal  @db.Decimal(18, 2)
+
+  shippingName        String
+  shippingPhone       String
+  shippingAddressLine String
+  shippingCity        String
+  shippingZip         String
+  shippingProvince    String  @default("")
+  shippingProvinceCode String @default("")
+  shippingMethod      String?  // epick|andreani|correo|pickup
+  shippingAmount      Decimal  @db.Decimal(18, 2) @default(0)
+
+  shippedAt           DateTime? // ✅ cuando lo marcás como enviado
+  notes               String?   // ✅ notas internas/admin (opcional)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user                User     @relation(fields: [userId], references: [id], onDelete: NoAction)
+  items               OrderItem[]
+  payments            Payment[]
+  epickShipment       EPickShipment?
+  correoShipment      CorreoShipment?
+
+  @@index([userId])
+  @@index([status])
+  @@index([shippedAt])
+  @@unique([orderNumber])
+}
+
+model EPickShipment {
+  id               String   @id @default(cuid())
+  orderId          String   @unique
+  epickOrderId     String?
+  senderCode       String?
+  status           String   @default("PENDING") // PENDING|PAYED|CONFIRMED|COLLECTED|DELIVERED-TO-SERVICE|DELIVERED|CANCELED
+  mpUrl            String?
+  choUrl           String?
+  preferenceId     String?
+  qrImage          String?  @db.NVarChar(max)
+  lastPayloadJson  String?  @db.NVarChar(max)
+  lastTrackingJson String?  @db.NVarChar(max)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  order            Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  webhookEvents    EPickWebhookEvent[]
+
+  @@index([epickOrderId])
+  @@index([status])
+}
+
+model EPickWebhookEvent {
+  id              String   @id @default(cuid())
+  epickShipmentId String
+  payloadJson     String   @db.NVarChar(max)
+  createdAt       DateTime @default(now())
+
+  shipment        EPickShipment @relation(fields: [epickShipmentId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+}
+
+model CorreoShipment {
+  id               String   @id @default(cuid())
+  orderId          String   @unique
+  shippingId       String?
+  status           String   @default("IMPORTED")
+  lastPayloadJson  String?  @db.NVarChar(max)
+  lastResponseJson String?  @db.NVarChar(max)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  order            Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([shippingId])
+  @@index([status])
+}
+
+model ShippingCarrier {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  name      String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enabled])
+}
+
+model ShippingProviderSetting {
+  id        String   @id @default(cuid())
+  provider  String
+  key       String
+  value     String
+  isSecret  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, key])
+  @@index([provider])
+}
+
+model OrderItem {
+  id           String   @id @default(cuid())
+  orderId      String
+  productId    String
+
+  // snapshots para que la orden no cambie si cambia el producto
+  nameSnapshot String
+  unitPrice    Decimal  @db.Decimal(18, 2)
+  quantity     Int
+  subtotal     Decimal  @db.Decimal(18, 2)
+
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [productId], references: [id], onDelete: NoAction)
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Payment {
+  id           String   @id @default(cuid())
+  orderId      String
+  provider     String   @default("mercadopago") // mercadopago
+  status       String   @default("pending")     // pending|approved|rejected|cancelled|refunded|unknown
+
+  preferenceId String?
+  initPoint    String?   // 👈 NUEVO
+  paymentId    String?  // ✅ evita duplicados cuando llega webhook más de una vez
+  rawJson      String?  @db.NVarChar(max) // ✅ SQL Server: permite guardar JSON grande sin truncar
+  pendingAt    DateTime?
+  pendingReminderSentAt DateTime?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([provider])
+  @@index([status])
+  @@index([paymentId])
+
+}
+
+model CartSnapshot {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  itemsJson        String   @db.NVarChar(max)
+  itemCount        Int      @default(0)
+  reminderSentAt   DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([updatedAt])
+  @@index([reminderSentAt])
+}

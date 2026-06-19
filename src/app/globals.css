@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7fafc;
+  --foreground: #835321;
+  --surface: #ffffff;
+  --surface-muted: #f1f4f7;
+  --border: rgba(131, 83, 33, 0.22);
+  --text-muted: rgba(131, 83, 33, 0.68);
+  --accent: #835321;
+  --accent-contrast: #f7fafc;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #f7fafc;
+    --foreground: #835321;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+html,
+body {
+  background-color: var(--background);
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Palette overrides for existing zinc-based classes */
+.bg-zinc-950,
+.bg-zinc-900,
+.bg-zinc-800,
+.bg-zinc-950\/20,
+.bg-zinc-950\/40,
+.bg-zinc-900\/30,
+.bg-zinc-900\/40,
+.bg-zinc-900\/50,
+.bg-zinc-900\/60 {
+  background-color: var(--surface) !important;
+}
+
+[class*="bg-zinc-9"],
+[class*="bg-zinc-8"] {
+  background-color: var(--surface) !important;
+}
+
+[class*="border-zinc-"] {
+  border-color: var(--border) !important;
+}
+
+[class*="text-zinc-"] {
+  color: var(--foreground) !important;
+}
+
+.text-zinc-400,
+.text-zinc-500 {
+  color: var(--text-muted) !important;
+}
+
+.bg-zinc-100 {
+  background-color: var(--accent) !important;
+}
+
+.text-zinc-900 {
+  color: var(--accent-contrast) !important;
+}
+
+[class~="hover:bg-white"]:hover {
+  background-color: #6f451b !important;
+}
+
+@keyframes cart-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes cart-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.cart-overlay {
+  animation: cart-fade-in 180ms ease-out;
+}
+
+.cart-drawer {
+  animation: cart-slide-in 220ms ease-out;
+}

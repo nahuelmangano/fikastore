@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120" role="img" aria-label="Fika Pijamas">
+  <rect width="220" height="120" fill="white"/>
+  <text x="110" y="62" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="50" font-weight="300" letter-spacing="4" fill="#1f1f1f">FIKA</text>
+  <line x1="40" y1="68" x2="180" y2="68" stroke="#1f1f1f" stroke-width="1"/>
+  <text x="110" y="91" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="300" letter-spacing="1" fill="#1f1f1f">PIJAMAS</text>
+</svg>
