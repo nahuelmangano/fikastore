@@ -36,13 +36,13 @@ export async function PATCH(
 
   if (body.name !== undefined) {
     const name = String(body.name || "").trim();
-    if (!name) return NextResponse.json({ ok: false, error: "Nombre inválido" }, { status: 400 });
+    if (!name) return NextResponse.json({ ok: false, error: "Nombre invalido" }, { status: 400 });
     data.name = name;
   }
 
   if (body.slug !== undefined) {
     const slug = slugify(String(body.slug || ""));
-    if (!slug) return NextResponse.json({ ok: false, error: "Slug inválido" }, { status: 400 });
+    if (!slug) return NextResponse.json({ ok: false, error: "Slug invalido" }, { status: 400 });
 
     const other = await prisma.product.findUnique({ where: { slug } });
     if (other && other.id !== id) {
@@ -59,14 +59,14 @@ export async function PATCH(
 
   if (body.price !== undefined) {
     const price = Number(body.price);
-    if (!Number.isFinite(price) || price <= 0) return NextResponse.json({ ok: false, error: "Precio inválido" }, { status: 400 });
+    if (!Number.isFinite(price) || price <= 0) return NextResponse.json({ ok: false, error: "Precio invalido" }, { status: 400 });
     priceForVariants = price.toFixed(2);
     data.price = priceForVariants;
   }
 
   if (body.stock !== undefined) {
     const stock = Number(body.stock);
-    if (!Number.isFinite(stock) || stock < 0) return NextResponse.json({ ok: false, error: "Stock inválido" }, { status: 400 });
+    if (!Number.isFinite(stock) || stock < 0) return NextResponse.json({ ok: false, error: "Stock invalido" }, { status: 400 });
     data.stock = stock;
   }
 
@@ -121,7 +121,7 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _: Request,
+  req: Request,
   { params }: { params: { id?: string } | Promise<{ id?: string }> }
 ) {
   const session = await auth();
@@ -132,56 +132,77 @@ export async function DELETE(
   const id = resolvedParams?.id?.trim();
   if (!id) return NextResponse.json({ ok: false, error: "Producto no existe" }, { status: 404 });
 
-  const product = await prisma.product.findUnique({ where: { id }, select: { id: true } });
-  if (!product) return NextResponse.json({ ok: false, error: "Producto no existe" }, { status: 404 });
+  const currentProduct = await prisma.product.findUnique({ where: { id }, select: { id: true, name: true } });
+  if (!currentProduct) return NextResponse.json({ ok: false, error: "Producto no existe" }, { status: 404 });
 
-  const orderItems = await prisma.orderItem.count({ where: { productId: id } });
+  const scope = new URL(req.url).searchParams.get("scope") === "group" ? "group" : "single";
+  const baseName = splitProductName(currentProduct.name);
+
+  const targetProducts =
+    scope === "group"
+      ? await prisma.product.findMany({
+          where: {
+            OR: [{ name: baseName }, { name: { startsWith: `${baseName} —` } }],
+          },
+          select: { id: true },
+        })
+      : [{ id }];
+
+  const targetIds = targetProducts.map((item) => item.id);
+
+  const deactivateTargets = () =>
+    prisma.$transaction(
+      targetIds.map((productId) =>
+        prisma.product.update({
+          where: { id: productId },
+          data: {
+            isActive: false,
+            stock: 0,
+            promotions: {
+              deleteMany: {},
+            },
+          },
+        })
+      )
+    );
+
+  const orderItems = await prisma.orderItem.count({ where: { productId: { in: targetIds } } });
   if (orderItems > 0) {
-    const updated = await prisma.product.update({
-      where: { id },
-      data: {
-        isActive: false,
-        stock: 0,
-        promotions: {
-          deleteMany: {},
-        },
-      },
-    });
-
+    const updatedProducts = await deactivateTargets();
     return NextResponse.json({
       ok: true,
       mode: "deactivated",
-      product: updated,
-      message: "El producto tiene pedidos asociados. Se desactivó para conservar el historial de ventas.",
+      scope,
+      products: updatedProducts,
+      message:
+        scope === "group"
+          ? "El producto tiene pedidos asociados. Se desactivaron todas sus variantes para conservar el historial de ventas."
+          : "El producto tiene pedidos asociados. Se desactivo para conservar el historial de ventas.",
     });
   }
 
   try {
-    await prisma.productImage.deleteMany({ where: { productId: id } });
-    await prisma.product.delete({ where: { id } });
+    await prisma.$transaction([
+      prisma.productImage.deleteMany({ where: { productId: { in: targetIds } } }),
+      prisma.product.deleteMany({ where: { id: { in: targetIds } } }),
+    ]);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
-      const updated = await prisma.product.update({
-        where: { id },
-        data: {
-          isActive: false,
-          stock: 0,
-          promotions: {
-            deleteMany: {},
-          },
-        },
-      });
-
+      const updatedProducts = await deactivateTargets();
       return NextResponse.json({
         ok: true,
         mode: "deactivated",
-        product: updated,
-        message: "El producto tiene pedidos asociados. Se desactivó para conservar el historial de ventas.",
+        scope,
+        products: updatedProducts,
+        message:
+          scope === "group"
+            ? "El producto tiene pedidos asociados. Se desactivaron todas sus variantes para conservar el historial de ventas."
+            : "El producto tiene pedidos asociados. Se desactivo para conservar el historial de ventas.",
       });
     }
 
     throw error;
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, scope });
 }

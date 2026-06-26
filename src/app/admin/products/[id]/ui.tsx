@@ -316,7 +316,7 @@ export default function AdminProductEditor({
     setMsg("Variante creada.");
   }
 
-  async function deleteProduct() {
+  async function deleteVariant() {
     const ok = confirm(`¿Seguro que querés borrar esta variante?
 ${name}
 
@@ -354,6 +354,38 @@ No se puede deshacer.`);
     selectVariant(remaining[0]);
   }
 
+  async function deleteWholeProduct() {
+    const ok = confirm(`Â¿Seguro que querÃ©s borrar el producto completo?
+${baseName}
+
+Esto borrarÃ¡ todas sus variantes. No se puede deshacer.`);
+    if (!ok) return;
+
+    const res = await fetch(`/api/admin/products/${selected.id}?scope=group`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      alert(String(data?.error || "No se pudo borrar el producto."));
+      return;
+    }
+
+    if (data?.mode === "deactivated") {
+      setItems((prev) =>
+        prev.map((item) => ({
+          ...item,
+          isActive: false,
+          stock: 0,
+        }))
+      );
+      setIsActive(false);
+      setStock(0);
+      setMsg(String(data?.message || "El producto tiene pedidos asociados. Se desactivaron todas las variantes."));
+      return;
+    }
+
+    window.location.href = "/admin/products";
+  }
+
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto max-w-6xl px-4 py-10">
@@ -371,7 +403,14 @@ No se puede deshacer.`);
             </Link>
 
             <button
-              onClick={deleteProduct}
+              onClick={deleteWholeProduct}
+              className="rounded-xl border border-red-900/40 bg-red-900/20 px-3 py-2 text-sm font-semibold text-red-200 hover:bg-red-900/30"
+            >
+              Borrar producto
+            </button>
+
+            <button
+              onClick={deleteVariant}
               className="rounded-xl border border-red-700 bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
             >
               Borrar variante
