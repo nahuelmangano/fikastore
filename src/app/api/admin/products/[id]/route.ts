@@ -98,11 +98,12 @@ export async function PATCH(
       data,
     });
 
-    if ((priceForVariants || categoryIdForVariants !== undefined || descriptionForVariants !== undefined) && variantIds.length > 0) {
+    if ((priceForVariants || categoryIdForVariants !== undefined || descriptionForVariants !== undefined || body.isActive !== undefined) && variantIds.length > 0) {
       const variantData: Prisma.ProductUncheckedUpdateManyInput = {};
       if (priceForVariants) variantData.price = priceForVariants;
       if (categoryIdForVariants !== undefined) variantData.categoryId = categoryIdForVariants;
       if (descriptionForVariants !== undefined) variantData.description = descriptionForVariants;
+      if (body.isActive !== undefined) variantData.isActive = Boolean(body.isActive);
 
       await tx.product.updateMany({
         where: {

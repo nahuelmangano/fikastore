@@ -23,6 +23,7 @@ model User {
 model Product {
   id          String         @id @default(cuid())
   categoryId  String?
+  sortOrder   Int            @default(0)
   name        String
   slug        String         @unique
   description String?
@@ -40,11 +41,13 @@ model Product {
   @@index([isActive])
   @@index([slug])
   @@index([categoryId])
+  @@index([sortOrder])
 }
 
 model Category {
   id          String    @id @default(cuid())
   parentId    String?
+  sortOrder   Int       @default(0)
   name        String
   slug        String    @unique
   description String?
@@ -56,7 +59,7 @@ model Category {
   children    Category[] @relation("CategoryHierarchy")
 
   @@index([slug])
-  @@index([parentId])
+  @@index([parentId, sortOrder])
 }
 
 model Promotion {

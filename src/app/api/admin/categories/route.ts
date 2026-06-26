@@ -13,7 +13,7 @@ export async function GET() {
   if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const categories = await prisma.category.findMany({
-    orderBy: { name: "asc" },
+    orderBy: [{ parentId: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
     include: { _count: { select: { products: true } } },
   });
 
@@ -41,8 +41,10 @@ export async function POST(req: Request) {
     if (!parent) return NextResponse.json({ ok: false, error: "Categoria padre invalida" }, { status: 400 });
   }
 
+  const siblingsCount = await prisma.category.count({ where: { parentId } });
+
   const category = await prisma.category.create({
-    data: { name, slug, description, parentId },
+    data: { name, slug, description, parentId, sortOrder: siblingsCount },
     include: { _count: { select: { products: true } } },
   });
 

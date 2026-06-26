@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 export type CategoryTreeItem = {
   id: string;
   parentId?: string | null;
+  sortOrder?: number;
   name: string;
   slug: string;
 };
@@ -20,7 +21,11 @@ export function flattenCategories<T extends CategoryTreeItem>(categories: T[]) {
   }
 
   for (const items of byParent.values()) {
-    items.sort((a, b) => a.name.localeCompare(b.name));
+    items.sort((a, b) => {
+      const orderDiff = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+      if (orderDiff !== 0) return orderDiff;
+      return a.name.localeCompare(b.name);
+    });
   }
 
   const flattened: Array<T & CategoryOption> = [];

@@ -274,6 +274,7 @@ export async function POST(req: Request) {
 
   for (const row of toCreate) {
     try {
+      const maxSort = await prisma.product.aggregate({ _max: { sortOrder: true } });
       const product = await prisma.product.create({
         data: {
           name: row.name,
@@ -283,6 +284,7 @@ export async function POST(req: Request) {
           stock: row.stock,
           isActive: row.isActive,
           categoryId: row.categorySlug ? categoryIdBySlug.get(row.categorySlug) ?? null : null,
+          sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
         },
         select: { id: true, slug: true, name: true },
       });
