@@ -9,17 +9,18 @@ export default async function StoreNav() {
   const [logoUrl, categories] = await Promise.all([
     getStoreLogoUrl(),
     prisma.category.findMany({
-      where: {
-        OR: [
-          { products: { some: { isActive: true } } },
-          { children: { some: { products: { some: { isActive: true } } } } },
-        ],
-      },
-      orderBy: { name: "asc" },
-      select: { id: true, parentId: true, name: true, slug: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: { id: true, parentId: true, sortOrder: true, name: true, slug: true },
     }),
   ]);
   const categoryOptions = flattenCategories(categories);
+  const rootCategories = categories.filter((category) => !category.parentId);
+  const childrenByParent = new Map<string, typeof categories>();
+
+  for (const category of categories) {
+    if (!category.parentId) continue;
+    childrenByParent.set(category.parentId, [...(childrenByParent.get(category.parentId) ?? []), category]);
+  }
 
   return (
     <nav className="relative z-40 border-t-[5px] border-t-black bg-white text-black">
@@ -29,18 +30,50 @@ export default async function StoreNav() {
             Inicio
           </Link>
 
-          <div className="group relative flex h-full items-center">
+          <div className="group/products relative flex h-full items-center">
             <Link href="/products" className="flex h-full items-center gap-3 text-sm font-normal uppercase leading-none hover:text-zinc-600">
               Productos
               <span className="mt-0.5 h-2 w-2 rotate-45 border-b border-r border-black" />
             </Link>
-            <div className="invisible absolute left-0 top-full z-40 w-64 border border-zinc-200 bg-white py-2 opacity-0 shadow-lg transition group-hover:visible group-hover:opacity-100">
-              {categoryOptions.length === 0 ? (
+            <div className="invisible absolute left-0 top-full z-40 w-64 border border-zinc-200 bg-white py-2 opacity-0 shadow-lg transition group-hover/products:visible group-hover/products:opacity-100">
+              {rootCategories.length === 0 ? (
                 <Link href="/products" className="block px-4 py-3 text-sm uppercase hover:bg-zinc-50">
                   Todos los productos
                 </Link>
               ) : (
-                categoryOptions.map((category) => (
+                <>
+                  {rootCategories.map((category) => {
+                    const children = childrenByParent.get(category.id) ?? [];
+
+                    return (
+                      <div key={category.id} className="group/category relative">
+                        <Link
+                          href={`/products?category=${category.slug}`}
+                          className="flex items-center justify-between px-4 py-3 text-sm uppercase hover:bg-zinc-50"
+                        >
+                          <span>{category.name}</span>
+                          {children.length > 0 && <span className="text-xl leading-none">›</span>}
+                        </Link>
+
+                        {children.length > 0 && (
+                          <div className="invisible absolute left-full top-0 z-50 w-64 border border-zinc-200 bg-white py-2 opacity-0 shadow-lg transition group-hover/category:visible group-hover/category:opacity-100">
+                            {children.map((child) => (
+                              <Link
+                                key={child.id}
+                                href={`/products?category=${child.slug}`}
+                                className="flex items-center justify-between px-4 py-3 text-sm uppercase hover:bg-zinc-50"
+                              >
+                                <span>{child.name}</span>
+                                {(childrenByParent.get(child.id)?.length ?? 0) > 0 && <span className="text-xl leading-none">›</span>}
+                              </Link>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <div className="hidden">
+                    {categoryOptions.map((category) => (
                   <Link
                     key={category.id}
                     href={`/products?category=${category.slug}`}
@@ -51,7 +84,9 @@ export default async function StoreNav() {
                     </span>
                     <span className="text-xl leading-none">›</span>
                   </Link>
-                ))
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           </div>

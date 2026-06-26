@@ -452,7 +452,7 @@ export default function AdminSettingsPage({
                         <button
                           type="button"
                           onClick={() => setTiles((prev) => prev.filter((item) => item.id !== tile.id))}
-                          className="rounded-xl border border-red-900/40 bg-red-900/20 px-4 py-2 text-sm text-red-200 hover:bg-red-900/30"
+                          className="rounded-xl border border-red-300 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
                         >
                           Borrar
                         </button>

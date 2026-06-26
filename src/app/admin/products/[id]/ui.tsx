@@ -74,6 +74,7 @@ export default function AdminProductEditor({
   const [images, setImages] = useState<ProductImage[]>(selected.images ?? []);
   const [newVariantName, setNewVariantName] = useState("");
   const [newVariantStock, setNewVariantStock] = useState(0);
+  const [addVariantOpen, setAddVariantOpen] = useState(false);
   const [addingVariant, setAddingVariant] = useState(false);
 
   const mainImg = useMemo(() => images?.[0]?.url, [images]);
@@ -280,6 +281,7 @@ export default function AdminProductEditor({
   async function createVariant() {
     const variantName = newVariantName.trim();
     if (!variantName) {
+      setAddVariantOpen(true);
       setMsg("Ingresá el nombre de la variante.");
       return;
     }
@@ -312,18 +314,19 @@ export default function AdminProductEditor({
     setItems((prev) => [...prev, nextProduct]);
     setNewVariantName("");
     setNewVariantStock(0);
+    setAddVariantOpen(false);
     selectVariant(nextProduct);
     setMsg("Variante creada.");
   }
 
-  async function deleteVariant() {
+  async function deleteVariant(target: EditableProduct = selected) {
     const ok = confirm(`¿Seguro que querés borrar esta variante?
-${name}
+${target.name}
 
 No se puede deshacer.`);
     if (!ok) return;
 
-    const res = await fetch(`/api/admin/products/${selected.id}`, { method: "DELETE" });
+    const res = await fetch(`/api/admin/products/${target.id}`, { method: "DELETE" });
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
@@ -333,25 +336,27 @@ No se puede deshacer.`);
 
     if (data?.mode === "deactivated") {
       const nextProduct = {
-        ...selected,
+        ...target,
         isActive: false,
         stock: 0,
       };
-      setIsActive(false);
-      setStock(0);
-      setItems((prev) => prev.map((item) => (item.id === selected.id ? nextProduct : item)));
+      if (target.id === selected.id) {
+        setIsActive(false);
+        setStock(0);
+      }
+      setItems((prev) => prev.map((item) => (item.id === target.id ? nextProduct : item)));
       setMsg(String(data?.message || "La variante tiene pedidos asociados. Se desactivó."));
       return;
     }
 
-    const remaining = items.filter((item) => item.id !== selected.id);
+    const remaining = items.filter((item) => item.id !== target.id);
     if (remaining.length === 0) {
       window.location.href = "/admin/products";
       return;
     }
 
     setItems(remaining);
-    selectVariant(remaining[0]);
+    if (target.id === selected.id) selectVariant(remaining[0]);
   }
 
   async function deleteWholeProduct() {
@@ -404,17 +409,11 @@ Esto borrarÃ¡ todas sus variantes. No se puede deshacer.`);
 
             <button
               onClick={deleteWholeProduct}
-              className="rounded-xl border border-red-900/40 bg-red-900/20 px-3 py-2 text-sm font-semibold text-red-200 hover:bg-red-900/30"
+              className="rounded-xl border border-red-600 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
             >
               Borrar producto
             </button>
 
-            <button
-              onClick={deleteVariant}
-              className="rounded-xl border border-red-700 bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
-            >
-              Borrar variante
-            </button>
           </div>
         </div>
 
@@ -430,61 +429,112 @@ Esto borrarÃ¡ todas sus variantes. No se puede deshacer.`);
               {items.map((item) => {
                 const active = item.id === selected.id;
                 return (
-                  <button
+                  <div
                     key={item.id}
-                    type="button"
-                    onClick={() => selectVariant(item)}
                     className={[
-                      "w-full rounded-xl border px-3 py-2 text-left text-sm transition",
+                      "flex w-full items-start gap-2 rounded-xl border p-2 text-sm transition",
                       active
-                        ? "border-zinc-100 bg-zinc-100 text-zinc-900"
+                        ? "border-[#925b23] bg-[#925b23] text-white"
                         : "border-zinc-800 bg-zinc-950/60 text-zinc-200 hover:bg-zinc-900/60",
                     ].join(" ")}
                   >
-                    <span className="block truncate font-medium">{variantLabel(item.name)}</span>
-                    <span className={active ? "text-xs text-zinc-600" : "text-xs text-zinc-500"}>
+                    <button type="button" onClick={() => selectVariant(item)} className="min-w-0 flex-1 text-left">
+                      <span className="block truncate font-medium">{variantLabel(item.name)}</span>
+                    <span className={active ? "text-xs text-white/85" : "text-xs text-zinc-500"}>
                       Stock {item.stock} · ${Number(item.price).toLocaleString("es-AR")}
                     </span>
-                    <span className={active ? "block truncate text-xs text-zinc-600" : "block truncate text-xs text-zinc-500"}>
+                    <span className={active ? "block truncate text-xs text-white/75" : "block truncate text-xs text-zinc-500"}>
                       {item.category?.name ?? "Sin categoria"}
                     </span>
-                  </button>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteVariant(item)}
+                      title="Borrar variante"
+                      aria-label={`Borrar variante ${variantLabel(item.name)}`}
+                      className={[
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition",
+                        active
+                          ? "border-white/30 text-white hover:bg-white/15"
+                          : "border-red-200 bg-white text-red-700 hover:bg-red-50",
+                      ].join(" ")}
+                    >
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        className="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4h8v2" />
+                        <path d="M19 6l-1 14H6L5 6" />
+                        <path d="M10 11v5" />
+                        <path d="M14 11v5" />
+                      </svg>
+                    </button>
+                  </div>
                 );
               })}
             </div>
 
-            <div className="mt-5 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-              <div className="text-sm font-semibold">Agregar variante</div>
-              <div className="mt-3 grid gap-3">
-                <div>
-                  <label className="text-xs text-zinc-400">Nombre</label>
-                  <input
-                    value={newVariantName}
-                    onChange={(event) => setNewVariantName(event.target.value)}
-                    placeholder="Ej: Talle: XXL"
-                    className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs text-zinc-400">Stock</label>
-                  <input
-                    type="number"
-                    value={newVariantStock}
-                    onChange={(event) => setNewVariantStock(Number(event.target.value))}
-                    className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-sm"
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={createVariant}
-                  disabled={addingVariant}
-                  className="rounded-xl bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
+            <div className="mt-5 rounded-xl border border-zinc-800 bg-zinc-950/40">
+              <button
+                type="button"
+                onClick={() => setAddVariantOpen((open) => !open)}
+                aria-expanded={addVariantOpen}
+                className="flex w-full items-center justify-between px-3 py-3 text-left text-sm font-semibold"
+              >
+                <span>Agregar variante</span>
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  className={["h-4 w-4 transition", addVariantOpen ? "rotate-180" : ""].join(" ")}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
-                  {addingVariant ? "Creando..." : "Crear variante"}
-                </button>
-              </div>
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </button>
+
+              {addVariantOpen && (
+                <div className="grid gap-3 border-t border-zinc-800 px-3 py-3">
+                  <div>
+                    <label className="text-xs text-zinc-400">Nombre</label>
+                    <input
+                      value={newVariantName}
+                      onChange={(event) => setNewVariantName(event.target.value)}
+                      placeholder="Ej: Talle: XXL"
+                      className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-zinc-400">Stock</label>
+                    <input
+                      type="number"
+                      value={newVariantStock}
+                      onChange={(event) => setNewVariantStock(Number(event.target.value))}
+                      className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-sm"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={createVariant}
+                    disabled={addingVariant}
+                    className="rounded-xl bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
+                  >
+                    {addingVariant ? "Creando..." : "Crear variante"}
+                  </button>
+                </div>
+              )}
             </div>
           </aside>
 
