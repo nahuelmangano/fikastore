@@ -1,6 +1,7 @@
 import Link from "next/link";
 import CartLink from "@/components/CartLink";
 import StoreSearch from "@/components/StoreSearch";
+import { flattenCategories } from "@/lib/categories";
 import { prisma } from "@/lib/prisma";
 import { getStoreLogoUrl } from "@/lib/storeSettings";
 
@@ -8,11 +9,17 @@ export default async function StoreNav() {
   const [logoUrl, categories] = await Promise.all([
     getStoreLogoUrl(),
     prisma.category.findMany({
-      where: { products: { some: { isActive: true } } },
+      where: {
+        OR: [
+          { products: { some: { isActive: true } } },
+          { children: { some: { products: { some: { isActive: true } } } } },
+        ],
+      },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, slug: true },
+      select: { id: true, parentId: true, name: true, slug: true },
     }),
   ]);
+  const categoryOptions = flattenCategories(categories);
 
   return (
     <nav className="relative z-40 border-t-[5px] border-t-black bg-white text-black">
@@ -28,18 +35,20 @@ export default async function StoreNav() {
               <span className="mt-0.5 h-2 w-2 rotate-45 border-b border-r border-black" />
             </Link>
             <div className="invisible absolute left-0 top-full z-40 w-64 border border-zinc-200 bg-white py-2 opacity-0 shadow-lg transition group-hover:visible group-hover:opacity-100">
-              {categories.length === 0 ? (
+              {categoryOptions.length === 0 ? (
                 <Link href="/products" className="block px-4 py-3 text-sm uppercase hover:bg-zinc-50">
                   Todos los productos
                 </Link>
               ) : (
-                categories.map((category) => (
+                categoryOptions.map((category) => (
                   <Link
                     key={category.id}
                     href={`/products?category=${category.slug}`}
                     className="flex items-center justify-between px-4 py-3 text-sm uppercase hover:bg-zinc-50"
                   >
-                    {category.name}
+                    <span className={category.depth > 0 ? "pl-4 text-xs text-zinc-600" : ""}>
+                      {category.depth > 0 ? category.name : category.label}
+                    </span>
                     <span className="text-xl leading-none">›</span>
                   </Link>
                 ))
@@ -72,7 +81,7 @@ export default async function StoreNav() {
         </Link>
 
         <div className="flex h-full items-center">
-          <CartLink variant="store" searchSlot={<StoreSearch categories={categories} />} />
+          <CartLink variant="store" searchSlot={<StoreSearch categories={categoryOptions} />} />
         </div>
       </div>
 
@@ -99,11 +108,14 @@ export default async function StoreNav() {
               <Link href="/products" className="px-2 py-3 text-sm uppercase text-black hover:bg-zinc-50">
                 Productos
               </Link>
-              {categories.map((category) => (
+              {categoryOptions.map((category) => (
                 <Link
                   key={category.id}
                   href={`/products?category=${category.slug}`}
-                  className="px-5 py-2 text-xs uppercase text-zinc-500 hover:bg-zinc-50"
+                  className={[
+                    "py-2 text-xs uppercase text-zinc-500 hover:bg-zinc-50",
+                    category.depth > 0 ? "px-8" : "px-5",
+                  ].join(" ")}
                 >
                   {category.name}
                 </Link>
@@ -133,7 +145,7 @@ export default async function StoreNav() {
         </Link>
 
         <div className="flex h-full items-center">
-          <CartLink variant="store" compact searchSlot={<StoreSearch categories={categories} />} />
+          <CartLink variant="store" compact searchSlot={<StoreSearch categories={categoryOptions} />} />
         </div>
       </div>
     </nav>

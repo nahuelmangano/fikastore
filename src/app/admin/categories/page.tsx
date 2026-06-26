@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { flattenCategories } from "@/lib/categories";
 import AdminCategoriesPage from "./ui";
 
 export default async function CategoriesPage() {
@@ -6,6 +7,7 @@ export default async function CategoriesPage() {
     orderBy: { name: "asc" },
     select: {
       id: true,
+      parentId: true,
       name: true,
       slug: true,
       description: true,
@@ -13,5 +15,5 @@ export default async function CategoriesPage() {
     },
   });
 
-  return <AdminCategoriesPage initialCategories={categories} />;
+  return <AdminCategoriesPage initialCategories={flattenCategories(categories)} />;
 }

@@ -200,7 +200,7 @@ export default function ProductDetailClient({
 
             {selected.description && (
               <div
-                className="mt-4 text-sm leading-6 text-zinc-300"
+                className="mt-4 text-sm leading-6 text-zinc-300 [&_img]:my-4 [&_img]:max-w-full [&_img]:rounded-xl"
                 dangerouslySetInnerHTML={{ __html: sanitizeRichText(selected.description) }}
               />
             )}

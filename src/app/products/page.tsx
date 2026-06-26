@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getCategoryAndDescendantIds } from "@/lib/categories";
 import ProductSortSelect from "@/components/ProductSortSelect";
 import { getAutomaticDiscountsForProducts } from "@/lib/promotions";
 
@@ -123,7 +124,8 @@ export default async function ProductsPage({
     ];
   }
   if (category && category !== "all") {
-    where.category = { slug: category };
+    const categoryIds = await getCategoryAndDescendantIds(category);
+    where.categoryId = categoryIds.length > 0 ? { in: categoryIds } : "__missing__";
   }
 
   const [allProducts, selectedCategory] = await Promise.all([

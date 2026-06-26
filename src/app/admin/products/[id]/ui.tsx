@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { slugify } from "@/lib/slug";
 import { sanitizeRichText } from "@/lib/richText";
 
 function splitProductName(name: string) {
@@ -39,7 +38,9 @@ type EditableProduct = {
 
 type CategoryOption = {
   id: string;
+  parentId?: string | null;
   name: string;
+  label?: string;
 };
 
 const FONT_OPTIONS = [
@@ -71,9 +72,16 @@ export default function AdminProductEditor({
   const [isActive, setIsActive] = useState<boolean>(selected.isActive);
   const [categoryId, setCategoryId] = useState<string>(selected.categoryId ?? "");
   const [images, setImages] = useState<ProductImage[]>(selected.images ?? []);
+  const [newVariantName, setNewVariantName] = useState("");
+  const [newVariantStock, setNewVariantStock] = useState(0);
+  const [addingVariant, setAddingVariant] = useState(false);
 
   const mainImg = useMemo(() => images?.[0]?.url, [images]);
   const totalStock = items.reduce((acc, item) => acc + Number(item.stock || 0), 0);
+  const availableImageUrls = useMemo(
+    () => Array.from(new Set(items.flatMap((item) => (item.images ?? []).map((image) => image.url)))),
+    [items]
+  );
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -111,6 +119,27 @@ export default function AdminProductEditor({
     syncDescriptionFromEditor();
   }
 
+  async function uploadDescriptionImage(file: File) {
+    setMsg(null);
+    const fd = new FormData();
+    fd.append("file", file);
+
+    const res = await fetch("/api/admin/uploads/image", {
+      method: "POST",
+      body: fd,
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.url) {
+      setMsg(String(data?.error || "Error subiendo imagen para la descripcion."));
+      return;
+    }
+
+    descriptionRef.current?.focus();
+    document.execCommand("insertHTML", false, `<img src="${data.url}" alt="" loading="lazy"><br>`);
+    syncDescriptionFromEditor();
+  }
+
   async function save() {
     setMsg(null);
     setLoading(true);
@@ -118,7 +147,16 @@ export default function AdminProductEditor({
     const res = await fetch(`/api/admin/products/${selected.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, slug, description, price, stock, isActive, categoryId }),
+      body: JSON.stringify({
+        name,
+        slug,
+        description,
+        price,
+        stock,
+        isActive,
+        categoryId,
+        variantIds: items.map((item) => item.id),
+      }),
     });
 
     const data = await res.json().catch(() => ({}));
@@ -130,7 +168,12 @@ export default function AdminProductEditor({
     }
 
     const category = categories.find((item) => item.id === categoryId) ?? null;
-    patchSelected({ name, slug, description: description || null, price, stock, isActive, categoryId, category, images });
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== selected.id) return { ...item, description: description || null, price, categoryId, category };
+        return { ...item, name, slug, description: description || null, price, stock, isActive, categoryId, category, images };
+      })
+    );
     setMsg("Cambios guardados.");
   }
 
@@ -139,9 +182,6 @@ export default function AdminProductEditor({
     const fd = new FormData();
     for (const file of files) {
       fd.append("file", file);
-    }
-    for (const item of items) {
-      fd.append("productIds", item.id);
     }
 
     const res = await fetch(`/api/admin/products/${selected.id}/images`, {
@@ -173,7 +213,7 @@ export default function AdminProductEditor({
         return { ...item, images: [...(item.images ?? []), ...itemImages] };
       })
     );
-    setMsg(`${files.length === 1 ? "Imagen agregada" : "Imagenes agregadas"} a ${items.length} variante(s).`);
+    setMsg(`${files.length === 1 ? "Imagen agregada" : "Imagenes agregadas"} a esta variante.`);
   }
 
   async function removeImage(imageId: string) {
@@ -192,6 +232,88 @@ export default function AdminProductEditor({
     setImages(nextImages);
     patchSelected({ images: nextImages });
     setMsg("Imagen borrada.");
+  }
+
+  async function toggleVariantImage(url: string, enabled: boolean) {
+    setMsg(null);
+
+    if (enabled) {
+      const res = await fetch(`/api/admin/products/${selected.id}/images`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data?.image) {
+        setMsg(String(data?.error || "No se pudo activar la imagen."));
+        return;
+      }
+
+      const image = data.image as ProductImage;
+      const nextImages = images.some((item) => item.id === image.id || item.url === image.url) ? images : [...images, image];
+      setImages(nextImages);
+      patchSelected({ images: nextImages });
+      setMsg("Imagen activada para esta variante.");
+      return;
+    }
+
+    const image = images.find((item) => item.url === url);
+    if (!image) return;
+
+    const res = await fetch(`/api/admin/products/${selected.id}/images/${image.id}`, {
+      method: "DELETE",
+    });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      setMsg(String(data?.error || "No se pudo desactivar la imagen."));
+      return;
+    }
+
+    const nextImages = images.filter((item) => item.id !== image.id);
+    setImages(nextImages);
+    patchSelected({ images: nextImages });
+    setMsg("Imagen desactivada para esta variante.");
+  }
+
+  async function createVariant() {
+    const variantName = newVariantName.trim();
+    if (!variantName) {
+      setMsg("Ingresá el nombre de la variante.");
+      return;
+    }
+
+    setMsg(null);
+    setAddingVariant(true);
+
+    const res = await fetch(`/api/admin/products/${selected.id}/variants`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        variantName,
+        stock: newVariantStock,
+        description,
+        price,
+        categoryId,
+        isActive,
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    setAddingVariant(false);
+
+    if (!res.ok || !data?.product) {
+      setMsg(String(data?.error || "No se pudo crear la variante."));
+      return;
+    }
+
+    const nextProduct = data.product as EditableProduct;
+    setItems((prev) => [...prev, nextProduct]);
+    setNewVariantName("");
+    setNewVariantStock(0);
+    selectVariant(nextProduct);
+    setMsg("Variante creada.");
   }
 
   async function deleteProduct() {
@@ -291,6 +413,40 @@ No se puede deshacer.`);
                 );
               })}
             </div>
+
+            <div className="mt-5 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+              <div className="text-sm font-semibold">Agregar variante</div>
+              <div className="mt-3 grid gap-3">
+                <div>
+                  <label className="text-xs text-zinc-400">Nombre</label>
+                  <input
+                    value={newVariantName}
+                    onChange={(event) => setNewVariantName(event.target.value)}
+                    placeholder="Ej: Talle: XXL"
+                    className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-zinc-400">Stock</label>
+                  <input
+                    type="number"
+                    value={newVariantStock}
+                    onChange={(event) => setNewVariantStock(Number(event.target.value))}
+                    className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-sm"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={createVariant}
+                  disabled={addingVariant}
+                  className="rounded-xl bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
+                >
+                  {addingVariant ? "Creando..." : "Crear variante"}
+                </button>
+              </div>
+            </div>
           </aside>
 
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
@@ -317,15 +473,6 @@ No se puede deshacer.`);
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm text-zinc-300">Slug</label>
-                <input
-                  value={slug}
-                  onChange={(e) => setSlug(slugify(e.target.value))}
-                  className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono"
                 />
               </div>
 
@@ -381,6 +528,20 @@ No se puede deshacer.`);
                         className="h-5 w-8 border-0 bg-transparent p-0"
                       />
                     </label>
+
+                    <label className="flex h-8 cursor-pointer items-center rounded-lg border border-zinc-800 px-2 text-sm hover:bg-zinc-900/60">
+                      Imagen
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) uploadDescriptionImage(file);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
                   </div>
 
                   <div
@@ -389,7 +550,7 @@ No se puede deshacer.`);
                     contentEditable
                     suppressContentEditableWarning
                     onInput={syncDescriptionFromEditor}
-                    className="min-h-28 w-full px-3 py-2 text-sm leading-6 outline-none"
+                    className="min-h-28 w-full px-3 py-2 text-sm leading-6 outline-none [&_img]:my-3 [&_img]:max-w-full [&_img]:rounded-xl"
                   />
                 </div>
               </div>
@@ -404,7 +565,7 @@ No se puede deshacer.`);
                   <option value="">Sin categoria</option>
                   {categories.map((category) => (
                     <option key={category.id} value={category.id}>
-                      {category.name}
+                      {category.label ?? category.name}
                     </option>
                   ))}
                 </select>
@@ -441,12 +602,14 @@ No se puede deshacer.`);
               <div className="mt-2 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold">Imágenes de este producto</div>
-                   
+                    <div className="text-sm font-semibold">Imágenes de esta variante</div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      Activá las imágenes que deben mostrarse para {variantLabel(name)}.
+                    </div>
                   </div>
 
                   <label className="cursor-pointer rounded-xl bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-white">
-                    + Subir imagen
+                    + Subir a esta variante
                     <input
                       type="file"
                       accept="image/*"
@@ -461,24 +624,47 @@ No se puede deshacer.`);
                   </label>
                 </div>
 
-                {images.length === 0 ? (
-                  <div className="mt-4 text-sm text-zinc-400">Todavía no hay imágenes.</div>
+                {availableImageUrls.length === 0 ? (
+                  <div className="mt-4 text-sm text-zinc-400">Todavía no hay imágenes disponibles.</div>
                 ) : (
                   <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {images.map((im) => (
-                      <div key={im.id} className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-2">
-                        <div className="aspect-square overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900">
+                    {availableImageUrls.map((url) => {
+                      const activeImage = images.find((image) => image.url === url);
+                      const active = Boolean(activeImage);
+                      return (
+                      <div
+                        key={url}
+                        className={[
+                          "rounded-xl border bg-zinc-900/30 p-2",
+                          active ? "border-zinc-200" : "border-zinc-800 opacity-60",
+                        ].join(" ")}
+                      >
+                        <label className="block cursor-pointer">
+                          <div className="aspect-square overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={im.url} alt={name} className="h-full w-full object-cover" />
-                        </div>
-                        <button
-                          onClick={() => removeImage(im.id)}
-                          className="mt-2 w-full rounded-lg border border-red-700 bg-red-600 px-2 py-1 text-xs font-semibold text-white hover:bg-red-700"
-                        >
-                          Borrar
-                        </button>
+                            <img src={url} alt={name} className="h-full w-full object-cover" />
+                          </div>
+                          <span className="mt-2 flex items-center gap-2 text-xs text-zinc-300">
+                            <input
+                              type="checkbox"
+                              checked={active}
+                              onChange={(event) => toggleVariantImage(url, event.target.checked)}
+                            />
+                            Mostrar
+                          </span>
+                        </label>
+                        {activeImage && (
+                          <button
+                            type="button"
+                            onClick={() => removeImage(activeImage.id)}
+                            className="mt-2 w-full rounded-lg border border-red-700 bg-red-600 px-2 py-1 text-xs font-semibold text-white hover:bg-red-700"
+                          >
+                            Quitar de variante
+                          </button>
+                        )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

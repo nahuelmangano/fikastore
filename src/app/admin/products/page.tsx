@@ -1,8 +1,10 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { flattenCategories, getCategoryAndDescendantIds } from "@/lib/categories";
 import BulkCategoryToolbar from "./BulkCategoryToolbar";
 import CategoryFilterSelect from "./CategoryFilterSelect";
+import DuplicateProductButton from "./DuplicateProductButton";
 
 const PAGE_SIZE = 20;
 
@@ -125,7 +127,8 @@ export default async function AdminProductsPage({
   if (status === "inactive") where.isActive = false;
   if (category === "uncategorized") where.categoryId = null;
   if (category && category !== "all" && category !== "uncategorized") {
-    where.category = { slug: category };
+    const categoryIds = await getCategoryAndDescendantIds(category);
+    where.categoryId = categoryIds.length > 0 ? { in: categoryIds } : "__missing__";
   }
 
   const [allProducts, categories] = await Promise.all([
@@ -135,7 +138,7 @@ export default async function AdminProductsPage({
     }),
     prisma.category.findMany({
       orderBy: { name: "asc" },
-      select: { id: true, name: true, slug: true },
+      select: { id: true, parentId: true, name: true, slug: true },
     }),
   ]);
 
@@ -228,7 +231,7 @@ export default async function AdminProductsPage({
 
             <div className="md:col-span-3">
               <label className="text-xs text-zinc-400">Filtrar por categoria</label>
-              <CategoryFilterSelect categories={categories} value={category} />
+              <CategoryFilterSelect categories={flattenCategories(categories)} value={category} />
             </div>
 
             <div className="md:col-span-3">
@@ -266,7 +269,7 @@ export default async function AdminProductsPage({
           </div>
         </form>
 
-        <BulkCategoryToolbar categories={categories} />
+        <BulkCategoryToolbar categories={flattenCategories(categories)} />
 
         {/* Tabla */}
         <div className="mt-6 overflow-hidden rounded-2xl border border-zinc-800">
@@ -370,12 +373,15 @@ export default async function AdminProductsPage({
                       </td>
 
                       <td className="px-4 py-3">
-                        <Link
-                          href={`/admin/products/${p.id}`}
-                          className="rounded-xl border border-zinc-800 px-3 py-1.5 text-xs hover:bg-zinc-900/60"
-                        >
-                          Editar
-                        </Link>
+                        <div className="flex flex-wrap gap-2">
+                          <Link
+                            href={`/admin/products/${p.id}`}
+                            className="rounded-xl border border-zinc-800 px-3 py-1.5 text-xs hover:bg-zinc-900/60"
+                          >
+                            Editar
+                          </Link>
+                          <DuplicateProductButton productId={p.id} />
+                        </div>
                       </td>
                     </tr>
                   );

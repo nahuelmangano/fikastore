@@ -4,7 +4,9 @@ import { useState } from "react";
 
 type CategoryOption = {
   id: string;
+  parentId?: string | null;
   name: string;
+  label?: string;
 };
 
 function selectedProductIds() {
@@ -78,7 +80,7 @@ export default function BulkCategoryToolbar({ categories }: { categories: Catego
                 <option value="">Sin categoria</option>
                 {categories.map((category) => (
                   <option key={category.id} value={category.id}>
-                    {category.name}
+                    {category.label ?? category.name}
                   </option>
                 ))}
               </select>

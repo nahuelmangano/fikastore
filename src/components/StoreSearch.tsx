@@ -7,6 +7,7 @@ type CategoryOption = {
   id: string;
   name: string;
   slug: string;
+  label?: string;
 };
 
 function currentParam(name: string, fallback: string) {
@@ -69,7 +70,7 @@ export default function StoreSearch({ categories }: { categories: CategoryOption
                 <option value="all">Todas</option>
                 {categories.map((category) => (
                   <option key={category.id} value={category.slug}>
-                    {category.name}
+                    {category.label ?? category.name}
                   </option>
                 ))}
               </select>

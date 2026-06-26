@@ -7,6 +7,7 @@ type CategoryOption = {
   id: string;
   name: string;
   slug: string;
+  label?: string;
 };
 
 type HomeCategoryTile = {
@@ -417,7 +418,7 @@ export default function AdminSettingsPage({
                           >
                             {categories.map((category) => (
                               <option key={category.id} value={category.id}>
-                                {category.name}
+                                {category.label ?? category.name}
                               </option>
                             ))}
                           </select>

@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 
 type CategoryOption = {
   id: string;
+  parentId?: string | null;
   name: string;
   slug: string;
+  label?: string;
 };
 
 export default function CategoryFilterSelect({
@@ -35,7 +37,7 @@ export default function CategoryFilterSelect({
       <option value="uncategorized">Sin categoria</option>
       {categories.map((item) => (
         <option key={item.id} value={item.slug}>
-          {item.name}
+          {item.label ?? item.name}
         </option>
       ))}
     </select>

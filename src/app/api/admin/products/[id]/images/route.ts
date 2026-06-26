@@ -28,6 +28,32 @@ export async function POST(
   const role = (session?.user as { role?: string } | undefined)?.role;
   if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
+  const resolvedParams = await Promise.resolve(params);
+  const id = resolvedParams?.id?.trim();
+  if (!id) return NextResponse.json({ ok: false, error: "Producto no existe" }, { status: 404 });
+
+  const product = await prisma.product.findUnique({ where: { id } });
+  if (!product) return NextResponse.json({ ok: false, error: "Producto no existe" }, { status: 404 });
+
+  if (req.headers.get("content-type")?.includes("application/json")) {
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const url = String(body.url || "").trim();
+    if (!url) return NextResponse.json({ ok: false, error: "URL requerida" }, { status: 400 });
+
+    const existing = await prisma.productImage.findFirst({ where: { productId: product.id, url } });
+    if (existing) return NextResponse.json({ ok: true, image: existing, images: [existing] });
+
+    const image = await prisma.productImage.create({
+      data: {
+        productId: product.id,
+        url,
+        sortOrder: await nextSortOrder(product.id),
+      },
+    });
+
+    return NextResponse.json({ ok: true, image, images: [image] });
+  }
+
   const form = await req.formData();
   const files = form.getAll("file").filter((file): file is File => file instanceof File);
   const productIdsRaw = form.getAll("productIds");
@@ -39,13 +65,6 @@ export async function POST(
   if (files.some((file) => !file.type.startsWith("image/"))) {
     return NextResponse.json({ ok: false, error: "Todos los archivos deben ser imagenes" }, { status: 400 });
   }
-
-  const resolvedParams = await Promise.resolve(params);
-  const id = resolvedParams?.id?.trim();
-  if (!id) return NextResponse.json({ ok: false, error: "Producto no existe" }, { status: 404 });
-
-  const product = await prisma.product.findUnique({ where: { id } });
-  if (!product) return NextResponse.json({ ok: false, error: "Producto no existe" }, { status: 404 });
 
   const productIds = Array.from(
     new Set(

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { getCategoryAndDescendantIds } from "@/lib/categories";
 import { prisma } from "@/lib/prisma";
 import { isStaffRole } from "@/lib/roles";
 import { slugify } from "@/lib/slug";
@@ -18,8 +19,8 @@ export async function PATCH(
   const id = resolvedParams?.id?.trim();
   if (!id) return NextResponse.json({ ok: false, error: "Categoria no existe" }, { status: 404 });
 
-  const body = await req.json().catch(() => ({}));
-  const data: { name?: string; slug?: string; description?: string | null } = {};
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const data: { name?: string; slug?: string; description?: string | null; parentId?: string | null } = {};
 
   if (body.name !== undefined) {
     const name = String(body.name || "").trim();
@@ -43,6 +44,29 @@ export async function PATCH(
     data.description = description || null;
   }
 
+  if (body.parentId !== undefined) {
+    const parentId = String(body.parentId || "").trim() || null;
+    if (parentId === id) {
+      return NextResponse.json({ ok: false, error: "Una categoria no puede ser su propia subcategoria" }, { status: 400 });
+    }
+
+    if (parentId) {
+      const [parent, current] = await Promise.all([
+        prisma.category.findUnique({ where: { id: parentId }, select: { id: true } }),
+        prisma.category.findUnique({ where: { id }, select: { slug: true } }),
+      ]);
+      if (!parent) return NextResponse.json({ ok: false, error: "Categoria padre invalida" }, { status: 400 });
+      if (!current) return NextResponse.json({ ok: false, error: "Categoria no existe" }, { status: 404 });
+
+      const descendantIds = await getCategoryAndDescendantIds(current.slug);
+      if (descendantIds.includes(parentId)) {
+        return NextResponse.json({ ok: false, error: "No se puede elegir una subcategoria como padre" }, { status: 400 });
+      }
+    }
+
+    data.parentId = parentId;
+  }
+
   const category = await prisma.category.update({
     where: { id },
     data,
@@ -64,7 +88,10 @@ export async function DELETE(
   const id = resolvedParams?.id?.trim();
   if (!id) return NextResponse.json({ ok: false, error: "Categoria no existe" }, { status: 404 });
 
-  await prisma.category.delete({ where: { id } });
+  await prisma.$transaction([
+    prisma.category.updateMany({ where: { parentId: id }, data: { parentId: null } }),
+    prisma.category.delete({ where: { id } }),
+  ]);
 
   return NextResponse.json({ ok: true });
 }

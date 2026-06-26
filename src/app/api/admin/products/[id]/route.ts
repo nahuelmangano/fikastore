@@ -8,6 +8,11 @@ import { sanitizeRichText } from "@/lib/richText";
 
 export const runtime = "nodejs";
 
+function splitProductName(name: string) {
+  const [base] = name.split(/\s+—\s+/);
+  return (base || name).trim();
+}
+
 export async function PATCH(
   req: Request,
   { params }: { params: { id?: string } | Promise<{ id?: string }> }
@@ -20,8 +25,14 @@ export async function PATCH(
   const id = resolvedParams?.id?.trim();
   if (!id) return NextResponse.json({ ok: false, error: "Producto no existe" }, { status: 404 });
 
+  const currentProduct = await prisma.product.findUnique({ where: { id }, select: { id: true, name: true } });
+  if (!currentProduct) return NextResponse.json({ ok: false, error: "Producto no existe" }, { status: 404 });
+
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const data: Prisma.ProductUncheckedUpdateInput = {};
+  let priceForVariants: string | null = null;
+  let categoryIdForVariants: string | null | undefined;
+  let descriptionForVariants: string | null | undefined;
 
   if (body.name !== undefined) {
     const name = String(body.name || "").trim();
@@ -43,12 +54,14 @@ export async function PATCH(
   if (body.description !== undefined) {
     const desc = sanitizeRichText(String(body.description || ""));
     data.description = desc || null;
+    descriptionForVariants = desc || null;
   }
 
   if (body.price !== undefined) {
     const price = Number(body.price);
     if (!Number.isFinite(price) || price <= 0) return NextResponse.json({ ok: false, error: "Precio inválido" }, { status: 400 });
-    data.price = price.toFixed(2);
+    priceForVariants = price.toFixed(2);
+    data.price = priceForVariants;
   }
 
   if (body.stock !== undefined) {
@@ -65,16 +78,42 @@ export async function PATCH(
     const categoryId = String(body.categoryId || "").trim();
     if (!categoryId) {
       data.categoryId = null;
+      categoryIdForVariants = null;
     } else {
       const category = await prisma.category.findUnique({ where: { id: categoryId }, select: { id: true } });
       if (!category) return NextResponse.json({ ok: false, error: "Categoria invalida" }, { status: 400 });
       data.categoryId = categoryId;
+      categoryIdForVariants = categoryId;
     }
   }
 
-  const updated = await prisma.product.update({
-    where: { id },
-    data,
+  const variantIds = Array.isArray(body.variantIds)
+    ? Array.from(new Set(body.variantIds.map((value) => String(value || "").trim()).filter(Boolean)))
+    : [];
+  const baseName = splitProductName(currentProduct.name);
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const updatedProduct = await tx.product.update({
+      where: { id },
+      data,
+    });
+
+    if ((priceForVariants || categoryIdForVariants !== undefined || descriptionForVariants !== undefined) && variantIds.length > 0) {
+      const variantData: Prisma.ProductUncheckedUpdateManyInput = {};
+      if (priceForVariants) variantData.price = priceForVariants;
+      if (categoryIdForVariants !== undefined) variantData.categoryId = categoryIdForVariants;
+      if (descriptionForVariants !== undefined) variantData.description = descriptionForVariants;
+
+      await tx.product.updateMany({
+        where: {
+          id: { in: variantIds },
+          OR: [{ name: baseName }, { name: { startsWith: `${baseName} —` } }],
+        },
+        data: variantData,
+      });
+    }
+
+    return updatedProduct;
   });
 
   return NextResponse.json({ ok: true, product: updated });

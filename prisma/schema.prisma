@@ -44,6 +44,7 @@ model Product {
 
 model Category {
   id          String    @id @default(cuid())
+  parentId    String?
   name        String
   slug        String    @unique
   description String?
@@ -51,8 +52,11 @@ model Category {
   updatedAt   DateTime  @updatedAt
 
   products    Product[]
+  parent      Category? @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children    Category[] @relation("CategoryHierarchy")
 
   @@index([slug])
+  @@index([parentId])
 }
 
 model Promotion {

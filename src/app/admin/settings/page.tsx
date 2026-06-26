@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { flattenCategories } from "@/lib/categories";
 import {
   getAnnouncementText,
   getFaviconUrl,
@@ -17,7 +18,7 @@ export default async function SettingsPage() {
     getFaviconUrl(),
     prisma.category.findMany({
       orderBy: { name: "asc" },
-      select: { id: true, name: true, slug: true },
+      select: { id: true, parentId: true, name: true, slug: true },
     }),
   ]);
 
@@ -28,7 +29,7 @@ export default async function SettingsPage() {
       homeCategoryTiles={homeCategoryTiles}
       siteTitle={siteTitle}
       faviconUrl={faviconUrl}
-      categories={categories}
+      categories={flattenCategories(categories)}
     />
   );
 }

@@ -1,0 +1,46 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+
+export default function DuplicateProductButton({ productId }: { productId: string }) {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+
+  async function duplicateProduct() {
+    setLoading(true);
+
+    const res = await fetch(`/api/admin/products/${productId}/duplicate`, {
+      method: "POST",
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      setLoading(false);
+      alert(String(data?.error || "No se pudo duplicar el producto."));
+      return;
+    }
+
+    const nextId = String(data?.product?.id || "");
+    if (nextId) {
+      router.push(`/admin/products/${nextId}`);
+      router.refresh();
+      return;
+    }
+
+    setLoading(false);
+    alert("Producto duplicado, pero no se pudo abrir el editor.");
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={duplicateProduct}
+      disabled={loading}
+      className="rounded-xl border border-zinc-800 px-3 py-1.5 text-xs hover:bg-zinc-900/60 disabled:opacity-50"
+    >
+      {loading ? "Duplicando..." : "Duplicar"}
+    </button>
+  );
+}

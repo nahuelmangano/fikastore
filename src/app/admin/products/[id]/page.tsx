@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { flattenCategories } from "@/lib/categories";
 import { notFound } from "next/navigation";
 import AdminProductEditor from "./ui";
 
@@ -53,14 +54,14 @@ export default async function AdminProductEditPage({
 
   const categories = await prisma.category.findMany({
     orderBy: { name: "asc" },
-    select: { id: true, name: true },
+    select: { id: true, parentId: true, name: true, slug: true },
   });
 
   return (
     <AdminProductEditor
       product={product}
       variants={sortVariantsBySize(variants.length > 0 ? variants : [product])}
-      categories={categories}
+      categories={flattenCategories(categories)}
     />
   );
 }
