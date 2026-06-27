@@ -23,7 +23,7 @@ export async function POST(req: Request) {
   const siblings = await prisma.category.findMany({
     where: { parentId },
     select: { id: true },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    orderBy: [{ name: "asc" }],
   });
 
   if (siblings.length !== orderedIds.length) {
@@ -35,15 +35,6 @@ export async function POST(req: Request) {
   if (JSON.stringify(siblingIds) !== JSON.stringify(nextIds)) {
     return NextResponse.json({ ok: false, error: "Las categorias no pertenecen al mismo nivel" }, { status: 400 });
   }
-
-  await prisma.$transaction(
-    orderedIds.map((id, index) =>
-      prisma.category.update({
-        where: { id },
-        data: { sortOrder: index },
-      })
-    )
-  );
 
   return NextResponse.json({ ok: true });
 }

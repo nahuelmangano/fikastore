@@ -9,8 +9,8 @@ export default async function StoreNav() {
   const [logoUrl, categories] = await Promise.all([
     getStoreLogoUrl(),
     prisma.category.findMany({
-      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-      select: { id: true, parentId: true, sortOrder: true, name: true, slug: true },
+      orderBy: [{ name: "asc" }],
+      select: { id: true, parentId: true, name: true, slug: true },
     }),
   ]);
   const categoryOptions = flattenCategories(categories);

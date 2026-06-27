@@ -4,11 +4,10 @@ import AdminCategoriesPage from "./ui";
 
 export default async function CategoriesPage() {
   const categories = await prisma.category.findMany({
-    orderBy: [{ parentId: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
+    orderBy: [{ parentId: "asc" }, { name: "asc" }],
     select: {
       id: true,
       parentId: true,
-      sortOrder: true,
       name: true,
       slug: true,
       description: true,

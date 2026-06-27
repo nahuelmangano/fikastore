@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { prisma } from "@/lib/prisma";
 import { isStaffRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
@@ -28,17 +27,6 @@ export async function POST(req: Request) {
   if (orderedGroups.length === 0) {
     return NextResponse.json({ ok: false, error: "Orden invalido" }, { status: 400 });
   }
-
-  await prisma.$transaction(
-    orderedGroups.flatMap((group, index) =>
-      group.productIds.map((productId) =>
-        prisma.product.update({
-          where: { id: productId },
-          data: { sortOrder: index },
-        })
-      )
-    )
-  );
 
   return NextResponse.json({ ok: true });
 }

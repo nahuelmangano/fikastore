@@ -6,7 +6,7 @@ import DuplicateProductButton from "./DuplicateProductButton";
 
 type ProductGroup = {
   id: string;
-  sortOrder: number;
+  sortOrder?: number;
   name: string;
   description: string | null;
   slug: string;

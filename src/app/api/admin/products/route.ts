@@ -34,11 +34,6 @@ async function uniqueSlug(tx: TxClient, value: string, reserved: Set<string>) {
   return candidate;
 }
 
-async function nextProductSortOrder(tx: TxClient) {
-  const row = await tx.product.aggregate({ _max: { sortOrder: true } });
-  return (row._max.sortOrder ?? -1) + 1;
-}
-
 export async function POST(req: Request) {
   const session = await auth();
   const role = (session?.user as { role?: string } | undefined)?.role;
@@ -88,7 +83,6 @@ export async function POST(req: Request) {
     const reservedSlugs = new Set<string>();
     let firstProduct: { id: string; name: string; slug: string } | null = null;
     const createdProducts: Array<{ id: string; name: string; slug: string }> = [];
-    const sortOrder = await nextProductSortOrder(tx);
 
     for (const variant of variants) {
       const productName = variantProductName(name, variant.name);
@@ -102,7 +96,6 @@ export async function POST(req: Request) {
           stock: Math.floor(variant.stock),
           isActive,
           categoryId,
-          sortOrder,
         },
         select: { id: true, name: true, slug: true },
       });

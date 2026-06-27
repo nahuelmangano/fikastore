@@ -28,11 +28,6 @@ async function uniqueSlug(tx: TxClient, value: string) {
   return candidate;
 }
 
-async function nextProductSortOrder(tx: TxClient) {
-  const row = await tx.product.aggregate({ _max: { sortOrder: true } });
-  return (row._max.sortOrder ?? -1) + 1;
-}
-
 export async function POST(
   req: Request,
   { params }: { params: { id?: string } | Promise<{ id?: string }> }
@@ -76,7 +71,6 @@ export async function POST(
 
   const product = await prisma.$transaction(async (tx) => {
     const slug = await uniqueSlug(tx, name);
-    const sortOrder = source.sortOrder ?? (await nextProductSortOrder(tx));
     const created = await tx.product.create({
       data: {
         categoryId,
@@ -86,7 +80,6 @@ export async function POST(
         price: price.toFixed(2),
         stock: Math.floor(stock),
         isActive,
-        sortOrder,
       },
       include: {
         images: { orderBy: { sortOrder: "asc" } },

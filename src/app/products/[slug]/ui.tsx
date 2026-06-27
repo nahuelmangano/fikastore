@@ -23,6 +23,28 @@ function variantLabel(name: string) {
   return variantName || "Única variante";
 }
 
+function variantAttributes(name: string) {
+  const label = variantLabel(name);
+  const attrs = new Map<string, string>();
+
+  for (const part of label.split(/\s*\/\s*/)) {
+    const [rawKey, ...rawValue] = part.split(/\s*:\s*/);
+    const key = rawKey?.trim();
+    const value = rawValue.join(":").trim();
+    if (key && value) attrs.set(key, value);
+  }
+
+  return attrs;
+}
+
+const SIZE_ORDER = ["XS", "S", "M", "L", "XL", "XXL"];
+
+function optionRank(attribute: string, value: string) {
+  if (!/talle/i.test(attribute)) return Number.MAX_SAFE_INTEGER;
+  const index = SIZE_ORDER.indexOf(value.toUpperCase());
+  return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
+}
+
 type ProductVariant = {
   id: string;
   slug: string;
@@ -68,6 +90,36 @@ export default function ProductDetailClient({
   const stock = Number(selected.stock);
 
   const canBuy = selected.isActive && stock > 0;
+  const variantAttributeEntries = variants.map((variant) => ({
+    variant,
+    attrs: variantAttributes(variant.name),
+  }));
+  const attributeNames = Array.from(
+    new Set(variantAttributeEntries.flatMap((entry) => Array.from(entry.attrs.keys())))
+  );
+  const canUseGroupedVariants =
+    variants.length > 1 &&
+    attributeNames.length > 0 &&
+    variantAttributeEntries.every((entry) => attributeNames.every((name) => entry.attrs.has(name)));
+  const selectedAttrs = variantAttributes(selected.name);
+
+  function selectVariant(variant: ProductVariant) {
+    setSelectedId(variant.id);
+    setActive((variant.images ?? [])[0]?.url ?? fallback);
+    setQty(1);
+  }
+
+  function selectVariantAttribute(attribute: string, value: string) {
+    const nextAttrs = new Map(selectedAttrs);
+    nextAttrs.set(attribute, value);
+
+    const exact = variantAttributeEntries.find((entry) =>
+      attributeNames.every((name) => entry.attrs.get(name) === nextAttrs.get(name))
+    );
+    const fallbackVariant = variantAttributeEntries.find((entry) => entry.attrs.get(attribute) === value);
+    const nextVariant = exact?.variant ?? fallbackVariant?.variant;
+    if (nextVariant) selectVariant(nextVariant);
+  }
 
   function clampQty(n: number) {
     if (!Number.isFinite(n)) return 1;
@@ -208,34 +260,57 @@ export default function ProductDetailClient({
             {variants.length > 1 && (
               <div className="mt-6">
                 <div className="text-sm font-medium text-zinc-300">Variantes</div>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {variants.map((variant) => {
-                    const variantStock = Number(variant.stock);
-                    const selectedVariant = variant.id === selected.id;
-                    return (
-                      <button
-                        key={variant.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedId(variant.id);
-                          setActive((variant.images ?? [])[0]?.url ?? fallback);
-                          setQty(1);
-                        }}
-                        className={[
-                          "rounded-xl border px-3 py-2 text-left text-sm transition",
-                          selectedVariant
-                            ? "border-zinc-100 bg-zinc-100 text-zinc-900"
-                            : "border-zinc-800 bg-zinc-950 text-zinc-200 hover:bg-zinc-900/60",
-                        ].join(" ")}
-                      >
-                        <span className="block font-medium">{variantLabel(variant.name)}</span>
-                        <span className={selectedVariant ? "text-xs text-zinc-600" : "text-xs text-zinc-500"}>
-                          Stock: {variantStock}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                {canUseGroupedVariants ? (
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {attributeNames.map((attribute) => {
+                      const values = Array.from(
+                        new Set(variantAttributeEntries.map((entry) => entry.attrs.get(attribute)).filter(Boolean))
+                      ) as string[];
+                      values.sort((a, b) => {
+                        const rankDiff = optionRank(attribute, a) - optionRank(attribute, b);
+                        return rankDiff || a.localeCompare(b);
+                      });
+
+                      return (
+                        <label key={attribute} className="text-sm text-zinc-300">
+                          {attribute}
+                          <select
+                            value={selectedAttrs.get(attribute) ?? ""}
+                            onChange={(event) => selectVariantAttribute(attribute, event.target.value)}
+                            className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+                          >
+                            {values.map((value) => (
+                              <option key={value} value={value}>
+                                {value}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {variants.map((variant) => {
+                      const selectedVariant = variant.id === selected.id;
+                      return (
+                        <button
+                          key={variant.id}
+                          type="button"
+                          onClick={() => selectVariant(variant)}
+                          className={[
+                            "rounded-xl border px-3 py-2 text-left text-sm transition",
+                            selectedVariant
+                              ? "border-zinc-100 bg-zinc-100 text-zinc-900"
+                              : "border-zinc-800 bg-zinc-950 text-zinc-200 hover:bg-zinc-900/60",
+                          ].join(" ")}
+                        >
+                          <span className="block font-medium">{variantLabel(variant.name)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 

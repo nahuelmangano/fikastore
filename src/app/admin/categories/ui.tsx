@@ -8,7 +8,7 @@ import { slugify } from "@/lib/slug";
 type Category = {
   id: string;
   parentId?: string | null;
-  sortOrder: number;
+  sortOrder?: number;
   name: string;
   slug: string;
   label?: string;
@@ -77,7 +77,7 @@ function groupByParent(categories: Category[]) {
 
   for (const items of byParent.values()) {
     items.sort((a, b) => {
-      const orderDiff = a.sortOrder - b.sortOrder;
+      const orderDiff = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
       if (orderDiff !== 0) return orderDiff;
       return a.name.localeCompare(b.name);
     });
@@ -100,7 +100,7 @@ function reorderSiblings(
   const parentId = dragged.parentId ?? null;
   const siblingItems = categories
     .filter((item) => (item.parentId ?? null) === parentId)
-    .sort((a, b) => a.sortOrder - b.sortOrder);
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 
   const draggedIndex = siblingItems.findIndex((item) => item.id === draggedId);
   const targetIndex = siblingItems.findIndex((item) => item.id === targetId);
@@ -240,7 +240,7 @@ export default function AdminCategoriesPage({ initialCategories }: { initialCate
     const parentId = target.parentId ?? null;
     const orderedIds = nextCategories
       .filter((item) => (item.parentId ?? null) === parentId)
-      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
       .map((item) => item.id);
 
     await persistReorder(parentId, orderedIds);

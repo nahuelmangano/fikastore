@@ -41,7 +41,7 @@ type ListedProduct = Prisma.ProductGetPayload<{
 
 type ProductGroup = {
   id: string;
-  sortOrder: number;
+  sortOrder?: number;
   name: string;
   description: string | null;
   slug: string;
@@ -66,7 +66,6 @@ function groupProducts(products: ListedProduct[]) {
     if (!existing) {
       groups.set(key, {
         id: product.id,
-        sortOrder: product.sortOrder,
         name: baseName,
         description: product.description,
         slug: product.slug,
@@ -84,7 +83,6 @@ function groupProducts(products: ListedProduct[]) {
     existing.products.push({ id: product.id });
     existing.stock += product.stock;
     existing.price = Math.min(existing.price, price);
-    existing.sortOrder = Math.min(existing.sortOrder, product.sortOrder);
     existing.createdAt = existing.createdAt > product.createdAt ? existing.createdAt : product.createdAt;
     existing.isActive = existing.isActive || product.isActive;
     if (product.category && !existing.categories.some((category) => category.slug === product.category?.slug)) {
@@ -107,7 +105,7 @@ export default async function AdminProductsPage({
   const page = toInt(resolvedSearchParams.page ?? "1", 1);
   const category = (resolvedSearchParams.category ?? "all").trim();
   const status = (resolvedSearchParams.status ?? "all").toLowerCase();
-  const sort = (resolvedSearchParams.sort ?? "manual").toLowerCase();
+  const sort = (resolvedSearchParams.sort ?? "newest").toLowerCase();
 
   const where: Prisma.ProductWhereInput = {};
 
@@ -125,12 +123,12 @@ export default async function AdminProductsPage({
   const [allProducts, categories] = await Promise.all([
     prisma.product.findMany({
       where,
-      orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+      orderBy: [{ createdAt: "desc" }],
       include: { images: { orderBy: { sortOrder: "asc" }, take: 1 }, category: true },
     }),
     prisma.category.findMany({
-      orderBy: [{ parentId: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
-      select: { id: true, parentId: true, name: true, slug: true, sortOrder: true },
+      orderBy: [{ parentId: "asc" }, { name: "asc" }],
+      select: { id: true, parentId: true, name: true, slug: true },
     }),
   ]);
 
@@ -138,11 +136,6 @@ export default async function AdminProductsPage({
   if (status === "oos") productGroups = productGroups.filter((group) => group.stock <= 0);
 
   productGroups.sort((a, b) => {
-    if (sort === "manual") {
-      const orderDiff = a.sortOrder - b.sortOrder;
-      if (orderDiff !== 0) return orderDiff;
-      return b.createdAt.getTime() - a.createdAt.getTime();
-    }
     if (sort === "name") return a.name.localeCompare(b.name);
     if (sort === "price_asc") return a.price - b.price;
     if (sort === "price_desc") return b.price - a.price;
@@ -151,7 +144,7 @@ export default async function AdminProductsPage({
     return b.createdAt.getTime() - a.createdAt.getTime();
   });
 
-  const manualOrder = sort === "manual";
+  const manualOrder = false;
   const total = productGroups.length;
   const totalPages = manualOrder ? 1 : Math.max(1, Math.ceil(total / PAGE_SIZE));
   const products = manualOrder ? productGroups : productGroups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -214,7 +207,6 @@ export default async function AdminProductsPage({
             <div className="md:col-span-3">
               <label className="text-xs text-zinc-400">Orden</label>
               <select name="sort" defaultValue={sort} className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm">
-                <option value="manual">Manual</option>
                 <option value="newest">Mas nuevos</option>
                 <option value="name">Nombre A-Z</option>
                 <option value="price_asc">Precio ↑</option>
