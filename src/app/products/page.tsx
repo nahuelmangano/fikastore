@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { getCategoryAndDescendantIds } from "@/lib/categories";
 import ProductSortSelect from "@/components/ProductSortSelect";
 import { getAutomaticDiscountsForProducts } from "@/lib/promotions";
+import StoreTemporarilyClosed from "@/components/StoreTemporarilyClosed";
+import { getTemporaryShutdownSettings } from "@/lib/storeSettings";
 
 const PAGE_SIZE = 18;
 
@@ -108,6 +110,11 @@ export default async function ProductsPage({
   const q = (resolvedSearchParams.q ?? "").trim();
   const page = toInt(resolvedSearchParams.page ?? "1", 1);
   const category = (resolvedSearchParams.category ?? "all").trim();
+  const temporaryShutdown = await getTemporaryShutdownSettings();
+
+  if (temporaryShutdown.isShutdown) {
+    return <StoreTemporarilyClosed message={temporaryShutdown.message} />;
+  }
 
   // availability: available | all | oos
   const availability = (resolvedSearchParams.availability ?? "available").toLowerCase();

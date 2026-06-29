@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { Prisma } from "@prisma/client";
 import { normalizePromoCode, priceCartItems } from "@/lib/promotions";
+import { getTemporaryShutdownSettings } from "@/lib/storeSettings";
 
 export const runtime = "nodejs";
 
@@ -31,6 +32,11 @@ export async function POST(req: Request) {
   const session = await auth();
   const userId = (session?.user as any)?.id as string | undefined;
   if (!userId) return bad("Tenés que iniciar sesión para continuar.", 401);
+
+  const temporaryShutdown = await getTemporaryShutdownSettings();
+  if (temporaryShutdown.isShutdown) {
+    return bad("La tienda se encuentra apagada temporalmente.", 403);
+  }
 
   const body = (await req.json().catch(() => null)) as Body | null;
   if (!body) return bad("Body inválido.");

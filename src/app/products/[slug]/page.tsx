@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import ProductDetailClient from "./ui";
 import { getAutomaticDiscountsForProducts } from "@/lib/promotions";
+import StoreTemporarilyClosed from "@/components/StoreTemporarilyClosed";
+import { getTemporaryShutdownSettings } from "@/lib/storeSettings";
 
 function splitProductName(name: string) {
   const [base, ...rest] = name.split(/\s+—\s+/);
@@ -35,6 +37,11 @@ export default async function ProductDetailPage({
   const resolvedParams = await Promise.resolve(params);
   const slug = resolvedParams?.slug?.trim();
   if (!slug) return notFound();
+
+  const temporaryShutdown = await getTemporaryShutdownSettings();
+  if (temporaryShutdown.isShutdown) {
+    return <StoreTemporarilyClosed message={temporaryShutdown.message} />;
+  }
 
   const product = await prisma.product.findUnique({
     where: { slug },

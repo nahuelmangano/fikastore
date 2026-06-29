@@ -2,16 +2,18 @@ import Link from "next/link";
 import CartLink from "@/components/CartLink";
 import StoreSearch from "@/components/StoreSearch";
 import { flattenCategories } from "@/lib/categories";
+import { getActiveInformationSections } from "@/lib/informationSections";
 import { prisma } from "@/lib/prisma";
 import { getStoreLogoUrl } from "@/lib/storeSettings";
 
 export default async function StoreNav() {
-  const [logoUrl, categories] = await Promise.all([
+  const [logoUrl, categories, informationSections] = await Promise.all([
     getStoreLogoUrl(),
     prisma.category.findMany({
       orderBy: [{ name: "asc" }],
       select: { id: true, parentId: true, name: true, slug: true },
     }),
+    getActiveInformationSections(),
   ]);
   const categoryOptions = flattenCategories(categories);
   const rootCategories = categories.filter((category) => !category.parentId);
@@ -97,15 +99,15 @@ export default async function StoreNav() {
               <span className="mt-0.5 h-2 w-2 rotate-45 border-b border-r border-black" />
             </button>
             <div className="invisible absolute left-0 top-full z-40 w-60 border border-zinc-200 bg-white py-2 opacity-0 shadow-lg transition group-hover:visible group-hover:opacity-100">
-              <Link href="/checkout" className="block px-4 py-3 text-sm uppercase hover:bg-zinc-50">
-                Medios de pago
-              </Link>
-              <Link href="/cart" className="block px-4 py-3 text-sm uppercase hover:bg-zinc-50">
-                Envíos
-              </Link>
-              <Link href="/account/orders" className="block px-4 py-3 text-sm uppercase hover:bg-zinc-50">
-                Mis pedidos
-              </Link>
+              {informationSections.map((section) => (
+                <Link
+                  key={section.id}
+                  href={`/informacion/${section.slug}`}
+                  className="block px-4 py-3 text-sm uppercase hover:bg-zinc-50"
+                >
+                  {section.title}
+                </Link>
+              ))}
             </div>
           </div>
         </div>
@@ -155,15 +157,15 @@ export default async function StoreNav() {
                   {category.name}
                 </Link>
               ))}
-              <Link href="/checkout" className="px-2 py-3 text-sm uppercase text-black hover:bg-zinc-50">
-                Medios de pago
-              </Link>
-              <Link href="/cart" className="px-2 py-3 text-sm uppercase text-black hover:bg-zinc-50">
-                Envios
-              </Link>
-              <Link href="/account/orders" className="px-2 py-3 text-sm uppercase text-black hover:bg-zinc-50">
-                Mis pedidos
-              </Link>
+              {informationSections.map((section) => (
+                <Link
+                  key={section.id}
+                  href={`/informacion/${section.slug}`}
+                  className="px-2 py-3 text-sm uppercase text-black hover:bg-zinc-50"
+                >
+                  {section.title}
+                </Link>
+              ))}
               <Link href="/login" className="px-2 py-3 text-sm uppercase text-black hover:bg-zinc-50">
                 Cuenta
               </Link>

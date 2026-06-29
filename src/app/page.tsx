@@ -1,8 +1,16 @@
 import Link from "next/link";
-import { getHomeCategoryTiles } from "@/lib/storeSettings";
+import StoreTemporarilyClosed from "@/components/StoreTemporarilyClosed";
+import { getHomeCategoryTiles, getTemporaryShutdownSettings } from "@/lib/storeSettings";
 
 export default async function HomePage() {
-  const homeTiles = await getHomeCategoryTiles();
+  const [homeTiles, temporaryShutdown] = await Promise.all([
+    getHomeCategoryTiles(),
+    getTemporaryShutdownSettings(),
+  ]);
+
+  if (temporaryShutdown.isShutdown) {
+    return <StoreTemporarilyClosed message={temporaryShutdown.message} />;
+  }
 
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-white text-black">

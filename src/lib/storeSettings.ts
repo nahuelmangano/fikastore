@@ -6,6 +6,7 @@ const LOGO_URL_KEY = "logo_url";
 const HOME_CATEGORY_TILES_KEY = "home_category_tiles";
 const SITE_TITLE_KEY = "site_title";
 const FAVICON_URL_KEY = "favicon_url";
+const TEMPORARY_SHUTDOWN_KEY = "temporary_shutdown";
 
 export const DEFAULT_ANNOUNCEMENT_TEXT =
   "3 CUOTAS SIN INTERES A PARTIR DE $50.000 | 15% OFF ABONANDO EN EFECTIVO O TRANSFERENCIA | ENVIOS GRATIS A SUCURSAL A PARTIR DE $43000";
@@ -20,6 +21,14 @@ export type HomeCategoryTile = {
   title: string;
   imageUrl: string;
 };
+
+export type TemporaryShutdownSettings = {
+  isShutdown: boolean;
+  message: string;
+};
+
+export const DEFAULT_TEMPORARY_SHUTDOWN_MESSAGE =
+  "La tienda se encuentra apagada temporalmente. Volve a visitarnos pronto.";
 
 export async function getAnnouncementText() {
   const row = await prisma.shippingProviderSetting.findUnique({
@@ -217,6 +226,56 @@ export async function setHomeCategoryTiles(tiles: HomeCategoryTile[]) {
     create: {
       provider: STOREFRONT_SETTINGS_PROVIDER,
       key: HOME_CATEGORY_TILES_KEY,
+      value,
+      isSecret: false,
+    },
+    update: {
+      value,
+      isSecret: false,
+    },
+  });
+}
+
+export async function getTemporaryShutdownSettings(): Promise<TemporaryShutdownSettings> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: TEMPORARY_SHUTDOWN_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return { isShutdown: false, message: DEFAULT_TEMPORARY_SHUTDOWN_MESSAGE };
+
+  try {
+    const parsed = JSON.parse(row.value) as Partial<TemporaryShutdownSettings>;
+    return {
+      isShutdown: parsed.isShutdown === true,
+      message: String(parsed.message || "").trim() || DEFAULT_TEMPORARY_SHUTDOWN_MESSAGE,
+    };
+  } catch {
+    return { isShutdown: false, message: DEFAULT_TEMPORARY_SHUTDOWN_MESSAGE };
+  }
+}
+
+export async function setTemporaryShutdownSettings(settings: TemporaryShutdownSettings) {
+  const value = JSON.stringify({
+    isShutdown: settings.isShutdown === true,
+    message: settings.message.trim() || DEFAULT_TEMPORARY_SHUTDOWN_MESSAGE,
+  });
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: TEMPORARY_SHUTDOWN_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: TEMPORARY_SHUTDOWN_KEY,
       value,
       isSecret: false,
     },

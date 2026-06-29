@@ -366,13 +366,6 @@ export default function ProductDetailClient({
                 {canBuy ? "Agregar al carrito" : "No disponible"}
               </button>
 
-              <Link
-                href="/cart"
-                className="w-full rounded-2xl border border-zinc-800 px-4 py-3 text-center text-sm hover:bg-zinc-900/60"
-              >
-                Ir al carrito
-              </Link>
-
               <p className="text-xs text-zinc-500">
                 * En el checkout validamos stock nuevamente al crear la orden.
               </p>
