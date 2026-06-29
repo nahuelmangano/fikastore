@@ -24,6 +24,14 @@ function baseUrl(req: Request) {
   return "http://localhost:3000";
 }
 
+function canUseAutoReturn(site: string) {
+  try {
+    return new URL(site).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(req: Request) {
   const session = await auth();
   const userId = (session?.user as any)?.id as string | undefined;
@@ -77,7 +85,17 @@ export async function POST(req: Request) {
     currency_id: "ARS",
   }));
 
-  const body = {
+  const body: {
+    items: typeof items;
+    external_reference: string;
+    notification_url: string;
+    back_urls: {
+      success: string;
+      failure: string;
+      pending: string;
+    };
+    auto_return?: "approved";
+  } = {
     items,
     external_reference: order.id,
     notification_url: `${site}/api/webhooks/mercadopago`,
@@ -86,8 +104,16 @@ export async function POST(req: Request) {
       failure: `${site}/pay/failure?orderId=${order.id}`,
       pending: `${site}/pay/pending?orderId=${order.id}`,
     },
-    auto_return: "approved" as const,
   };
+
+  if (canUseAutoReturn(site)) {
+    body.auto_return = "approved";
+  } else {
+    console.warn(
+      "MP auto_return disabled: Mercado Pago requires an HTTPS public URL.",
+      { site }
+    );
+  }
 
   console.log("SITE =", site);
   console.log("BODY =", JSON.stringify(body, null, 2));

@@ -16,7 +16,7 @@ export default function RegisterPage() {
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") || "/checkout";
+  const next = searchParams.get("next") || "/";
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -72,11 +72,12 @@ function RegisterForm() {
             setLoading(false);
 
             if (!res || res.error) {
-              router.push(`/login?next=${encodeURIComponent(next)}`);
+              router.push("/login?next=/");
               return;
             }
 
-            router.push(next);
+            router.replace("/");
+            router.refresh();
           }}
         >
           <div>

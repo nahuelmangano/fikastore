@@ -48,13 +48,6 @@ function provinceNameFromCode(code: string) {
   return found?.name || "";
 }
 
-function provinceCodeFromName(name: string) {
-  const s = String(name || "").trim().toLowerCase();
-  if (!s) return "";
-  const found = PROVINCES.find((p) => p.name.toLowerCase() === s);
-  return found?.code || "";
-}
-
 export default function CheckoutClient() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [orderItems, setOrderItems] = useState<CartItem[]>([]);
@@ -469,40 +462,27 @@ export default function CheckoutClient() {
                 />
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field
-                  label="Provincia"
-                  value={shipping.province}
-                  onChange={(v) =>
+              <div>
+                <label className="text-sm text-zinc-300">Provincia</label>
+                <select
+                  value={shipping.provinceCode}
+                  onChange={(e) => {
+                    const code = e.target.value;
                     setShipping((s) => ({
                       ...s,
-                      province: v,
-                      provinceCode: provinceCodeFromName(v) || s.provinceCode,
-                    }))
-                  }
-                />
-                <div>
-                  <label className="text-sm text-zinc-300">Código Provincia</label>
-                  <select
-                    value={shipping.provinceCode}
-                    onChange={(e) => {
-                      const code = e.target.value;
-                      setShipping((s) => ({
-                        ...s,
-                        provinceCode: code,
-                        province: provinceNameFromCode(code) || s.province,
-                      }));
-                    }}
-                    className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
-                  >
-                    <option value="">Seleccionar</option>
-                    {PROVINCES.map((p) => (
-                      <option key={p.code} value={p.code}>
-                        {p.name} ({p.code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                      provinceCode: code,
+                      province: provinceNameFromCode(code),
+                    }));
+                  }}
+                  className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
+                >
+                  <option value="">Seleccionar</option>
+                  {PROVINCES.map((p) => (
+                    <option key={p.code} value={p.code}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
