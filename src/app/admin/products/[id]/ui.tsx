@@ -19,6 +19,7 @@ function variantLabel(name: string) {
 
 type ProductImage = {
   id: string;
+  productId?: string;
   url: string;
   sortOrder?: number;
 };
@@ -76,6 +77,7 @@ export default function AdminProductEditor({
   const [newVariantStock, setNewVariantStock] = useState(0);
   const [addVariantOpen, setAddVariantOpen] = useState(false);
   const [addingVariant, setAddingVariant] = useState(false);
+  const [draggedImageId, setDraggedImageId] = useState<string | null>(null);
 
   const mainImg = useMemo(() => images?.[0]?.url, [images]);
   const totalStock = items.reduce((acc, item) => acc + Number(item.stock || 0), 0);
@@ -83,21 +85,26 @@ export default function AdminProductEditor({
     () => Array.from(new Set(items.flatMap((item) => (item.images ?? []).map((image) => image.url)))),
     [items]
   );
+  const imageTiles = useMemo(() => {
+    const activeUrls = new Set(images.map((image) => image.url));
+    return [...images.map((image) => image.url), ...availableImageUrls.filter((url) => !activeUrls.has(url))];
+  }, [availableImageUrls, images]);
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const descriptionRef = useRef<HTMLDivElement | null>(null);
+  const descriptionInitializedRef = useRef(false);
 
   useEffect(() => {
-    if (!descriptionRef.current) return;
-    descriptionRef.current.innerHTML = sanitizeRichText(selected.description);
-  }, [selected.id, selected.description]);
+    if (!descriptionRef.current || descriptionInitializedRef.current) return;
+    descriptionRef.current.innerHTML = sanitizeRichText(description);
+    descriptionInitializedRef.current = true;
+  }, [description]);
 
   function selectVariant(item: EditableProduct) {
     setSelectedId(item.id);
     setName(item.name);
     setSlug(item.slug);
-    setDescription(item.description ?? "");
     setPrice(Number(item.price));
     setStock(item.stock);
     setIsActive(item.isActive);
@@ -108,6 +115,85 @@ export default function AdminProductEditor({
 
   function patchSelected(next: Partial<EditableProduct>) {
     setItems((prev) => prev.map((item) => (item.id === selected.id ? { ...item, ...next } : item)));
+  }
+
+  function imageVisibleInAllVariants(url: string) {
+    return items.length > 0 && items.every((item) => (item.images ?? []).some((image) => image.url === url));
+  }
+
+  function mergeImages(existingImages: ProductImage[], incomingImages: ProductImage[]) {
+    const incomingByKey = new Map(incomingImages.flatMap((image) => [[image.id, image], [image.url, image]]));
+    const merged = existingImages.map((image) => incomingByKey.get(image.id) ?? incomingByKey.get(image.url) ?? image);
+    const mergedKeys = new Set(merged.flatMap((image) => [image.id, image.url]));
+    return [...merged, ...incomingImages.filter((image) => !mergedKeys.has(image.id) && !mergedKeys.has(image.url))];
+  }
+
+  function applyUploadedImages(uploadedImages: Array<ProductImage & { productId?: string }>) {
+    const selectedImages = uploadedImages.filter((image) => image.productId === selected.id);
+    const nextImages = selectedImages.length > 0 ? mergeImages(images, selectedImages) : images;
+
+    if (selectedImages.length > 0) setImages(nextImages);
+
+    setItems((prev) =>
+      prev.map((item) => {
+        const itemImages = uploadedImages.filter((uploaded) => uploaded.productId === item.id);
+        if (itemImages.length === 0) return item;
+        return {
+          ...item,
+          images: mergeImages(item.images ?? [], itemImages),
+        };
+      })
+    );
+  }
+
+  async function saveImageOrder(nextImages: ProductImage[]) {
+    const orderedImages = nextImages.map((image, index) => ({ ...image, sortOrder: index + 1 }));
+    setImages(orderedImages);
+    patchSelected({ images: orderedImages });
+
+    const res = await fetch(`/api/admin/products/${selected.id}/images`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        imageIds: orderedImages.map((image) => image.id),
+        imageUrls: orderedImages.map((image) => image.url),
+        productIds: items.map((item) => item.id),
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMsg(String(data?.error || "No se pudo guardar el orden de las imagenes."));
+      return;
+    }
+
+    const savedImages = Array.isArray(data.images) ? (data.images as ProductImage[]) : orderedImages;
+    setImages(savedImages);
+    patchSelected({ images: savedImages });
+    if (Array.isArray(data.allImages)) {
+      const allImages = data.allImages as Array<ProductImage & { productId?: string }>;
+      setItems((prev) =>
+        prev.map((item) => {
+          const itemImages = allImages.filter((image) => image.productId === item.id);
+          return itemImages.length > 0 ? { ...item, images: itemImages } : item;
+        })
+      );
+    }
+    setMsg("Orden de imagenes actualizado.");
+  }
+
+  function dropImageOn(targetImageId: string) {
+    if (!draggedImageId || draggedImageId === targetImageId) return;
+
+    const from = images.findIndex((image) => image.id === draggedImageId);
+    const to = images.findIndex((image) => image.id === targetImageId);
+    if (from < 0 || to < 0) return;
+
+    const nextImages = [...images];
+    const [moved] = nextImages.splice(from, 1);
+    nextImages.splice(to, 0, moved);
+    setDraggedImageId(null);
+    void saveImageOrder(nextImages);
   }
 
   function syncDescriptionFromEditor() {
@@ -205,15 +291,7 @@ export default function AdminProductEditor({
       return;
     }
 
-    const nextImages = [...images, ...(selectedImages.length > 0 ? selectedImages : [fallbackImage as ProductImage])];
-    setImages(nextImages);
-    setItems((prev) =>
-      prev.map((item) => {
-        const itemImages = uploadedImages.filter((uploaded) => uploaded.productId === item.id);
-        if (itemImages.length === 0) return item;
-        return { ...item, images: [...(item.images ?? []), ...itemImages] };
-      })
-    );
+    applyUploadedImages(selectedImages.length > 0 ? uploadedImages : [{ ...(fallbackImage as ProductImage), productId: selected.id }]);
     setMsg(`${files.length === 1 ? "Imagen agregada" : "Imagenes agregadas"} a esta variante.`);
   }
 
@@ -276,6 +354,52 @@ export default function AdminProductEditor({
     setImages(nextImages);
     patchSelected({ images: nextImages });
     setMsg("Imagen desactivada para esta variante.");
+  }
+
+  async function toggleAllVariantsImage(url: string, enabled: boolean) {
+    setMsg(null);
+
+    if (enabled) {
+      const res = await fetch(`/api/admin/products/${selected.id}/images`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, productIds: items.map((item) => item.id) }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !Array.isArray(data.images)) {
+        setMsg(String(data?.error || "No se pudo mostrar la imagen en todas las variantes."));
+        return;
+      }
+
+      applyUploadedImages(data.images as Array<ProductImage & { productId?: string }>);
+      setMsg("Imagen visible en todas las variantes.");
+      return;
+    }
+
+    const removals = items
+      .filter((item) => item.id !== selected.id)
+      .map((item) => ({ item, image: (item.images ?? []).find((image) => image.url === url) }))
+      .filter((entry): entry is { item: EditableProduct; image: ProductImage } => Boolean(entry.image));
+
+    for (const { item, image } of removals) {
+      const res = await fetch(`/api/admin/products/${item.id}/images/${image.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg(String(data?.error || "No se pudo quitar la imagen de todas las variantes."));
+        return;
+      }
+    }
+
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id === selected.id) return item;
+        return { ...item, images: (item.images ?? []).filter((image) => image.url !== url) };
+      })
+    );
+    setMsg("Imagen visible solo en esta variante.");
   }
 
   async function createVariant() {
@@ -634,7 +758,6 @@ Esto borrarÃ¡ todas sus variantes. No se puede deshacer.`);
                   </div>
 
                   <div
-                    key={selected.id}
                     ref={descriptionRef}
                     contentEditable
                     suppressContentEditableWarning
@@ -713,19 +836,30 @@ Esto borrarÃ¡ todas sus variantes. No se puede deshacer.`);
                   </label>
                 </div>
 
-                {availableImageUrls.length === 0 ? (
+                {imageTiles.length === 0 ? (
                   <div className="mt-4 text-sm text-zinc-400">Todavía no hay imágenes disponibles.</div>
                 ) : (
                   <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {availableImageUrls.map((url) => {
+                    {imageTiles.map((url) => {
                       const activeImage = images.find((image) => image.url === url);
                       const active = Boolean(activeImage);
+                      const visibleInAll = imageVisibleInAllVariants(url);
                       return (
                       <div
                         key={url}
+                        draggable={active}
+                        onDragStart={() => activeImage && setDraggedImageId(activeImage.id)}
+                        onDragEnd={() => setDraggedImageId(null)}
+                        onDragOver={(event) => {
+                          if (!active) return;
+                          event.preventDefault();
+                        }}
+                        onDrop={() => activeImage && dropImageOn(activeImage.id)}
                         className={[
                           "rounded-xl border bg-zinc-900/30 p-2",
                           active ? "border-zinc-200" : "border-zinc-800 opacity-60",
+                          active ? "cursor-move" : "",
+                          draggedImageId === activeImage?.id ? "opacity-40" : "",
                         ].join(" ")}
                       >
                         <label className="block cursor-pointer">
@@ -740,6 +874,14 @@ Esto borrarÃ¡ todas sus variantes. No se puede deshacer.`);
                               onChange={(event) => toggleVariantImage(url, event.target.checked)}
                             />
                             Mostrar
+                          </span>
+                          <span className="mt-2 flex items-center gap-2 text-xs text-zinc-300">
+                            <input
+                              type="checkbox"
+                              checked={visibleInAll}
+                              onChange={(event) => toggleAllVariantsImage(url, event.target.checked)}
+                            />
+                            Mostrar en todas
                           </span>
                         </label>
                         {activeImage && (

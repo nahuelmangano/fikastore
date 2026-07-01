@@ -45,7 +45,7 @@ export default async function ProductDetailPage({
 
   const product = await prisma.product.findUnique({
     where: { slug },
-    include: { images: { orderBy: { sortOrder: "asc" } } },
+    include: { images: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } },
   });
 
   if (!product || !product.isActive) return notFound();
@@ -56,7 +56,7 @@ export default async function ProductDetailPage({
       isActive: true,
       OR: [{ name: baseName }, { name: { startsWith: `${baseName} —` } }],
     },
-    include: { images: { orderBy: { sortOrder: "asc" } } },
+    include: { images: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } },
     orderBy: [{ name: "asc" }],
   });
 

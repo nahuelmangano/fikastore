@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { flattenCategories } from "@/lib/categories";
 import { notFound } from "next/navigation";
 import AdminProductEditor from "./ui";
+import type { Prisma } from "@prisma/client";
 
 function splitProductName(name: string) {
   const [base, ...rest] = name.split(/\s+—\s+/);
@@ -27,6 +28,30 @@ function sortVariantsBySize<T extends { name: string }>(variants: T[]) {
   });
 }
 
+type ProductForEditor = Prisma.ProductGetPayload<{
+  include: { images: true; category: true };
+}>;
+
+function toEditorProduct(product: ProductForEditor) {
+  return {
+    id: product.id,
+    categoryId: product.categoryId,
+    category: product.category ? { id: product.category.id, name: product.category.name } : null,
+    name: product.name,
+    slug: product.slug,
+    description: product.description,
+    price: Number(product.price),
+    stock: product.stock,
+    isActive: product.isActive,
+    images: product.images.map((image) => ({
+      id: image.id,
+      productId: image.productId,
+      url: image.url,
+      sortOrder: image.sortOrder,
+    })),
+  };
+}
+
 export default async function AdminProductEditPage({
   params,
 }: {
@@ -38,7 +63,7 @@ export default async function AdminProductEditPage({
 
   const product = await prisma.product.findUnique({
     where: { id },
-    include: { images: { orderBy: { sortOrder: "asc" } }, category: true },
+    include: { images: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }, category: true },
   });
 
   if (!product) return notFound();
@@ -48,7 +73,7 @@ export default async function AdminProductEditPage({
     where: {
       OR: [{ name: baseName }, { name: { startsWith: `${baseName} —` } }],
     },
-    include: { images: { orderBy: { sortOrder: "asc" } }, category: true },
+    include: { images: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }, category: true },
     orderBy: [{ name: "asc" }],
   });
 
@@ -59,8 +84,8 @@ export default async function AdminProductEditPage({
 
   return (
     <AdminProductEditor
-      product={product}
-      variants={sortVariantsBySize(variants.length > 0 ? variants : [product])}
+      product={toEditorProduct(product)}
+      variants={sortVariantsBySize(variants.length > 0 ? variants : [product]).map(toEditorProduct)}
       categories={flattenCategories(categories)}
     />
   );
