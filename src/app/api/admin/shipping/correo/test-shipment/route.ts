@@ -10,11 +10,21 @@ type TestShipmentBody = {
   name?: string;
   phone?: string;
   email?: string;
+  deliveryType?: string;
   addressLine?: string;
   city?: string;
   province?: string;
   provinceCode?: string;
   zip?: string;
+  branch?: {
+    code?: string;
+    name?: string;
+    addressLine?: string;
+    city?: string;
+    province?: string;
+    provinceCode?: string;
+    zip?: string;
+  };
   declaredValue?: number | string;
 };
 
@@ -44,11 +54,19 @@ export async function POST(req: Request) {
   const name = clean(body.name);
   const phone = clean(body.phone);
   const email = clean(body.email) || user.email || "";
-  const addressLine = clean(body.addressLine);
-  const city = clean(body.city);
-  const province = clean(body.province);
-  const provinceCode = clean(body.provinceCode).toUpperCase();
-  const zip = clean(body.zip);
+  const deliveryType = clean(body.deliveryType).toUpperCase() === "S" ? "S" : "D";
+  const branch = body.branch;
+  const branchCode = clean(branch?.code);
+  const branchName = clean(branch?.name);
+  const addressLine =
+    deliveryType === "S" ? clean(branch?.addressLine) || clean(body.addressLine) : clean(body.addressLine);
+  const city = deliveryType === "S" ? clean(branch?.city) || clean(body.city) : clean(body.city);
+  const province = deliveryType === "S" ? clean(branch?.province) || clean(body.province) : clean(body.province);
+  const provinceCode =
+    deliveryType === "S"
+      ? (clean(branch?.provinceCode) || clean(body.provinceCode)).toUpperCase()
+      : clean(body.provinceCode).toUpperCase();
+  const zip = deliveryType === "S" ? clean(branch?.zip) || clean(body.zip) : clean(body.zip);
   const declaredValue = Number(body.declaredValue || 1000);
 
   if (!name || !phone || !addressLine || !city || !province || !provinceCode || !zip) {
@@ -57,6 +75,10 @@ export async function POST(req: Request) {
 
   if (!Number.isFinite(declaredValue) || declaredValue <= 0) {
     return badRequest("El valor declarado debe ser mayor a cero.");
+  }
+
+  if (deliveryType === "S" && (!branchCode || !branchName)) {
+    return badRequest("Selecciona una sucursal de Correo Argentino.");
   }
 
   const order = await prisma.order.create({
@@ -72,6 +94,9 @@ export async function POST(req: Request) {
       shippingProvince: province,
       shippingProvinceCode: provinceCode,
       shippingMethod: "correo",
+      shippingDeliveryType: deliveryType,
+      shippingBranchCode: deliveryType === "S" ? branchCode : null,
+      shippingBranchName: deliveryType === "S" ? branchName : null,
       shippingAmount: 0,
       notes: `Envio de prueba Correo Argentino creado desde admin/paqueteria por ${user.email || user.id}. Email destinatario: ${email}`,
     },

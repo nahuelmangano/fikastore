@@ -171,6 +171,16 @@ type TestShipmentResult = {
   response?: unknown;
 };
 
+type CorreoAgency = {
+  code: string;
+  name: string;
+  addressLine?: string;
+  city?: string;
+  province?: string;
+  provinceCode?: string;
+  zip?: string;
+};
+
 const ARGENTINA_PROVINCES = [
   { name: "Ciudad Autónoma de Buenos Aires", code: "C" },
   { name: "Buenos Aires", code: "B" },
@@ -209,6 +219,8 @@ function TestShipmentPanel({
     name: "Destinatario Prueba",
     phone: "1100000000",
     email: "",
+    deliveryType: "D",
+    branchCode: "",
     streetName: "Av Siempre Viva",
     streetNumber: "742",
     city: "CABA",
@@ -217,6 +229,9 @@ function TestShipmentPanel({
     declaredValue: "1000",
   });
   const [loading, setLoading] = useState(false);
+  const [agencies, setAgencies] = useState<CorreoAgency[]>([]);
+  const [agenciesLoading, setAgenciesLoading] = useState(false);
+  const [agenciesError, setAgenciesError] = useState<string | null>(null);
   const [result, setResult] = useState<TestShipmentResult | null>(null);
 
   const update = (key: keyof typeof form, value: string) => {
@@ -225,6 +240,44 @@ function TestShipmentPanel({
 
   const isCorreo = providerKey === "correo";
   const shipmentId = isCorreo ? result?.shipment?.shippingId : result?.shipment?.epickOrderId;
+  const provinceCode = ARGENTINA_PROVINCES.find((p) => p.name === form.province)?.code || "";
+  const selectedAgency = agencies.find((agency) => agency.code === form.branchCode) || null;
+
+  useEffect(() => {
+    if (!isCorreo || form.deliveryType !== "S" || !provinceCode) {
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      setAgenciesLoading(true);
+      setAgenciesError(null);
+      const res = await fetch("/api/shipping/correo-argentino/agencies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provinceCode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (cancelled) return;
+      setAgenciesLoading(false);
+      if (!res.ok) {
+        setAgencies([]);
+        setAgenciesError(data?.error || "No se pudieron cargar sucursales.");
+        return;
+      }
+      const nextAgencies = Array.isArray(data?.agencies) ? data.agencies : [];
+      setAgencies(nextAgencies);
+      setForm((prev) =>
+        nextAgencies.some((agency: CorreoAgency) => agency.code === prev.branchCode)
+          ? prev
+          : { ...prev, branchCode: "" }
+      );
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form.deliveryType, form.province, isCorreo, provinceCode]);
 
   return (
     <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
@@ -257,8 +310,21 @@ function TestShipmentPanel({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               ...form,
+              deliveryType: isCorreo ? form.deliveryType : undefined,
               addressLine: `${form.streetName} ${form.streetNumber}`.trim(),
-              provinceCode: ARGENTINA_PROVINCES.find((p) => p.name === form.province)?.code || "",
+              provinceCode,
+              branch:
+                isCorreo && form.deliveryType === "S" && selectedAgency
+                  ? {
+                      code: selectedAgency.code,
+                      name: selectedAgency.name,
+                      addressLine: selectedAgency.addressLine,
+                      city: selectedAgency.city,
+                      province: selectedAgency.province,
+                      provinceCode: selectedAgency.provinceCode,
+                      zip: selectedAgency.zip,
+                    }
+                  : undefined,
             }),
           });
           const data = await res.json().catch(() => ({}));
@@ -266,6 +332,34 @@ function TestShipmentPanel({
           setResult(data);
         }}
       >
+        {isCorreo && (
+          <div className="mb-4 flex flex-wrap gap-2">
+            {[
+              { value: "D", label: "A domicilio" },
+              { value: "S", label: "A sucursal" },
+            ].map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() =>
+                  setForm((prev) => ({
+                    ...prev,
+                    deliveryType: option.value,
+                    branchCode: option.value === "S" ? prev.branchCode : "",
+                  }))
+                }
+                className={`rounded-xl border px-3 py-2 text-sm font-semibold ${
+                  form.deliveryType === option.value
+                    ? "border-emerald-300 bg-emerald-200 text-emerald-950"
+                    : "border-zinc-800 bg-zinc-950 text-zinc-300 hover:bg-zinc-900"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="grid gap-3 md:grid-cols-2">
           <TextInput label="Nombre destinatario" value={form.name} onChange={(v) => update("name", v)} />
           <TextInput label="Teléfono" value={form.phone} onChange={(v) => update("phone", v)} />
@@ -274,13 +368,34 @@ function TestShipmentPanel({
           <TextInput label="Altura" value={form.streetNumber} onChange={(v) => update("streetNumber", v)} />
           <TextInput label="Ciudad" value={form.city} onChange={(v) => update("city", v)} />
           <ProvinceSelect value={form.province} onChange={(v) => update("province", v)} />
+          {isCorreo && form.deliveryType === "S" && (
+            <label className="text-xs text-zinc-400">
+              Sucursal destino
+              <select
+                value={form.branchCode}
+                onChange={(e) => update("branchCode", e.target.value)}
+                disabled={agenciesLoading}
+                className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 disabled:opacity-60"
+              >
+                <option value="">
+                  {agenciesLoading ? "Cargando sucursales..." : "Seleccionar sucursal"}
+                </option>
+                {agencies.map((agency) => (
+                  <option key={agency.code} value={agency.code}>
+                    {agency.name} - {agency.addressLine || agency.city || agency.code}
+                  </option>
+                ))}
+              </select>
+              {agenciesError && <div className="mt-1 text-xs text-amber-300">{agenciesError}</div>}
+            </label>
+          )}
           <TextInput label="Código postal" value={form.zip} onChange={(v) => update("zip", v)} />
           <TextInput label="Valor declarado" value={form.declaredValue} onChange={(v) => update("declaredValue", v)} />
         </div>
 
         <div className="mt-5 flex justify-end">
           <button
-            disabled={loading}
+            disabled={loading || (isCorreo && form.deliveryType === "S" && !selectedAgency)}
             className="rounded-xl bg-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-100 disabled:opacity-50"
           >
             {loading ? "Creando envío..." : "Crear envío de prueba"}
