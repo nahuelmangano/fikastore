@@ -48,9 +48,7 @@ export default async function OrderDetailPage({
             <div>
               <h1 className="text-xl font-semibold">Pedido #{order.orderNumber}</h1>
               <div className="mt-2 font-mono text-sm text-zinc-300">{order.id}</div>
-              <div className="mt-2 text-xs text-zinc-500">
-                {new Date(order.createdAt).toLocaleString("es-AR")}
-              </div>
+              <div className="mt-2 text-xs text-zinc-500">{new Date(order.createdAt).toLocaleString("es-AR")}</div>
             </div>
 
             <div className="text-right">
@@ -58,17 +56,21 @@ export default async function OrderDetailPage({
               <div className="mt-2 text-sm text-zinc-300">
                 Total: <span className="font-semibold">{formatMoney(Number(order.total))}</span>
               </div>
-              <div className="mt-1 text-xs text-zinc-400">
-                Pago: {lastPayment?.status ?? "—"}
-              </div>
+              <div className="mt-1 text-xs text-zinc-400">Pago: {lastPayment?.status ?? "—"}</div>
             </div>
           </div>
 
           <div className="mt-6 border-t border-zinc-800 pt-6">
-            <h2 className="text-base font-semibold">Envío</h2>
+            <h2 className="text-base font-semibold">Envio</h2>
             <div className="mt-2 text-sm text-zinc-300">
               <div>{order.shippingName}</div>
               <div className="text-zinc-400">{order.shippingPhone}</div>
+              {order.shippingMethod === "correo" && order.shippingDeliveryType === "S" && order.shippingBranchName && (
+                <div className="mt-2 text-zinc-200">
+                  Sucursal Correo Argentino: {order.shippingBranchName}
+                  {order.shippingBranchCode ? ` (${order.shippingBranchCode})` : ""}
+                </div>
+              )}
               <div className="mt-2">
                 {order.shippingAddressLine}, {order.shippingCity}, {order.shippingProvince} ({order.shippingZip})
               </div>
@@ -86,12 +88,10 @@ export default async function OrderDetailPage({
                   <div>
                     <div className="font-medium">{it.nameSnapshot}</div>
                     <div className="mt-1 text-sm text-zinc-400">
-                      {it.quantity} × {formatMoney(Number(it.unitPrice))}
+                      {it.quantity} x {formatMoney(Number(it.unitPrice))}
                     </div>
                   </div>
-                  <div className="text-sm text-zinc-200">
-                    {formatMoney(Number(it.subtotal))}
-                  </div>
+                  <div className="text-sm text-zinc-200">{formatMoney(Number(it.subtotal))}</div>
                 </div>
               ))}
             </div>
@@ -102,13 +102,10 @@ export default async function OrderDetailPage({
             </div>
           </div>
 
-          {/* Reintentar pago si está pendiente */}
           {order.status === "pending_payment" && (
             <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
               <div className="font-semibold">Pago pendiente</div>
-              <p className="mt-2 text-sm text-zinc-400">
-                Podés reintentar el pago sin recrear el carrito.
-              </p>
+              <p className="mt-2 text-sm text-zinc-400">Podes reintentar el pago sin recrear el carrito.</p>
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <PayPendingButton orderId={order.id} />
                 <CancelOrderButton orderId={order.id} />

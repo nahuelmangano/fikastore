@@ -118,6 +118,9 @@ model Order {
   shippingProvince    String  @default("")
   shippingProvinceCode String @default("")
   shippingMethod      String?  // epick|andreani|correo|pickup
+  shippingDeliveryType String? // D|S
+  shippingBranchCode   String?
+  shippingBranchName   String?
   shippingAmount      Decimal  @db.Decimal(18, 2) @default(0)
 
   shippedAt           DateTime? // ✅ cuando lo marcás como enviado

@@ -182,9 +182,16 @@ export default function ProductDetailClient({
       const rates = Array.isArray(correoData?.quote?.rates)
         ? (correoData.quote.rates as ShippingRate[])
         : [];
-      const rate = rates.find((r) => r?.deliveredType === "D") || rates[0];
-      const amount = Number(rate?.price ?? 0);
-      if (Number.isFinite(amount) && amount > 0) rows.push({ label: "Correo Argentino", amount });
+      const domicilio = rates.find((r) => r?.deliveredType === "D");
+      const sucursal = rates.find((r) => r?.deliveredType === "S");
+      const domicilioAmount = Number(domicilio?.price ?? 0);
+      const sucursalAmount = Number(sucursal?.price ?? 0);
+      if (Number.isFinite(domicilioAmount) && domicilioAmount > 0) {
+        rows.push({ label: "Correo Argentino (domicilio)", amount: domicilioAmount });
+      }
+      if (Number.isFinite(sucursalAmount) && sucursalAmount > 0) {
+        rows.push({ label: "Correo Argentino (sucursal)", amount: sucursalAmount });
+      }
     }
 
     rows.sort((a, b) => a.amount - b.amount);

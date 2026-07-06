@@ -20,6 +20,16 @@ type Body = {
     zip: string;
   };
   shippingMethod?: string;
+  shippingDeliveryType?: string;
+  shippingBranch?: {
+    code?: string;
+    name?: string;
+    addressLine?: string;
+    city?: string;
+    province?: string;
+    provinceCode?: string;
+    zip?: string;
+  };
   shippingAmount?: number;
   promoCode?: string | null;
 };
@@ -29,10 +39,9 @@ function bad(msg: string, status = 400) {
 }
 
 export async function POST(req: Request) {
-  // ✅ requiere usuario logueado (como dijiste: para pagar tiene que tener cuenta)
   const session = await auth();
-  const userId = (session?.user as any)?.id as string | undefined;
-  if (!userId) return bad("Tenés que iniciar sesión para continuar.", 401);
+  const userId = (session?.user as { id?: string } | undefined)?.id;
+  if (!userId) return bad("Tenes que iniciar sesion para continuar.", 401);
 
   const temporaryShutdown = await getTemporaryShutdownSettings();
   if (temporaryShutdown.isShutdown) {
@@ -40,35 +49,65 @@ export async function POST(req: Request) {
   }
 
   const body = (await req.json().catch(() => null)) as Body | null;
-  if (!body) return bad("Body inválido.");
+  if (!body) return bad("Body invalido.");
 
   const items = Array.isArray(body.items) ? body.items : [];
   const shipping = body.shipping;
+  const shippingMethod = String(body.shippingMethod || "").trim().toLowerCase();
+  const shippingDeliveryType = String(body.shippingDeliveryType || "").trim().toUpperCase();
+  const shippingBranch = body.shippingBranch;
 
-  if (items.length === 0) return bad("El carrito está vacío.");
-
-  if (
-    !shipping?.name?.trim() ||
-    !shipping?.phone?.trim() ||
-    !shipping?.addressLine?.trim() ||
-    !shipping?.city?.trim() ||
-    !shipping?.province?.trim() ||
-    !shipping?.provinceCode?.trim() ||
-    !shipping?.zip?.trim()
-  ) {
-    return bad("Completá todos los datos de envío.");
+  if (items.length === 0) return bad("El carrito esta vacio.");
+  if (!shipping?.name?.trim() || !shipping?.phone?.trim()) {
+    return bad("Completa los datos del destinatario.");
   }
 
-  const shippingMethod = String(body.shippingMethod || "").trim();
-  const postalCodeProvinceError = validateArgentinaPostalCodeProvince(shipping.zip, shipping.provinceCode);
-  if (postalCodeProvinceError) return bad(postalCodeProvinceError);
+  const isPickup = shippingMethod === "pickup";
+  const isCorreoBranch = shippingMethod === "correo" && shippingDeliveryType === "S";
+  const effectiveShipping = isCorreoBranch
+    ? {
+        addressLine: String(shippingBranch?.addressLine || "").trim(),
+        city: String(shippingBranch?.city || "").trim(),
+        province: String(shippingBranch?.province || "").trim(),
+        provinceCode: String(shippingBranch?.provinceCode || "").trim().toUpperCase(),
+        zip: String(shippingBranch?.zip || "").trim(),
+      }
+    : {
+        addressLine: String(shipping?.addressLine || "").trim(),
+        city: String(shipping?.city || "").trim(),
+        province: String(shipping?.province || "").trim(),
+        provinceCode: String(shipping?.provinceCode || "").trim().toUpperCase(),
+        zip: String(shipping?.zip || "").trim(),
+      };
+
+  if (isCorreoBranch && (!shippingBranch?.code?.trim() || !shippingBranch?.name?.trim())) {
+    return bad("Selecciona una sucursal de Correo Argentino.");
+  }
+
+  if (
+    !isPickup &&
+    (!effectiveShipping.addressLine ||
+      !effectiveShipping.city ||
+      !effectiveShipping.province ||
+      !effectiveShipping.provinceCode ||
+      !effectiveShipping.zip)
+  ) {
+    return bad("Completa todos los datos de envio.");
+  }
+
+  if (!isPickup) {
+    const postalCodeProvinceError = validateArgentinaPostalCodeProvince(
+      effectiveShipping.zip,
+      effectiveShipping.provinceCode
+    );
+    if (postalCodeProvinceError) return bad(postalCodeProvinceError);
+  }
 
   const promoCode = normalizePromoCode(body.promoCode ?? null);
   const rawShippingAmount = Number(body.shippingAmount);
   const shippingAmount =
     Number.isFinite(rawShippingAmount) && rawShippingAmount >= 0 ? rawShippingAmount : 0;
 
-  // normalizamos y validamos cantidades
   const normalized = items
     .map((it) => ({
       productId: String(it.productId || "").trim(),
@@ -76,9 +115,8 @@ export async function POST(req: Request) {
     }))
     .filter((it) => it.productId && Number.isFinite(it.quantity) && it.quantity > 0);
 
-  if (normalized.length === 0) return bad("Items inválidos.");
+  if (normalized.length === 0) return bad("Items invalidos.");
 
-  // merge por productId (por si viene duplicado)
   const mergedMap = new Map<string, number>();
   for (const it of normalized) {
     mergedMap.set(it.productId, (mergedMap.get(it.productId) ?? 0) + it.quantity);
@@ -90,7 +128,6 @@ export async function POST(req: Request) {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // Traemos productos
       const products = await tx.product.findMany({
         where: { id: { in: merged.map((x) => x.productId) } },
         select: { id: true, name: true, price: true, stock: true, isActive: true },
@@ -98,21 +135,19 @@ export async function POST(req: Request) {
 
       const byId = new Map(products.map((p) => [p.id, p]));
 
-      // Validaciones de existencia / activo / stock
       for (const it of merged) {
         const p = byId.get(it.productId);
         if (!p) {
           throw new Error(`Producto no encontrado: ${it.productId}`);
         }
         if (!p.isActive) {
-          throw new Error(`El producto "${p.name}" no está disponible.`);
+          throw new Error(`El producto "${p.name}" no esta disponible.`);
         }
         if (p.stock < it.quantity) {
           throw new Error(`Stock insuficiente para "${p.name}". Disponible: ${p.stock}.`);
         }
       }
 
-      // Calcular total (Decimal)
       let total = new Prisma.Decimal(0);
       const priced = await priceCartItems(merged, promoCode);
       const pricedById = new Map(priced.items.map((it) => [it.productId, it]));
@@ -134,7 +169,6 @@ export async function POST(req: Request) {
         };
       });
 
-      // ✅ Crear orden + items + descontar stock (todo dentro de la misma TX)
       const order = await tx.order.create({
         data: {
           userId,
@@ -142,12 +176,15 @@ export async function POST(req: Request) {
           total: total.add(new Prisma.Decimal(shippingAmount || 0)),
           shippingName: shipping.name.trim(),
           shippingPhone: shipping.phone.trim(),
-          shippingAddressLine: shipping.addressLine.trim(),
-          shippingCity: shipping.city.trim(),
-          shippingProvince: shipping.province.trim(),
-          shippingProvinceCode: shipping.provinceCode.trim().toUpperCase(),
-          shippingZip: shipping.zip.trim(),
+          shippingAddressLine: effectiveShipping.addressLine,
+          shippingCity: effectiveShipping.city,
+          shippingProvince: effectiveShipping.province,
+          shippingProvinceCode: effectiveShipping.provinceCode,
+          shippingZip: effectiveShipping.zip,
           shippingMethod: shippingMethod || null,
+          shippingDeliveryType: shippingMethod === "correo" ? shippingDeliveryType || "D" : null,
+          shippingBranchCode: isCorreoBranch ? String(shippingBranch?.code || "").trim() : null,
+          shippingBranchName: isCorreoBranch ? String(shippingBranch?.name || "").trim() : null,
           shippingAmount: new Prisma.Decimal(shippingAmount || 0),
           items: { create: orderItemsData },
           payments: {
@@ -160,7 +197,6 @@ export async function POST(req: Request) {
         select: { id: true },
       });
 
-      // Descontar stock
       for (const it of merged) {
         await tx.product.update({
           where: { id: it.productId },
@@ -172,8 +208,8 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({ ok: true, orderId: result.orderId });
-  } catch (e: any) {
-    const msg = typeof e?.message === "string" ? e.message : "No se pudo crear el pedido.";
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "No se pudo crear el pedido.";
     return bad(msg, 400);
   }
 }

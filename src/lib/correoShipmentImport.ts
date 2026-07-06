@@ -88,9 +88,12 @@ export async function buildCorreoShipmentPayload(
     (await envString("CORREO_ARG_RECIPIENT_PROVINCE_CODE")) ||
     sender.originAddress.provinceCode;
 
-  const deliveryType = (await envString("CORREO_ARG_DELIVERY_TYPE", "D")).toUpperCase();
-  if (deliveryType === "S" && !(await envString("CORREO_ARG_AGENCY"))) {
-    throw new Error("CORREO_ARG_AGENCY requerido para envíos a sucursal.");
+  const deliveryType = String(
+    order.shippingDeliveryType || (await envString("CORREO_ARG_DELIVERY_TYPE", "D"))
+  ).toUpperCase();
+  const agency = String(order.shippingBranchCode || (await envString("CORREO_ARG_AGENCY"))).trim();
+  if (deliveryType === "S" && !agency) {
+    throw new Error("CORREO_ARG_AGENCY requerido para envios a sucursal.");
   }
 
   return {
@@ -106,7 +109,7 @@ export async function buildCorreoShipmentPayload(
     },
     shipping: {
       deliveryType,
-      agency: deliveryType === "S" ? await envString("CORREO_ARG_AGENCY") : null,
+      agency: deliveryType === "S" ? agency : null,
       address: {
         streetName,
         streetNumber,
@@ -171,7 +174,7 @@ export async function importCorreoShipment(
       const existing = await prisma.correoShipment.findUnique({ where: { orderId: order.id } });
       return { ok: true as const, shipment: existing, reused: true };
     }
-    throw new Error(`No se pudo reservar el envío. ${errorMessage(e)}`);
+    throw new Error(`No se pudo reservar el envio. ${errorMessage(e)}`);
   }
 
   try {
@@ -192,15 +195,19 @@ export async function importCorreoShipment(
 
     return { ok: true as const, shipment: updated, reused: false, response: data };
   } catch (e: unknown) {
-    await prisma.correoShipment.update({
-      where: { id: placeholder.id },
-      data: {
-        status: "ERROR",
-        lastResponseJson: JSON.stringify({ error: errorMessage(e) }),
-      },
-    }).catch(() => {});
+    await prisma.correoShipment
+      .update({
+        where: { id: placeholder.id },
+        data: {
+          status: "ERROR",
+          lastResponseJson: JSON.stringify({ error: errorMessage(e) }),
+        },
+      })
+      .catch(() => {});
 
-    const err = new Error(`No se pudo importar el envío. ${errorMessage(e)}`) as Error & { status?: number };
+    const err = new Error(`No se pudo importar el envio. ${errorMessage(e)}`) as Error & {
+      status?: number;
+    };
     err.status = errorStatus(e) || 502;
     throw err;
   }

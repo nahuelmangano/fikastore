@@ -9,6 +9,37 @@ export const runtime = "nodejs";
 type Body = {
   postalCode?: string;
   provinceCode?: string;
+  deliveryType?: string;
+};
+
+type CorreoRate = {
+  deliveredType?: string;
+  productType?: string;
+  price?: number;
+};
+
+type CorreoQuoteResponse = {
+  customerId?: string;
+  productType?: string;
+  deliveredType?: string;
+  postalCodeOrigin?: string;
+  postalCodeDestination?: string;
+  rates?: CorreoRate[];
+  [key: string]: unknown;
+};
+
+type RatesPayload = {
+  customerId: string;
+  postalCodeOrigin: string;
+  postalCodeDestination: string;
+  productType?: string;
+  deliveredType?: string;
+  dimensions: {
+    weight: number;
+    height: number;
+    width: number;
+    length: number;
+  };
 };
 
 async function envNumber(name: string, def: number) {
@@ -35,6 +66,7 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as Body | null;
   const postalCode = body?.postalCode?.trim();
   const provinceCode = body?.provinceCode?.trim();
+  const requestedDeliveryType = body?.deliveryType?.trim().toUpperCase();
   if (!postalCode) {
     return NextResponse.json({ ok: false, error: "postalCode requerido." }, { status: 400 });
   }
@@ -45,10 +77,10 @@ export async function POST(req: Request) {
   }
 
   if (!(await isCarrierEnabled("correo"))) {
-    return NextResponse.json({ ok: false, error: "Correo Argentino no está habilitado." }, { status: 409 });
+    return NextResponse.json({ ok: false, error: "Correo Argentino no esta habilitado." }, { status: 409 });
   }
 
-  let payload: any;
+  let payload: RatesPayload;
   try {
     const weight = Math.min(25000, await envInt("CORREO_ARG_PKG_WEIGHT_G", 1000));
     const height = clampDim(await envInt("CORREO_ARG_PKG_HEIGHT_CM", 10));
@@ -70,16 +102,15 @@ export async function POST(req: Request) {
     const productType = (await getProviderConfigValue("correo", "CORREO_ARG_PRODUCT_TYPE")).trim();
     if (productType) payload.productType = productType;
 
-    const deliveredType = (await getProviderConfigValue("correo", "CORREO_ARG_DELIVERY_TYPE")).trim().toUpperCase();
-    if (deliveredType === "D" || deliveredType === "S") {
-      payload.deliveredType = deliveredType;
+    if (requestedDeliveryType === "D" || requestedDeliveryType === "S") {
+      payload.deliveredType = requestedDeliveryType;
     }
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+  } catch (e: unknown) {
+    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 
   try {
-    const toFormBody = (p: any) => {
+    const toFormBody = (p: RatesPayload) => {
       const form = new URLSearchParams();
       form.set("customerId", String(p.customerId));
       form.set("postalCodeOrigin", String(p.postalCodeOrigin));
@@ -93,20 +124,24 @@ export async function POST(req: Request) {
       return form.toString();
     };
 
-    const fetchRates = async (p: any) => {
+    const fetchRates = async (p: RatesPayload) => {
       if (process.env.CORREO_ARG_DEBUG === "1") {
         console.log("[correo-argentino] rates payload", JSON.stringify(p));
       }
-      let data: any;
+      let data: CorreoQuoteResponse;
       try {
-        data = await correoArgentinoRequest<any>("/rates", {
+        data = await correoArgentinoRequest<CorreoQuoteResponse>("/rates", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(p),
         });
-      } catch (err: any) {
-        if (err?.status === 415) {
-          data = await correoArgentinoRequest<any>("/rates", {
+      } catch (err: unknown) {
+        const status =
+          typeof err === "object" && err && "status" in err && typeof err.status === "number"
+            ? err.status
+            : undefined;
+        if (status === 415) {
+          data = await correoArgentinoRequest<CorreoQuoteResponse>("/rates", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: toFormBody(p),
@@ -126,21 +161,45 @@ export async function POST(req: Request) {
       return { data, hasRates };
     };
 
-    const attempts = payload.deliveredType
-      ? ([payload.deliveredType, payload.deliveredType === "D" ? "S" : "D"] as const)
-      : (["D", "S"] as const);
+    const attempts = payload.deliveredType ? [payload.deliveredType] : ["D", "S"];
 
-    let last: any = null;
+    let last: CorreoQuoteResponse | null = null;
+    let baseResponse: CorreoQuoteResponse | null = null;
+    const mergedRates: CorreoRate[] = [];
     for (const dt of attempts) {
       const { data, hasRates } = await fetchRates({ ...payload, deliveredType: dt });
       last = data;
-      if (hasRates) return NextResponse.json({ ok: true, quote: data });
+      if (!baseResponse && data) baseResponse = data;
+      if (Array.isArray(data?.rates)) {
+        for (const rate of data.rates) {
+          const exists = mergedRates.some(
+            (current) =>
+              current?.deliveredType === rate?.deliveredType &&
+              current?.productType === rate?.productType &&
+              Number(current?.price) === Number(rate?.price)
+          );
+          if (!exists) mergedRates.push(rate);
+        }
+      }
+      if (payload.deliveredType && hasRates) {
+        return NextResponse.json({ ok: true, quote: data });
+      }
+    }
+
+    if (mergedRates.length > 0) {
+      return NextResponse.json({
+        ok: true,
+        quote: {
+          ...(baseResponse || {}),
+          rates: mergedRates,
+        },
+      });
     }
 
     return NextResponse.json(
       {
         ok: false,
-        error: "Correo Argentino no devolvió tarifas.",
+        error: "Correo Argentino no devolvio tarifas.",
         details: {
           customerId: payload.customerId,
           postalCodeOrigin: payload.postalCodeOrigin,
@@ -151,18 +210,20 @@ export async function POST(req: Request) {
       },
       { status: 502 }
     );
-  } catch (e: any) {
+  } catch (e: unknown) {
+    const errorObj = typeof e === "object" && e ? e : null;
+    const details = e instanceof Error ? e.message : String(e);
     return NextResponse.json(
       {
         ok: false,
         error: "No se pudo cotizar Correo Argentino.",
-        details: String(e?.message || e),
+        details,
         ...(process.env.CORREO_ARG_DEBUG === "1"
           ? {
               debug: {
-                status: e?.status,
-                data: e?.data,
-                text: e?.text,
+                status: errorObj && "status" in errorObj ? errorObj.status : undefined,
+                data: errorObj && "data" in errorObj ? errorObj.data : undefined,
+                text: errorObj && "text" in errorObj ? errorObj.text : undefined,
               },
             }
           : {}),
