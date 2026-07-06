@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { correoArgentinoRequest } from "@/lib/correoArgentino";
 import { isCarrierEnabled } from "@/lib/shippingCarriers";
 import { getProviderConfigValue } from "@/lib/shippingProviderConfig";
+import { validateArgentinaPostalCodeProvince } from "@/lib/argentinaPostalCode";
 
 export const runtime = "nodejs";
 
 type Body = {
   postalCode?: string;
+  provinceCode?: string;
 };
 
 async function envNumber(name: string, def: number) {
@@ -32,8 +34,14 @@ async function requireEnv(name: string) {
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as Body | null;
   const postalCode = body?.postalCode?.trim();
+  const provinceCode = body?.provinceCode?.trim();
   if (!postalCode) {
     return NextResponse.json({ ok: false, error: "postalCode requerido." }, { status: 400 });
+  }
+
+  const postalCodeProvinceError = validateArgentinaPostalCodeProvince(postalCode, provinceCode || "");
+  if (postalCodeProvinceError) {
+    return NextResponse.json({ ok: false, error: postalCodeProvinceError }, { status: 400 });
   }
 
   if (!(await isCarrierEnabled("correo"))) {

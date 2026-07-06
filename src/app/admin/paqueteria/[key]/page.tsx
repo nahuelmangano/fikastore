@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
+import { auth } from "@/auth";
 import { getShippingCarriers } from "@/lib/shippingCarriers";
+import { isAdminRole } from "@/lib/roles";
 import AdminCarrierConfig from "./ui";
 import type { ShippingCarrierKey } from "@/lib/shippingCarriers";
 
@@ -15,6 +17,14 @@ export default async function AdminCarrierConfigPage({
   const carriers = await getShippingCarriers();
   const carrier = carriers.find((c) => c.key === key);
   if (!carrier) return notFound();
+  const session = await auth();
+  const role = (session?.user as { role?: string } | undefined)?.role;
 
-  return <AdminCarrierConfig providerKey={carrier.key as ShippingCarrierKey} providerName={carrier.name} />;
+  return (
+    <AdminCarrierConfig
+      providerKey={carrier.key as ShippingCarrierKey}
+      providerName={carrier.name}
+      canCreateTestShipments={isAdminRole(role)}
+    />
+  );
 }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { CartItem, clearCart, clearPromoCode, readCart, readPromoCode } from "@/lib/cart";
+import { validateArgentinaPostalCodeProvince } from "@/lib/argentinaPostalCode";
 
 type Shipping = {
   name: string;
@@ -107,6 +108,7 @@ export default function CheckoutClient() {
     correoQuote?.rates?.find((r: any) => r?.deliveredType === "D") ||
     correoQuote?.rates?.[0];
   const correoAmount = Number(correoRate?.price ?? 0);
+  const postalCodeProvinceError = validateArgentinaPostalCodeProvince(shipping.zip, shipping.provinceCode);
   const epickEnabled = carriers ? carriers.epick !== false : true;
   const andreaniEnabled = carriers ? carriers.andreani !== false : true;
   const correoEnabled = carriers ? carriers.correo !== false : true;
@@ -234,7 +236,10 @@ export default function CheckoutClient() {
           ? fetch("/api/shipping/correo-argentino/quote", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ postalCode: shipping.zip.trim() }),
+              body: JSON.stringify({
+                postalCode: shipping.zip.trim(),
+                provinceCode: shipping.provinceCode.trim(),
+              }),
             })
           : Promise.resolve(null),
       ]);
@@ -276,7 +281,7 @@ export default function CheckoutClient() {
     }, 500);
 
     return () => clearTimeout(t);
-  }, [shipping.zip, epickEnabled, andreaniEnabled, correoEnabled]);
+  }, [shipping.zip, shipping.provinceCode, epickEnabled, andreaniEnabled, correoEnabled]);
 
   const canSubmit =
     items.length > 0 &&
@@ -286,7 +291,8 @@ export default function CheckoutClient() {
     shipping.city.trim() &&
     shipping.province.trim() &&
     shipping.provinceCode.trim() &&
-    shipping.zip.trim();
+    shipping.zip.trim() &&
+    !postalCodeProvinceError;
 
   async function createOrder() {
     setError(null);
@@ -484,6 +490,12 @@ export default function CheckoutClient() {
                   ))}
                 </select>
               </div>
+
+              {postalCodeProvinceError && (
+                <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+                  {postalCodeProvinceError}
+                </div>
+              )}
             </div>
 
             <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4">

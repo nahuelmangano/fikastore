@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { Prisma } from "@prisma/client";
 import { normalizePromoCode, priceCartItems } from "@/lib/promotions";
 import { getTemporaryShutdownSettings } from "@/lib/storeSettings";
+import { validateArgentinaPostalCodeProvince } from "@/lib/argentinaPostalCode";
 
 export const runtime = "nodejs";
 
@@ -59,6 +60,9 @@ export async function POST(req: Request) {
   }
 
   const shippingMethod = String(body.shippingMethod || "").trim();
+  const postalCodeProvinceError = validateArgentinaPostalCodeProvince(shipping.zip, shipping.provinceCode);
+  if (postalCodeProvinceError) return bad(postalCodeProvinceError);
+
   const promoCode = normalizePromoCode(body.promoCode ?? null);
   const rawShippingAmount = Number(body.shippingAmount);
   const shippingAmount =

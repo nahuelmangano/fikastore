@@ -111,7 +111,7 @@ export default function CartLink({
             {session?.user?.email ? (
               <button
                 type="button"
-                onClick={() => signOut({ callbackUrl: "/" })}
+                onClick={() => signOut({ callbackUrl: window.location.origin })}
                 className={menuItemClass}
               >
                 Cerrar sesión
