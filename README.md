@@ -82,6 +82,11 @@ E-pick (envíos)
 - `EPICK_PKG_HEIGHT` (cm, default 10)
 - `EPICK_PKG_WEIGHT` (kg, default 1)
 
+Mailing
+
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` funcionan como fallback si no hay SMTP configurado desde el admin.
+- `MAILING_ENCRYPTION_KEY` es requerida para guardar contrasenas SMTP desde el panel admin. Debe ser un secreto estable en produccion.
+
 ### Endpoints internos
 
 - `POST /api/shipping/quote`

@@ -2,8 +2,28 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  FolderTree,
+  GripVertical,
+  Layers3,
+  Package,
+  Plus,
+  Search,
+  Tags,
+} from "lucide-react";
 import { flattenCategories } from "@/lib/categories";
 import { slugify } from "@/lib/slug";
+import AdminPageHeader from "@/components/admin/layout/AdminPageHeader";
+import PageToolbar from "@/components/admin/layout/PageToolbar";
+import SectionCard from "@/components/admin/cards/SectionCard";
+import StatCard from "@/components/admin/cards/StatCard";
+import EmptyState from "@/components/admin/data/EmptyState";
+import FilterChips from "@/components/admin/data/FilterChips";
+import SearchBar from "@/components/admin/data/SearchBar";
+import StatusBadge from "@/components/admin/data/StatusBadge";
+import ConfirmDialog from "@/components/admin/feedback/ConfirmDialog";
 
 type Category = {
   id: string;
@@ -27,44 +47,20 @@ type DropHint = {
   position: "before" | "after";
 };
 
-const levelStyles = [
-  {
-    border: "border-amber-300",
-    chip: "bg-amber-100 text-amber-900 ring-amber-200",
-    accent: "bg-amber-500",
-  },
-  {
-    border: "border-stone-300",
-    chip: "bg-stone-100 text-stone-700 ring-stone-200",
-    accent: "bg-stone-400",
-  },
-  {
-    border: "border-stone-300",
-    chip: "bg-stone-100 text-stone-700 ring-stone-200",
-    accent: "bg-stone-400",
-  },
-  {
-    border: "border-stone-300",
-    chip: "bg-stone-100 text-stone-700 ring-stone-200",
-    accent: "bg-stone-400",
-  },
-] as const;
+type CategoryFilter = "all" | "roots" | "children" | "empty";
+
+type CategoryFormState = {
+  name: string;
+  slug: string;
+  description: string;
+  parentId: string;
+};
 
 function normalizeCategories(categories: Category[]) {
   return flattenCategories(categories).map((category) => ({
     ...category,
     sortOrder: category.sortOrder ?? 0,
   }));
-}
-
-function getLevelStyle(depth = 0) {
-  return levelStyles[Math.min(depth, levelStyles.length - 1)];
-}
-
-function getDepthLabel(depth = 0) {
-  if (depth === 0) return "Principal";
-  if (depth === 1) return "Subcategoria";
-  return `Nivel ${depth + 1}`;
 }
 
 function groupByParent(categories: Category[]) {
@@ -86,31 +82,24 @@ function groupByParent(categories: Category[]) {
   return byParent;
 }
 
-function reorderSiblings(
-  categories: Category[],
-  draggedId: string,
-  targetId: string,
-  position: "before" | "after"
-) {
+function reorderSiblings(categories: Category[], draggedId: string, targetId: string, position: "before" | "after") {
   const dragged = categories.find((item) => item.id === draggedId);
   const target = categories.find((item) => item.id === targetId);
   if (!dragged || !target) return categories;
   if ((dragged.parentId ?? null) !== (target.parentId ?? null)) return categories;
 
   const parentId = dragged.parentId ?? null;
-  const siblingItems = categories
+  const siblings = categories
     .filter((item) => (item.parentId ?? null) === parentId)
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-
-  const draggedIndex = siblingItems.findIndex((item) => item.id === draggedId);
-  const targetIndex = siblingItems.findIndex((item) => item.id === targetId);
+  const draggedIndex = siblings.findIndex((item) => item.id === draggedId);
+  const targetIndex = siblings.findIndex((item) => item.id === targetId);
   if (draggedIndex < 0 || targetIndex < 0) return categories;
 
-  const nextSiblings = [...siblingItems];
+  const nextSiblings = [...siblings];
   const [draggedItem] = nextSiblings.splice(draggedIndex, 1);
   const baseIndex = nextSiblings.findIndex((item) => item.id === targetId);
-  const insertIndex = baseIndex + (position === "after" ? 1 : 0);
-  nextSiblings.splice(insertIndex, 0, draggedItem);
+  nextSiblings.splice(baseIndex + (position === "after" ? 1 : 0), 0, draggedItem);
 
   const nextOrders = new Map(nextSiblings.map((item, index) => [item.id, index]));
   return normalizeCategories(
@@ -121,37 +110,98 @@ function reorderSiblings(
   );
 }
 
+function categoryMatchesFilter(category: Category, filter: CategoryFilter) {
+  if (filter === "roots") return (category.depth ?? 0) === 0;
+  if (filter === "children") return (category.depth ?? 0) > 0;
+  if (filter === "empty") return category._count.products === 0;
+  return true;
+}
+
+function collectVisibleIds(categories: Category[], filter: CategoryFilter, query: string) {
+  const visible = new Set<string>();
+  const byId = new Map(categories.map((category) => [category.id, category]));
+  const normalizedQuery = query.trim().toLowerCase();
+
+  for (const category of categories) {
+    const matchesText =
+      !normalizedQuery ||
+      category.name.toLowerCase().includes(normalizedQuery) ||
+      category.slug.toLowerCase().includes(normalizedQuery);
+    if (!matchesText || !categoryMatchesFilter(category, filter)) continue;
+
+    visible.add(category.id);
+    let parentId = category.parentId ?? null;
+    while (parentId) {
+      const parent = byId.get(parentId);
+      if (!parent) break;
+      visible.add(parent.id);
+      parentId = parent.parentId ?? null;
+    }
+  }
+
+  return visible;
+}
+
+function defaultExpandedIds(categories: Category[]) {
+  return new Set(categories.filter((category) => categories.some((child) => child.parentId === category.id)).map((category) => category.id));
+}
+
+function createFormState(parentId = ""): CategoryFormState {
+  return { name: "", slug: "", description: "", parentId };
+}
+
 export default function AdminCategoriesPage({ initialCategories }: { initialCategories: Category[] }) {
   const [categories, setCategories] = useState<Category[]>(normalizeCategories(initialCategories));
-  const [name, setName] = useState("");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<CategoryFilter>("all");
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => defaultExpandedIds(normalizeCategories(initialCategories)));
+  const [createOpen, setCreateOpen] = useState(false);
+  const [form, setForm] = useState<CategoryFormState>(createFormState());
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
 
   const groupedCategories = useMemo(() => groupByParent(categories), [categories]);
+  const visibleIds = useMemo(() => collectVisibleIds(categories, filter, query), [categories, filter, query]);
+  const rootCategories = groupedCategories.get("") ?? [];
+  const summary = {
+    total: categories.length,
+    roots: categories.filter((category) => (category.depth ?? 0) === 0).length,
+    children: categories.filter((category) => (category.depth ?? 0) > 0).length,
+    empty: categories.filter((category) => category._count.products === 0).length,
+  };
+  const hasActiveSearch = query.trim() || filter !== "all";
 
   async function refreshCategories() {
     const refreshed = await fetch("/api/admin/categories").then((response) => response.json()).catch(() => null);
-    if (refreshed?.categories) setCategories(normalizeCategories(refreshed.categories));
+    if (refreshed?.categories) {
+      const nextCategories = normalizeCategories(refreshed.categories);
+      setCategories(nextCategories);
+      setExpandedIds((current) => new Set([...current, ...defaultExpandedIds(nextCategories)]));
+    }
   }
 
-  async function createCategory(next?: { name: string; parentId?: string }) {
+  async function createCategory(nextForm = form) {
     setMsg(null);
+    const nextName = nextForm.name.trim();
+    const nextSlug = slugify(nextForm.slug || nextName);
+    if (!nextName) {
+      setMsg("Ingresá un nombre para crear la categoría.");
+      return;
+    }
+
     setLoading(true);
-
-    const nextName = (next?.name ?? name).trim();
-    const nextParentId = next?.parentId ?? "";
-    const nextSlug = slugify(nextName);
-
     const res = await fetch("/api/admin/categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: nextName,
         slug: nextSlug,
-        description: "",
-        parentId: nextParentId,
+        description: nextForm.description.trim(),
+        parentId: nextForm.parentId,
       }),
     });
 
@@ -159,18 +209,20 @@ export default function AdminCategoriesPage({ initialCategories }: { initialCate
     setLoading(false);
 
     if (!res.ok) {
-      setMsg(String(data?.error || "No se pudo crear la categoria."));
+      setMsg(String(data?.error || "No se pudo crear la categoría."));
       return;
     }
 
     await refreshCategories();
-    if (!next) setName("");
-    setMsg("Categoria creada.");
+    if (nextForm.parentId) setExpandedIds((current) => new Set(current).add(nextForm.parentId));
+    setForm(createFormState());
+    setCreateOpen(false);
+    setMsg("Categoría creada.");
   }
 
   async function saveCategory(category: Category, next: Pick<Category, "name" | "slug" | "description" | "parentId">) {
     setMsg(null);
-
+    setLoading(true);
     const res = await fetch(`/api/admin/categories/${category.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -178,32 +230,33 @@ export default function AdminCategoriesPage({ initialCategories }: { initialCate
     });
 
     const data = await res.json().catch(() => ({}));
+    setLoading(false);
+
     if (!res.ok) {
-      setMsg(String(data?.error || "No se pudo guardar la categoria."));
+      setMsg(String(data?.error || "No se pudo guardar la categoría."));
       return;
     }
 
     await refreshCategories();
-    setMsg("Categoria guardada.");
+    setEditingId(null);
+    setMsg("Categoría guardada.");
   }
 
   async function deleteCategory(category: Category) {
-    const ok = confirm(
-      `Borrar categoria "${category.name}"?\n\nSus ${category._count.products} producto(s) quedaran sin categoria.`
-    );
-    if (!ok) return;
-
     setMsg(null);
+    setLoading(true);
     const res = await fetch(`/api/admin/categories/${category.id}`, { method: "DELETE" });
     const data = await res.json().catch(() => ({}));
+    setLoading(false);
 
     if (!res.ok) {
-      setMsg(String(data?.error || "No se pudo borrar la categoria."));
+      setMsg(String(data?.error || "No se pudo borrar la categoría."));
       return;
     }
 
+    setDeleteTarget(null);
     await refreshCategories();
-    setMsg("Categoria borrada.");
+    setMsg("Categoría borrada.");
   }
 
   async function persistReorder(parentId: string | null, orderedIds: string[]) {
@@ -226,7 +279,6 @@ export default function AdminCategoriesPage({ initialCategories }: { initialCate
 
   async function handleDrop(targetId: string, position: "before" | "after") {
     if (!dragState) return;
-
     const dragged = categories.find((item) => item.id === dragState.id);
     const target = categories.find((item) => item.id === targetId);
     if (!dragged || !target) return;
@@ -246,81 +298,179 @@ export default function AdminCategoriesPage({ initialCategories }: { initialCate
     await persistReorder(parentId, orderedIds);
   }
 
+  function openCreate(parentId = "") {
+    setForm(createFormState(parentId));
+    setCreateOpen(true);
+  }
+
   return (
-    <main className="min-h-screen bg-stone-50 text-stone-900">
-      <div className="mx-auto max-w-6xl px-4 py-10">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold">Categorias</h1>
-            <p className="mt-1 text-sm text-stone-500">
-              {categories.length} categoria{categories.length === 1 ? "" : "s"}
-            </p>
-          </div>
-
-          <Link
-            href="/admin/products"
-            className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm text-stone-700 hover:bg-stone-100"
-          >
-            Ver productos
-          </Link>
-        </div>
-
-        <section className="mt-6 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
-          <h2 className="text-sm font-semibold">Nueva categoria</h2>
-          <div className="mt-4 grid gap-3 md:grid-cols-12">
-            <div className="md:col-span-5">
-              <label className="text-xs text-stone-500">Nombre</label>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="mt-2 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-amber-400"
-              />
-            </div>
-            <div className="flex items-end md:col-span-12 lg:col-span-1">
-              <button
-                onClick={() => createCategory()}
-                disabled={loading}
-                className="w-full rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-800 disabled:opacity-50"
+    <main className="min-h-screen bg-[var(--admin-background)] text-[var(--admin-text-soft)]">
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 xl:py-6">
+        <AdminPageHeader
+          eyebrow="Admin · Catálogo"
+          title="Categorías"
+          subtitle={`Organizá el catálogo y definí la estructura de navegación de tu tienda. ${summary.total} categorías · ${summary.roots} principales · ${summary.children} subcategorías.`}
+          backHref="/admin"
+          actions={
+            <>
+              <Link
+                href="/admin/products"
+                className="inline-flex items-center gap-2 rounded-2xl border border-[var(--admin-border)] bg-white/70 px-4 py-2.5 xl:py-2 text-sm font-semibold text-[var(--admin-primary)] shadow-sm transition duration-150 hover:bg-[var(--admin-surface-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--admin-primary)]/30"
               >
-                {loading ? "Creando..." : "Crear"}
+                <Package className="h-4 w-4" aria-hidden="true" />
+                Ver productos
+              </Link>
+              <button
+                type="button"
+                onClick={() => openCreate()}
+                className="inline-flex items-center gap-2 rounded-2xl bg-[var(--admin-primary)] px-4 py-2.5 xl:py-2 text-sm font-semibold text-white shadow-sm transition duration-150 hover:bg-[var(--admin-primary-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--admin-primary)]/30"
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Nueva categoría
               </button>
-            </div>
-          </div>
-          {msg && <div className="mt-4 rounded-xl border border-stone-200 bg-stone-50 p-3 text-sm text-stone-700">{msg}</div>}
+            </>
+          }
+        />
+
+        <section className="mt-8 xl:mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard title="Categorías" value={summary.total} description="Total del árbol" icon={FolderTree} />
+          <StatCard title="Principales" value={summary.roots} description="Primer nivel" icon={Layers3} />
+          <StatCard title="Subcategorías" value={summary.children} description="Niveles secundarios" icon={Tags} />
+          <StatCard title="Sin productos" value={summary.empty} description="Categorías vacías" icon={Search} />
         </section>
 
-        <section className="mt-6 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
-          <div className="mb-4 flex items-center justify-between gap-3 px-1">
-            <div>
-              <h2 className="text-sm font-semibold text-stone-900">Arbol de categorias</h2>
-              <p className="mt-1 text-xs text-stone-500">Arrastra para reordenar. Las subcategorias solo cambian dentro de su mismo grupo.</p>
-            </div>
+        {msg ? (
+          <div className="mt-6 xl:mt-4 rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-4 py-3 xl:py-2.5 text-sm text-[var(--admin-text-soft)] shadow-[var(--admin-shadow)]">
+            {msg}
           </div>
+        ) : null}
 
-          {(groupedCategories.get("") ?? []).length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-stone-300 px-4 py-10 text-center text-sm text-stone-500">
-              Todavia no hay categorias.
-            </div>
-          ) : (
-            <CategoryBranch
-              parentId={null}
-              groupedCategories={groupedCategories}
-              onCreateChild={createCategory}
-              onSave={saveCategory}
-              onDelete={deleteCategory}
-              onDragStart={setDragState}
-              onDragEnd={() => {
-                setDragState(null);
-                setDropHint(null);
-              }}
-              dragState={dragState}
-              dropHint={dropHint}
-              setDropHint={setDropHint}
-              onDrop={handleDrop}
-            />
-          )}
-        </section>
+        <SectionCard className="mt-8 xl:mt-6">
+          <PageToolbar
+            title="Árbol de categorías"
+            description="Arrastrá para reordenar categorías dentro del mismo nivel."
+            search={<SearchBar value={query} onChange={setQuery} placeholder="Buscar categoría..." ariaLabel="Buscar categoría" />}
+            actions={
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setExpandedIds(new Set(categories.map((category) => category.id)))}
+                  className="rounded-2xl border border-[var(--admin-border)] px-4 py-2.5 xl:py-2 text-sm font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)]"
+                >
+                  Expandir todas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExpandedIds(new Set())}
+                  className="rounded-2xl border border-[var(--admin-border)] px-4 py-2.5 xl:py-2 text-sm font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)]"
+                >
+                  Contraer todas
+                </button>
+              </div>
+            }
+            filters={
+              <FilterChips
+                ariaLabel="Filtros de categorías"
+                value={filter}
+                onChange={setFilter}
+                options={[
+                  { value: "all", label: "Todas", count: summary.total },
+                  { value: "roots", label: "Principales", count: summary.roots },
+                  { value: "children", label: "Subcategorías", count: summary.children },
+                  { value: "empty", label: "Sin productos", count: summary.empty },
+                ]}
+              />
+            }
+          />
+
+          <div className="mt-6 xl:mt-4">
+            {rootCategories.length === 0 ? (
+              <EmptyState
+                icon={FolderTree}
+                title="Todavía no creaste categorías."
+                description="Las categorías ayudan a organizar el catálogo y mejorar la navegación de la tienda."
+                action={
+                  <button
+                    type="button"
+                    onClick={() => openCreate()}
+                    className="rounded-2xl bg-[var(--admin-primary)] px-4 py-2.5 xl:py-2 text-sm font-semibold text-white transition duration-150 hover:bg-[var(--admin-primary-hover)]"
+                  >
+                    Crear primera categoría
+                  </button>
+                }
+              />
+            ) : visibleIds.size === 0 && hasActiveSearch ? (
+              <EmptyState
+                icon={Search}
+                title="No encontramos categorías con esos filtros."
+                description="Probá cambiar la búsqueda o volver al filtro Todas."
+                action={
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuery("");
+                      setFilter("all");
+                    }}
+                    className="rounded-2xl bg-[var(--admin-primary)] px-4 py-2.5 xl:py-2 text-sm font-semibold text-white transition duration-150 hover:bg-[var(--admin-primary-hover)]"
+                  >
+                    Limpiar filtros
+                  </button>
+                }
+              />
+            ) : (
+              <CategoryBranch
+                parentId={null}
+                groupedCategories={groupedCategories}
+                visibleIds={visibleIds}
+                expandedIds={expandedIds}
+                setExpandedIds={setExpandedIds}
+                editingId={editingId}
+                setEditingId={setEditingId}
+                categories={categories}
+                onCreateChild={openCreate}
+                onSave={saveCategory}
+                onDelete={setDeleteTarget}
+                onDragStart={setDragState}
+                onDragEnd={() => {
+                  setDragState(null);
+                  setDropHint(null);
+                }}
+                dragState={dragState}
+                dropHint={dropHint}
+                setDropHint={setDropHint}
+                onDrop={handleDrop}
+              />
+            )}
+          </div>
+        </SectionCard>
       </div>
+
+      <CategoryCreateDialog
+        open={createOpen}
+        form={form}
+        setForm={setForm}
+        categories={categories}
+        loading={loading}
+        onCreate={() => createCategory()}
+        onClose={() => setCreateOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="Eliminar categoría"
+        description={
+          deleteTarget
+            ? `¿Querés eliminar "${deleteTarget.name}"? Sus ${deleteTarget._count.products} producto${deleteTarget._count.products === 1 ? "" : "s"} quedarán sin categoría.`
+            : undefined
+        }
+        confirmLabel="Eliminar"
+        variant="danger"
+        loading={loading}
+        onConfirm={() => {
+          if (deleteTarget) void deleteCategory(deleteTarget);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </main>
   );
 }
@@ -328,6 +478,12 @@ export default function AdminCategoriesPage({ initialCategories }: { initialCate
 function CategoryBranch({
   parentId,
   groupedCategories,
+  visibleIds,
+  expandedIds,
+  setExpandedIds,
+  editingId,
+  setEditingId,
+  categories,
   onCreateChild,
   onSave,
   onDelete,
@@ -340,9 +496,15 @@ function CategoryBranch({
 }: {
   parentId: string | null;
   groupedCategories: Map<string, Category[]>;
-  onCreateChild: (next?: { name: string; parentId?: string }) => Promise<void>;
+  visibleIds: Set<string>;
+  expandedIds: Set<string>;
+  setExpandedIds: (next: Set<string> | ((current: Set<string>) => Set<string>)) => void;
+  editingId: string | null;
+  setEditingId: (id: string | null) => void;
+  categories: Category[];
+  onCreateChild: (parentId?: string) => void;
   onSave: (category: Category, next: Pick<Category, "name" | "slug" | "description" | "parentId">) => Promise<void>;
-  onDelete: (category: Category) => Promise<void>;
+  onDelete: (category: Category) => void;
   onDragStart: (state: DragState) => void;
   onDragEnd: () => void;
   dragState: DragState | null;
@@ -350,30 +512,50 @@ function CategoryBranch({
   setDropHint: (hint: DropHint | null) => void;
   onDrop: (targetId: string, position: "before" | "after") => Promise<void>;
 }) {
-  const items = groupedCategories.get(parentId ?? "") ?? [];
+  const items = (groupedCategories.get(parentId ?? "") ?? []).filter((category) => visibleIds.has(category.id));
 
   return (
-    <div className="space-y-3">
-      {items.map((category) => (
-        <div key={category.id} className="space-y-3">
-          <CategoryRow
-            category={category}
-            onCreateChild={onCreateChild}
-            onSave={onSave}
-            onDelete={onDelete}
-            onDragStart={onDragStart}
-            onDragEnd={onDragEnd}
-            dragState={dragState}
-            dropHint={dropHint}
-            setDropHint={setDropHint}
-            onDrop={onDrop}
-          />
-
-          {(groupedCategories.get(category.id) ?? []).length > 0 && (
-            <div className="space-y-3">
+    <div className={parentId ? "mt-3 space-y-3 border-l border-[var(--admin-border)] pl-4 sm:pl-6" : "space-y-3"}>
+      {items.map((category) => {
+        const childCount = groupedCategories.get(category.id)?.filter((child) => visibleIds.has(child.id)).length ?? 0;
+        const expanded = expandedIds.has(category.id);
+        return (
+          <div key={category.id}>
+            <CategoryRow
+              category={category}
+              childCount={childCount}
+              expanded={expanded}
+              onToggleExpanded={() =>
+                setExpandedIds((current) => {
+                  const next = new Set(current);
+                  if (next.has(category.id)) next.delete(category.id);
+                  else next.add(category.id);
+                  return next;
+                })
+              }
+              editing={editingId === category.id}
+              setEditing={(editing) => setEditingId(editing ? category.id : null)}
+              categories={categories}
+              onCreateChild={onCreateChild}
+              onSave={onSave}
+              onDelete={onDelete}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+              dragState={dragState}
+              dropHint={dropHint}
+              setDropHint={setDropHint}
+              onDrop={onDrop}
+            />
+            {childCount > 0 && expanded ? (
               <CategoryBranch
                 parentId={category.id}
                 groupedCategories={groupedCategories}
+                visibleIds={visibleIds}
+                expandedIds={expandedIds}
+                setExpandedIds={setExpandedIds}
+                editingId={editingId}
+                setEditingId={setEditingId}
+                categories={categories}
                 onCreateChild={onCreateChild}
                 onSave={onSave}
                 onDelete={onDelete}
@@ -384,16 +566,22 @@ function CategoryBranch({
                 setDropHint={setDropHint}
                 onDrop={onDrop}
               />
-            </div>
-          )}
-        </div>
-      ))}
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 function CategoryRow({
   category,
+  childCount,
+  expanded,
+  onToggleExpanded,
+  editing,
+  setEditing,
+  categories,
   onCreateChild,
   onSave,
   onDelete,
@@ -405,9 +593,15 @@ function CategoryRow({
   onDrop,
 }: {
   category: Category;
-  onCreateChild: (next: { name: string; parentId?: string }) => Promise<void>;
+  childCount: number;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  editing: boolean;
+  setEditing: (editing: boolean) => void;
+  categories: Category[];
+  onCreateChild: (parentId?: string) => void;
   onSave: (category: Category, next: Pick<Category, "name" | "slug" | "description" | "parentId">) => Promise<void>;
-  onDelete: (category: Category) => Promise<void>;
+  onDelete: (category: Category) => void;
   onDragStart: (state: DragState) => void;
   onDragEnd: () => void;
   dragState: DragState | null;
@@ -415,31 +609,44 @@ function CategoryRow({
   setDropHint: (hint: DropHint | null) => void;
   onDrop: (targetId: string, position: "before" | "after") => Promise<void>;
 }) {
-  const [name, setName] = useState(category.name);
-  const [childName, setChildName] = useState("");
-  const [addingChild, setAddingChild] = useState(false);
-  const slug = slugify(name);
+  const [draft, setDraft] = useState<CategoryFormState>({
+    name: category.name,
+    slug: category.slug,
+    description: category.description ?? "",
+    parentId: category.parentId ?? "",
+  });
   const depth = category.depth ?? 0;
-  const style = getLevelStyle(depth);
-  const dirty = name !== category.name || slug !== category.slug;
   const canReceiveDrop = !dragState || (dragState.parentId ?? null) === (category.parentId ?? null);
   const showTopHint = dropHint?.targetId === category.id && dropHint.position === "before";
   const showBottomHint = dropHint?.targetId === category.id && dropHint.position === "after";
+  const dirty =
+    draft.name !== category.name ||
+    slugify(draft.slug) !== category.slug ||
+    draft.description !== (category.description ?? "") ||
+    draft.parentId !== (category.parentId ?? "");
+
+  function resetDraft() {
+    setDraft({
+      name: category.name,
+      slug: category.slug,
+      description: category.description ?? "",
+      parentId: category.parentId ?? "",
+    });
+  }
 
   return (
     <article
-      className={`relative overflow-hidden rounded-2xl border bg-white shadow-sm ${style.border} ${
-        dragState?.id === category.id ? "opacity-60" : ""
-      }`}
-      style={{ marginLeft: `${Math.min(depth, 5) * 18}px` }}
+      className={[
+        "relative rounded-3xl border bg-[var(--admin-surface)] p-4 shadow-[var(--admin-shadow)] transition duration-150",
+        depth === 0 ? "border-[var(--admin-border)]" : "border-[#E6D7C8] bg-white/60",
+        dragState?.id === category.id ? "scale-[0.99] opacity-60 shadow-lg" : "",
+      ].join(" ")}
       onDragOver={(event) => {
         if (!canReceiveDrop) return;
         event.preventDefault();
         const rect = event.currentTarget.getBoundingClientRect();
         const position = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
-        if (dropHint?.targetId !== category.id || dropHint.position !== position) {
-          setDropHint({ targetId: category.id, position });
-        }
+        if (dropHint?.targetId !== category.id || dropHint.position !== position) setDropHint({ targetId: category.id, position });
       }}
       onDrop={async (event) => {
         if (!canReceiveDrop) return;
@@ -449,108 +656,301 @@ function CategoryRow({
         await onDrop(category.id, position);
       }}
     >
-      {showTopHint && <div className="absolute inset-x-3 top-0 h-1 rounded-full bg-amber-500" />}
-      {showBottomHint && <div className="absolute inset-x-3 bottom-0 h-1 rounded-full bg-amber-500" />}
-      <div className="absolute inset-y-0 left-0 w-px bg-stone-200" />
-      {depth > 0 && <div className="absolute left-0 top-8 h-px w-4 bg-stone-300" />}
-      <div className={`absolute left-0 top-0 h-full w-1 ${style.accent}`} />
-
-      <div className="grid gap-4 px-4 py-4 lg:grid-cols-[auto_minmax(0,0.85fr)_auto]">
-        <div
-          draggable
-          onDragStart={(event) => {
-            event.dataTransfer.effectAllowed = "move";
-            onDragStart({ id: category.id, parentId: category.parentId ?? null });
-          }}
-          onDragEnd={onDragEnd}
-          className="mt-8 flex h-10 w-10 cursor-grab items-center justify-center rounded-xl border border-stone-200 bg-stone-50 text-stone-400 active:cursor-grabbing"
-          title="Arrastrar para reordenar"
-        >
-          <span className="text-lg leading-none">⋮⋮</span>
-        </div>
-
-        <div className="min-w-0">
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${style.chip}`}>
-              {getDepthLabel(depth)}
-            </span>
-            <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] text-stone-500">
-              /{category.slug}
-            </span>
-          </div>
-
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-amber-400"
-          />
-        </div>
-
-        <div className="flex flex-col gap-3 lg:items-end">
-          <Link
-            href={`/admin/products?category=${category.slug}`}
-            className="inline-flex rounded-full border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-700 hover:bg-stone-100"
+      {showTopHint ? <div className="absolute inset-x-4 top-0 h-1 rounded-full bg-[var(--admin-primary)]" /> : null}
+      {showBottomHint ? <div className="absolute inset-x-4 bottom-0 h-1 rounded-full bg-[var(--admin-primary)]" /> : null}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <button
+            type="button"
+            draggable
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = "move";
+              onDragStart({ id: category.id, parentId: category.parentId ?? null });
+            }}
+            onDragEnd={onDragEnd}
+            className="mt-1 cursor-grab rounded-xl border border-[var(--admin-border)] bg-[var(--admin-background)] p-2 text-[var(--admin-muted)] active:cursor-grabbing"
+            aria-label={`Reordenar ${category.name}`}
+            title="Arrastrar para reordenar"
           >
-            {category._count.products} producto{category._count.products === 1 ? "" : "s"}
-          </Link>
-          <div className="flex flex-wrap gap-2 lg:justify-end">
-            <button
-              onClick={() => setAddingChild((prev) => !prev)}
-              className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-100"
-            >
-              {addingChild ? "Cancelar +" : "+ Subcategoria"}
-            </button>
-            <button
-              onClick={() =>
-                onSave(category, {
-                  name,
-                  slug,
-                  description: category.description ?? null,
-                  parentId: category.parentId ?? "",
-                })
-              }
-              disabled={!dirty}
-              className="rounded-xl border border-stone-300 bg-white px-3 py-2 text-xs text-stone-700 hover:bg-stone-100 disabled:opacity-40"
-            >
-              Guardar cambios
-            </button>
-            <button
-              onClick={() => onDelete(category)}
-              className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 hover:bg-rose-100"
-            >
-              Borrar
-            </button>
-          </div>
+            <GripVertical className="h-4 w-4" aria-hidden="true" />
+          </button>
+
+          <button
+            type="button"
+            onClick={onToggleExpanded}
+            disabled={childCount === 0}
+            className="mt-1 rounded-xl p-2 text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)] disabled:cursor-default disabled:opacity-30"
+            aria-label={expanded ? `Contraer ${category.name}` : `Expandir ${category.name}`}
+          >
+            {expanded ? <ChevronDown className="h-4 w-4" aria-hidden="true" /> : <ChevronRight className="h-4 w-4" aria-hidden="true" />}
+          </button>
+
+          {editing ? (
+            <div className="grid min-w-0 flex-1 gap-3 md:grid-cols-2">
+              <Field label="Nombre">
+                <input
+                  value={draft.name}
+                  onChange={(event) => {
+                    const nextName = event.target.value;
+                    setDraft((current) => ({ ...current, name: nextName, slug: current.slug ? current.slug : slugify(nextName) }));
+                  }}
+                  className="admin-input"
+                />
+              </Field>
+              <Field label="Slug">
+                <input
+                  value={draft.slug}
+                  onChange={(event) => setDraft((current) => ({ ...current, slug: event.target.value }))}
+                  className="admin-input"
+                />
+              </Field>
+              <Field label="Categoría padre">
+                <ParentSelect
+                  categories={categories}
+                  value={draft.parentId}
+                  excludeId={category.id}
+                  onChange={(value) => setDraft((current) => ({ ...current, parentId: value }))}
+                />
+              </Field>
+              <Field label="Descripción">
+                <input
+                  value={draft.description}
+                  onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
+                  className="admin-input"
+                />
+              </Field>
+            </div>
+          ) : (
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className={["truncate font-semibold text-[var(--admin-text)]", depth === 0 ? "text-lg" : "text-base"].join(" ")}>
+                  {category.name}
+                </h3>
+                {depth === 0 ? <StatusBadge label="Principal" variant="brand" /> : <StatusBadge label="Subcategoría" variant="neutral" />}
+                {category._count.products === 0 ? <StatusBadge label="Sin productos" variant="neutral" /> : null}
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[var(--admin-muted)]">
+                <span>/{category.slug}</span>
+                <span>·</span>
+                <Link href={`/admin/products?category=${category.slug}`} className="font-semibold text-[var(--admin-primary)] hover:underline">
+                  {category._count.products} producto{category._count.products === 1 ? "" : "s"}
+                </Link>
+                {childCount > 0 ? (
+                  <>
+                    <span>·</span>
+                    <span>{childCount} subcategoría{childCount === 1 ? "" : "s"}</span>
+                  </>
+                ) : null}
+              </div>
+              {category.description ? <p className="mt-2 text-sm text-[var(--admin-muted)]">{category.description}</p> : null}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-2 lg:justify-end">
+          {editing ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  resetDraft();
+                  setEditing(false);
+                }}
+                className="rounded-2xl border border-[var(--admin-border)] px-3 py-2 text-xs font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)]"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  void onSave(category, {
+                    name: draft.name,
+                    slug: slugify(draft.slug || draft.name),
+                    description: draft.description || null,
+                    parentId: draft.parentId,
+                  })
+                }
+                disabled={!dirty}
+                className="rounded-2xl bg-[var(--admin-primary)] px-3 py-2 text-xs font-semibold text-white transition duration-150 hover:bg-[var(--admin-primary-hover)] disabled:opacity-50"
+              >
+                Guardar
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="rounded-2xl border border-[var(--admin-border)] px-3 py-2 text-xs font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)]"
+              >
+                Editar
+              </button>
+              <button
+                type="button"
+                onClick={() => onCreateChild(category.id)}
+                className="rounded-2xl border border-[var(--admin-border)] px-3 py-2 text-xs font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)]"
+              >
+                Agregar subcategoría
+              </button>
+              <Link
+                href={`/admin/products?category=${category.slug}`}
+                className="rounded-2xl border border-[var(--admin-border)] px-3 py-2 text-xs font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)]"
+              >
+                Ver productos
+              </Link>
+              <button
+                type="button"
+                onClick={() => onDelete(category)}
+                className="rounded-2xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 transition duration-150 hover:bg-red-50"
+              >
+                Eliminar
+              </button>
+            </>
+          )}
         </div>
       </div>
-
-      {addingChild && (
-        <div className="border-t border-stone-200 bg-stone-50/80 px-4 py-4">
-          <div className="mb-3 text-xs font-medium uppercase tracking-[0.18em] text-stone-500">
-            Nueva subcategoria dentro de {category.name}
-          </div>
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-            <input
-              value={childName}
-              onChange={(event) => setChildName(event.target.value)}
-              placeholder="Nombre de la subcategoria"
-              className="rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-amber-400"
-            />
-            <button
-              onClick={async () => {
-                const trimmedName = childName.trim();
-                if (!trimmedName) return;
-                await onCreateChild({ name: trimmedName, parentId: category.id });
-                setChildName("");
-                setAddingChild(false);
-              }}
-              className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-800"
-            >
-              Crear subcategoria
-            </button>
-          </div>
-        </div>
-      )}
     </article>
+  );
+}
+
+function CategoryCreateDialog({
+  open,
+  form,
+  setForm,
+  categories,
+  loading,
+  onCreate,
+  onClose,
+}: {
+  open: boolean;
+  form: CategoryFormState;
+  setForm: (next: CategoryFormState | ((current: CategoryFormState) => CategoryFormState)) => void;
+  categories: Category[];
+  loading: boolean;
+  onCreate: () => void;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <button type="button" aria-label="Cerrar formulario" className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <aside className="relative h-full w-full max-w-xl overflow-y-auto border-l border-[var(--admin-border)] bg-[var(--admin-background)] p-6 xl:p-4 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-semibold text-[var(--admin-text)]">Nueva categoría</h2>
+            <p className="mt-2 text-sm text-[var(--admin-muted)]">Creá una categoría principal o asignala dentro de otra.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-2xl border border-[var(--admin-border)] px-3 py-2 text-sm font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)]"
+          >
+            Cerrar
+          </button>
+        </div>
+
+        <div className="mt-6 xl:mt-4 space-y-4">
+          <Field label="Nombre">
+            <input
+              value={form.name}
+              onChange={(event) => {
+                const nextName = event.target.value;
+                setForm((current) => ({ ...current, name: nextName, slug: current.slug ? current.slug : slugify(nextName) }));
+              }}
+              className="admin-input"
+              autoFocus
+            />
+          </Field>
+          <Field label="Slug">
+            <input
+              value={form.slug}
+              onChange={(event) => setForm((current) => ({ ...current, slug: event.target.value }))}
+              className="admin-input"
+            />
+          </Field>
+          <Field label="Categoría padre">
+            <ParentSelect categories={categories} value={form.parentId} onChange={(value) => setForm((current) => ({ ...current, parentId: value }))} />
+          </Field>
+          <Field label="Descripción">
+            <textarea
+              value={form.description}
+              onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+              rows={4}
+              className="admin-input resize-none"
+            />
+          </Field>
+        </div>
+
+        <div className="mt-8 xl:mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={loading}
+            className="rounded-2xl border border-[var(--admin-border)] px-4 py-2.5 xl:py-2 text-sm font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)] disabled:opacity-60"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onCreate}
+            disabled={loading}
+            className="rounded-2xl bg-[var(--admin-primary)] px-4 py-2.5 xl:py-2 text-sm font-semibold text-white transition duration-150 hover:bg-[var(--admin-primary-hover)] disabled:opacity-60"
+          >
+            {loading ? "Creando..." : "Crear categoría"}
+          </button>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">{label}</span>
+      <div className="mt-2">{children}</div>
+    </label>
+  );
+}
+
+function ParentSelect({
+  categories,
+  value,
+  excludeId,
+  onChange,
+}: {
+  categories: Category[];
+  value: string;
+  excludeId?: string;
+  onChange: (value: string) => void;
+}) {
+  const excludedDescendants = useMemo(() => {
+    if (!excludeId) return new Set<string>();
+    const ids = new Set([excludeId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const category of categories) {
+        if (category.parentId && ids.has(category.parentId) && !ids.has(category.id)) {
+          ids.add(category.id);
+          changed = true;
+        }
+      }
+    }
+    return ids;
+  }, [categories, excludeId]);
+
+  return (
+    <select value={value} onChange={(event) => onChange(event.target.value)} className="admin-input">
+      <option value="">Sin categoría padre</option>
+      {categories
+        .filter((category) => !excludedDescendants.has(category.id))
+        .map((category) => (
+          <option key={category.id} value={category.id}>
+            {category.label ?? category.name}
+          </option>
+        ))}
+    </select>
   );
 }

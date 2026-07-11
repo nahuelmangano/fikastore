@@ -63,6 +63,7 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      MAILING_ENCRYPTION_KEY: ${MAILING_ENCRYPTION_KEY:-}
       EPICK_BASE_URL: ${EPICK_BASE_URL:-https://dev-ar.e-pick.com.ar}
       EPICK_PHONE: ${EPICK_PHONE:-}
       EPICK_PASSWORD: ${EPICK_PASSWORD:-}

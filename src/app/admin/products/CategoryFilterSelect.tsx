@@ -31,10 +31,10 @@ export default function CategoryFilterSelect({
         setSelected(event.currentTarget.value);
         event.currentTarget.form?.requestSubmit();
       }}
-      className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
+      className="mt-2 w-full rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-background)] px-4 py-3 xl:py-2.5 text-sm text-[var(--admin-text)] outline-none focus:border-[var(--admin-primary)] focus:ring-2 focus:ring-[var(--admin-primary)]/15"
     >
       <option value="all">Todas</option>
-      <option value="uncategorized">Sin categoria</option>
+      <option value="uncategorized">Sin categoría</option>
       {categories.map((item) => (
         <option key={item.id} value={item.slug}>
           {item.label ?? item.name}

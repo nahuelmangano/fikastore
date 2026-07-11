@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/slug";
 import { isStaffRole } from "@/lib/roles";
 import { sanitizeRichText } from "@/lib/richText";
+import { notifyBackInStock } from "@/lib/stockNotifications";
 
 export const runtime = "nodejs";
 
@@ -25,7 +26,10 @@ export async function PATCH(
   const id = resolvedParams?.id?.trim();
   if (!id) return NextResponse.json({ ok: false, error: "Producto no existe" }, { status: 404 });
 
-  const currentProduct = await prisma.product.findUnique({ where: { id }, select: { id: true, name: true } });
+  const currentProduct = await prisma.product.findUnique({
+    where: { id },
+    select: { id: true, name: true, stock: true },
+  });
   if (!currentProduct) return NextResponse.json({ ok: false, error: "Producto no existe" }, { status: 404 });
 
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -116,6 +120,10 @@ export async function PATCH(
 
     return updatedProduct;
   });
+
+  if (currentProduct.stock <= 0 && updated.stock > 0) {
+    await notifyBackInStock(updated.id, req);
+  }
 
   return NextResponse.json({ ok: true, product: updated });
 }

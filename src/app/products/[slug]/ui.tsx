@@ -83,6 +83,8 @@ export default function ProductDetailClient({
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [quoteRows, setQuoteRows] = useState<Array<{ label: string; amount: number }>>([]);
+  const [stockAlertLoading, setStockAlertLoading] = useState(false);
+  const [stockAlertMessage, setStockAlertMessage] = useState<string | null>(null);
 
   const price = Number(selected.price);
   const promo = Number(promoPercents[selected.id] ?? promoPercent ?? 0);
@@ -90,6 +92,7 @@ export default function ProductDetailClient({
   const stock = Number(selected.stock);
 
   const canBuy = selected.isActive && stock > 0;
+  const canRequestStockAlert = selected.isActive && stock <= 0;
   const variantAttributeEntries = variants.map((variant) => ({
     variant,
     attrs: variantAttributes(variant.name),
@@ -107,6 +110,7 @@ export default function ProductDetailClient({
     setSelectedId(variant.id);
     setActive((variant.images ?? [])[0]?.url ?? fallback);
     setQty(1);
+    setStockAlertMessage(null);
   }
 
   function selectVariantAttribute(attribute: string, value: string) {
@@ -200,6 +204,27 @@ export default function ProductDetailClient({
 
     if (rows.length === 0) {
       setQuoteError("No se pudo cotizar con los proveedores disponibles.");
+    }
+  }
+
+  async function requestStockAlert() {
+    setStockAlertLoading(true);
+    setStockAlertMessage(null);
+
+    try {
+      const res = await fetch(`/api/products/${selected.id}/stock-notifications`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data?.ok) {
+        setStockAlertMessage(data?.error || "No pudimos guardar el aviso. Probá nuevamente.");
+        return;
+      }
+
+      setStockAlertMessage(data?.message || "Listo. Te vamos a avisar por email cuando vuelva el stock.");
+    } finally {
+      setStockAlertLoading(false);
     }
   }
 
@@ -352,26 +377,46 @@ export default function ProductDetailClient({
                 </button>
               </div>
 
-              <button
-                disabled={!canBuy}
-                onClick={() => {
-                  addToCart(
-                    {
-                      productId: selected.id,
-                      slug: selected.slug,
-                      name: selected.name,
-                      price,
-                      stock,
-                      imageUrl: images[0],
-                    },
-                    qty
-                  );
-                  window.dispatchEvent(new Event("cart:open"));
-                }}
-                className="mt-4 w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
-              >
-                {canBuy ? "Agregar al carrito" : "No disponible"}
-              </button>
+              {canBuy ? (
+                <button
+                  onClick={() => {
+                    addToCart(
+                      {
+                        productId: selected.id,
+                        slug: selected.slug,
+                        name: selected.name,
+                        price,
+                        stock,
+                        imageUrl: images[0],
+                      },
+                      qty
+                    );
+                    window.dispatchEvent(new Event("cart:open"));
+                  }}
+                  className="mt-4 w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white"
+                >
+                  Agregar al carrito
+                </button>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4">
+                  <div className="text-sm font-medium text-zinc-200">Producto sin stock</div>
+                  {canRequestStockAlert && (
+                    <button
+                      type="button"
+                      onClick={requestStockAlert}
+                      disabled={stockAlertLoading}
+                      className="mt-3 w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
+                    >
+                      {stockAlertLoading ? "Guardando..." : "Avisarme cuando vuelva a estar en stock"}
+                    </button>
+                  )}
+                  {stockAlertMessage && (
+                    <p className="mt-3 text-sm text-zinc-300" role="status">
+                      {stockAlertMessage}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <p className="text-xs text-zinc-500">
                 * En el checkout validamos stock nuevamente al crear la orden.

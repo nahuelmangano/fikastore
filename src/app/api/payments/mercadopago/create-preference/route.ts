@@ -1,27 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { publicBaseUrl } from "@/lib/publicUrl";
 
 export const runtime = "nodejs";
 
 function baseUrl(req: Request) {
-  const envUrl =
-    process.env.APP_URL ||
-    process.env.SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXTAUTH_URL;
-
-  if (envUrl) return envUrl.replace(/\/$/, "");
-
-  const origin = req.headers.get("origin");
-  if (origin) return origin.replace(/\/$/, "");
-
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
-  const proto = req.headers.get("x-forwarded-proto") || "http";
-
-  if (host) return `${proto}://${host}`.replace(/\/$/, "");
-
-  return "http://localhost:3000";
+  return publicBaseUrl(req);
 }
 
 function canUseAutoReturn(site: string) {

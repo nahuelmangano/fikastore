@@ -38,7 +38,7 @@ export default function DuplicateProductButton({ productId }: { productId: strin
       type="button"
       onClick={duplicateProduct}
       disabled={loading}
-      className="rounded-xl border border-zinc-800 px-3 py-1.5 text-xs hover:bg-zinc-900/60 disabled:opacity-50"
+      className="rounded-xl border border-[var(--admin-border)] px-3 py-1.5 text-xs font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)] disabled:opacity-50"
     >
       {loading ? "Duplicando..." : "Duplicar"}
     </button>

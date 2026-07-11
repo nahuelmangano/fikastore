@@ -3,9 +3,10 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isStaffRole } from "@/lib/roles";
+import { notifyBackInStock } from "@/lib/stockNotifications";
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -17,6 +18,8 @@ export async function POST(
   }
 
   try {
+    const restoredProductIds = new Set<string>();
+
     const updated = await prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({
         where: { id },
@@ -37,10 +40,20 @@ export async function POST(
       });
 
       for (const it of order.items) {
-        await tx.product.update({
+        const product = await tx.product.findUnique({
+          where: { id: it.productId },
+          select: { stock: true },
+        });
+
+        const updatedProduct = await tx.product.update({
           where: { id: it.productId },
           data: { stock: { increment: it.quantity } },
+          select: { id: true, stock: true },
         });
+
+        if ((product?.stock ?? 0) <= 0 && updatedProduct.stock > 0) {
+          restoredProductIds.add(updatedProduct.id);
+        }
       }
 
       if (order.payments.length > 0) {
@@ -52,6 +65,8 @@ export async function POST(
 
       return changed;
     });
+
+    await Promise.all(Array.from(restoredProductIds).map((productId) => notifyBackInStock(productId, req)));
 
     return NextResponse.json({ ok: true, order: updated });
   } catch (err: any) {

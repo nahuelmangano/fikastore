@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type CategoryOption = {
   id: string;
@@ -16,23 +16,38 @@ function selectedProductIds() {
 }
 
 export default function BulkCategoryToolbar({ categories }: { categories: CategoryOption[] }) {
-  const [open, setOpen] = useState(false);
   const [categoryId, setCategoryId] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [selectedCount, setSelectedCount] = useState(0);
+
+  useEffect(() => {
+    function updateSelectedCount() {
+      setSelectedCount(selectedProductIds().length);
+    }
+
+    updateSelectedCount();
+    document.addEventListener("change", updateSelectedCount);
+    document.addEventListener("bulk-products-change", updateSelectedCount);
+    return () => {
+      document.removeEventListener("change", updateSelectedCount);
+      document.removeEventListener("bulk-products-change", updateSelectedCount);
+    };
+  }, []);
 
   function selectVisible(checked: boolean) {
     document.querySelectorAll<HTMLInputElement>('input[name="bulkProductIds"]').forEach((input) => {
       input.checked = checked;
     });
     setMsg(null);
+    document.dispatchEvent(new Event("bulk-products-change"));
   }
 
   async function applyCategory() {
     setMsg(null);
     const productIds = selectedProductIds();
     if (productIds.length === 0) {
-      setMsg("Marca productos en la columna Sel. o usa Seleccionar pagina.");
+      setMsg("Marcá productos en la tabla para asignarles una categoría.");
       return;
     }
 
@@ -47,37 +62,35 @@ export default function BulkCategoryToolbar({ categories }: { categories: Catego
     setLoading(false);
 
     if (!res.ok) {
-      setMsg(String(data?.error || "No se pudo asignar la categoria."));
+      setMsg(String(data?.error || "No se pudo asignar la categoría."));
       return;
     }
 
-    setMsg(`Categoria actualizada en ${data.updated ?? productIds.length} producto(s).`);
+    setMsg(`Categoría actualizada en ${data.updated ?? productIds.length} producto(s).`);
     window.location.reload();
   }
 
-  return (
-    <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold hover:bg-zinc-900/40"
-        aria-expanded={open}
-      >
-        <span>Asignar categoria a productos marcados</span>
-        <span className="text-lg leading-none text-zinc-400">{open ? "-" : "+"}</span>
-      </button>
+  if (selectedCount === 0) return null;
 
-      {open && (
-        <div className="border-t border-zinc-800 p-4">
-          <div className="flex flex-wrap items-end gap-3">
+  return (
+    <div className="mt-6 xl:mt-4 rounded-3xl border border-[var(--admin-primary)]/35 bg-[#F6F0EA] p-4 shadow-[var(--admin-shadow)]">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div>
+          <div className="text-sm font-semibold text-[var(--admin-text)]">
+            {selectedCount} producto{selectedCount === 1 ? "" : "s"} seleccionado{selectedCount === 1 ? "" : "s"}
+          </div>
+          <div className="mt-1 text-sm text-[var(--admin-muted)]">Asigná una categoría a los productos marcados.</div>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3">
             <div>
-              <label className="text-xs text-zinc-400">Nueva categoria</label>
+              <label className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Nueva categoría</label>
               <select
                 value={categoryId}
                 onChange={(e) => setCategoryId(e.target.value)}
-                className="mt-2 min-w-64 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
+                className="mt-2 min-w-64 rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-background)] px-4 py-2.5 xl:py-2 text-sm text-[var(--admin-text)] outline-none focus:border-[var(--admin-primary)] focus:ring-2 focus:ring-[var(--admin-primary)]/15"
               >
-                <option value="">Sin categoria</option>
+                <option value="">Sin categoría</option>
                 {categories.map((category) => (
                   <option key={category.id} value={category.id}>
                     {category.label ?? category.name}
@@ -90,31 +103,22 @@ export default function BulkCategoryToolbar({ categories }: { categories: Catego
               type="button"
               onClick={applyCategory}
               disabled={loading}
-              className="rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
+              className="rounded-2xl bg-[var(--admin-primary)] px-4 py-2.5 xl:py-2 text-sm font-semibold text-white transition duration-150 hover:bg-[var(--admin-primary-hover)] disabled:opacity-50"
             >
               {loading ? "Aplicando..." : "Aplicar"}
             </button>
 
             <button
               type="button"
-              onClick={() => selectVisible(true)}
-              className="rounded-xl border border-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
-            >
-              Seleccionar pagina
-            </button>
-
-            <button
-              type="button"
               onClick={() => selectVisible(false)}
-              className="rounded-xl border border-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
+              className="rounded-2xl border border-[var(--admin-border)] px-4 py-2.5 xl:py-2 text-sm font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)]"
             >
-              Limpiar seleccion
+              Cancelar selección
             </button>
           </div>
+      </div>
 
-          {msg && <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 text-sm">{msg}</div>}
-        </div>
-      )}
+      {msg && <div className="mt-3 rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-background)] p-3 text-sm text-[var(--admin-text-soft)]">{msg}</div>}
     </div>
   );
 }

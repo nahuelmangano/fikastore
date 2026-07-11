@@ -3,6 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcrypt";
 import { getServerSession } from "next-auth";
 import { prisma } from "@/lib/prisma";
+import { publicBaseUrl } from "@/lib/publicUrl";
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
@@ -55,6 +56,22 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).role = token.role;
       }
       return session;
+    },
+    async redirect({ url, baseUrl }) {
+      const fallbackBaseUrl = publicBaseUrl() || baseUrl.replace(/\/$/, "");
+
+      if (url.startsWith("/")) return url;
+
+      try {
+        const target = new URL(url);
+        const publicBase = new URL(fallbackBaseUrl);
+
+        if (target.origin === publicBase.origin) return url;
+      } catch {
+        return "/";
+      }
+
+      return fallbackBaseUrl;
     },
   },
 };

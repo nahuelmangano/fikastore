@@ -117,7 +117,7 @@ export default async function ProductsPage({
   }
 
   // availability: available | all | oos
-  const availability = (resolvedSearchParams.availability ?? "available").toLowerCase();
+  const availability = (resolvedSearchParams.availability ?? "all").toLowerCase();
   // sort: newest | price_asc | price_desc | stock_desc
   const sort = (resolvedSearchParams.sort ?? "newest").toLowerCase();
 

@@ -18,6 +18,7 @@ model User {
 
   orders       Order[]
   cartSnapshot CartSnapshot?
+  stockNotifications StockNotification[]
 }
 
 model Product {
@@ -37,11 +38,29 @@ model Product {
   orderItems  OrderItem[]
   promotions  PromotionProduct[]
   category    Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  stockNotifications StockNotification[]
 
   @@index([isActive])
   @@index([slug])
   @@index([categoryId])
   @@index([sortOrder])
+}
+
+model StockNotification {
+  id         String    @id @default(cuid())
+  userId     String
+  productId  String
+  status     String    @default("pending") // pending|notified
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  notifiedAt DateTime?
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product    Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([productId, status])
+  @@index([userId])
 }
 
 model Category {
