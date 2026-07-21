@@ -48,6 +48,7 @@ function toEditorProduct(product: ProductForEditor) {
       productId: image.productId,
       url: image.url,
       sortOrder: image.sortOrder,
+      visible: image.visible,
     })),
   };
 }

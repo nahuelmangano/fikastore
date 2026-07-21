@@ -7,13 +7,22 @@ import { slugify } from "@/lib/slug";
 
 export const runtime = "nodejs";
 
+async function nextSortOrder(parentId: string | null) {
+  const maxSort = await prisma.category.aggregate({
+    where: { parentId },
+    _max: { sortOrder: true },
+  });
+
+  return (maxSort._max.sortOrder ?? -1) + 1;
+}
+
 export async function GET() {
   const session = await auth();
   const role = (session?.user as { role?: string } | undefined)?.role;
   if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const categories = await prisma.category.findMany({
-    orderBy: [{ parentId: "asc" }, { name: "asc" }],
+    orderBy: [{ parentId: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
     include: { _count: { select: { products: true } } },
   });
 
@@ -42,7 +51,7 @@ export async function POST(req: Request) {
   }
 
   const category = await prisma.category.create({
-    data: { name, slug, description, parentId },
+    data: { name, slug, description, parentId, sortOrder: await nextSortOrder(parentId) },
     include: { _count: { select: { products: true } } },
   });
 

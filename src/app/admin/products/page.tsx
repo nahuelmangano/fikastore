@@ -318,7 +318,12 @@ export default async function AdminProductsPage({
 
         <BulkCategoryToolbar categories={flatCategories} />
 
-        <AdminProductsTable initialProducts={products} baseParams={baseParams} manualOrder={manualOrder} />
+        <AdminProductsTable
+          key={buildHref("products", { ...baseParams, page })}
+          initialProducts={products}
+          baseParams={baseParams}
+          manualOrder={manualOrder}
+        />
 
         {!manualOrder && (
           <div className="mt-6 xl:mt-4 flex flex-col gap-3 rounded-3xl border border-[var(--admin-border)] bg-[var(--admin-surface)] p-4 shadow-[var(--admin-shadow)] sm:flex-row sm:items-center sm:justify-between">

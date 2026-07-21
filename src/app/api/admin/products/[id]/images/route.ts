@@ -66,7 +66,12 @@ export async function POST(
     for (const productId of validTargetIds) {
       const existing = await prisma.productImage.findFirst({ where: { productId, url } });
       if (existing) {
-        images.push(existing);
+        images.push(
+          await prisma.productImage.update({
+            where: { id: existing.id },
+            data: { visible: true },
+          })
+        );
         continue;
       }
 

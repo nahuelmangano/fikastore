@@ -87,6 +87,7 @@ export async function POST(
             productId: created.id,
             url: image.url,
             sortOrder: image.sortOrder,
+            visible: image.visible,
           })),
         });
       }

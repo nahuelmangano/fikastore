@@ -10,8 +10,8 @@ export default async function StoreNav() {
   const [logoUrl, categories, informationSections] = await Promise.all([
     getStoreLogoUrl(),
     prisma.category.findMany({
-      orderBy: [{ name: "asc" }],
-      select: { id: true, parentId: true, name: true, slug: true },
+      orderBy: [{ parentId: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
+      select: { id: true, parentId: true, sortOrder: true, name: true, slug: true },
     }),
     getActiveInformationSections(),
   ]);

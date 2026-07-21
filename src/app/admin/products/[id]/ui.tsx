@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { sanitizeRichText } from "@/lib/richText";
+import ConfirmDialog from "@/components/admin/feedback/ConfirmDialog";
 
 function splitProductName(name: string) {
   const [base, ...rest] = name.split(/\s+—\s+/);
@@ -22,6 +23,7 @@ type ProductImage = {
   productId?: string;
   url: string;
   sortOrder?: number;
+  visible?: boolean;
 };
 
 type EditableProduct = {
@@ -78,6 +80,10 @@ export default function AdminProductEditor({
   const [addVariantOpen, setAddVariantOpen] = useState(false);
   const [addingVariant, setAddingVariant] = useState(false);
   const [draggedImageId, setDraggedImageId] = useState<string | null>(null);
+  const [imageToRemove, setImageToRemove] = useState<ProductImage | null>(null);
+  const [imageUrlToRemoveFromAll, setImageUrlToRemoveFromAll] = useState<string | null>(null);
+  const [removingImage, setRemovingImage] = useState(false);
+  const [removingImageFromAll, setRemovingImageFromAll] = useState(false);
 
   const mainImg = useMemo(() => images?.[0]?.url, [images]);
   const totalStock = items.reduce((acc, item) => acc + Number(item.stock || 0), 0);
@@ -118,7 +124,7 @@ export default function AdminProductEditor({
   }
 
   function imageVisibleInAllVariants(url: string) {
-    return items.length > 0 && items.every((item) => (item.images ?? []).some((image) => image.url === url));
+    return items.length > 0 && items.every((item) => (item.images ?? []).some((image) => image.url === url && image.visible !== false));
   }
 
   function mergeImages(existingImages: ProductImage[], incomingImages: ProductImage[]) {
@@ -313,8 +319,74 @@ export default function AdminProductEditor({
     setMsg("Imagen borrada.");
   }
 
+  async function confirmRemoveImage() {
+    if (!imageToRemove) return;
+
+    setRemovingImage(true);
+    await removeImage(imageToRemove.id);
+    setRemovingImage(false);
+    setImageToRemove(null);
+  }
+
+  async function confirmRemoveImageFromAllVariants() {
+    if (!imageUrlToRemoveFromAll) return;
+
+    setMsg(null);
+    setRemovingImageFromAll(true);
+
+    const targets = items
+      .map((item) => ({ item, image: (item.images ?? []).find((image) => image.url === imageUrlToRemoveFromAll) }))
+      .filter((entry): entry is { item: EditableProduct; image: ProductImage } => Boolean(entry.image));
+
+    for (const { item, image } of targets) {
+      const res = await fetch(`/api/admin/products/${item.id}/images/${image.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setMsg(String(data?.error || "No se pudo eliminar la imagen de todas las variantes."));
+        setRemovingImageFromAll(false);
+        return;
+      }
+    }
+
+    setImages((prev) => prev.filter((image) => image.url !== imageUrlToRemoveFromAll));
+    setItems((prev) =>
+      prev.map((item) => ({
+        ...item,
+        images: (item.images ?? []).filter((image) => image.url !== imageUrlToRemoveFromAll),
+      }))
+    );
+    setMsg("Imagen eliminada de todas las variantes.");
+    setRemovingImageFromAll(false);
+    setImageUrlToRemoveFromAll(null);
+  }
+
   async function toggleVariantImage(url: string, enabled: boolean) {
     setMsg(null);
+    const existingImage = images.find((item) => item.url === url);
+
+    if (existingImage) {
+      const res = await fetch(`/api/admin/products/${selected.id}/images/${existingImage.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visible: enabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setMsg(String(data?.error || "No se pudo cambiar la visibilidad de la imagen."));
+        return;
+      }
+
+      const updatedImage = (data.image as ProductImage | undefined) ?? { ...existingImage, visible: enabled };
+      const nextImages = images.map((item) => (item.id === existingImage.id ? updatedImage : item));
+      setImages(nextImages);
+      patchSelected({ images: nextImages });
+      setMsg(enabled ? "Imagen visible para esta variante." : "Imagen ocultada para esta variante.");
+      return;
+    }
 
     if (enabled) {
       const res = await fetch(`/api/admin/products/${selected.id}/images`, {
@@ -336,24 +408,6 @@ export default function AdminProductEditor({
       setMsg("Imagen activada para esta variante.");
       return;
     }
-
-    const image = images.find((item) => item.url === url);
-    if (!image) return;
-
-    const res = await fetch(`/api/admin/products/${selected.id}/images/${image.id}`, {
-      method: "DELETE",
-    });
-    const data = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      setMsg(String(data?.error || "No se pudo desactivar la imagen."));
-      return;
-    }
-
-    const nextImages = images.filter((item) => item.id !== image.id);
-    setImages(nextImages);
-    patchSelected({ images: nextImages });
-    setMsg("Imagen desactivada para esta variante.");
   }
 
   async function toggleAllVariantsImage(url: string, enabled: boolean) {
@@ -377,18 +431,20 @@ export default function AdminProductEditor({
       return;
     }
 
-    const removals = items
+    const visibilityUpdates = items
       .filter((item) => item.id !== selected.id)
       .map((item) => ({ item, image: (item.images ?? []).find((image) => image.url === url) }))
       .filter((entry): entry is { item: EditableProduct; image: ProductImage } => Boolean(entry.image));
 
-    for (const { item, image } of removals) {
+    for (const { item, image } of visibilityUpdates) {
       const res = await fetch(`/api/admin/products/${item.id}/images/${image.id}`, {
-        method: "DELETE",
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visible: enabled }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setMsg(String(data?.error || "No se pudo quitar la imagen de todas las variantes."));
+        setMsg(String(data?.error || "No se pudo cambiar la visibilidad en todas las variantes."));
         return;
       }
     }
@@ -396,10 +452,13 @@ export default function AdminProductEditor({
     setItems((prev) =>
       prev.map((item) => {
         if (item.id === selected.id) return item;
-        return { ...item, images: (item.images ?? []).filter((image) => image.url !== url) };
+        return {
+          ...item,
+          images: (item.images ?? []).map((image) => (image.url === url ? { ...image, visible: enabled } : image)),
+        };
       })
     );
-    setMsg("Imagen visible solo en esta variante.");
+    setMsg(enabled ? "Imagen visible en todas las variantes." : "Imagen oculta en las otras variantes.");
   }
 
   async function createVariant() {
@@ -842,7 +901,7 @@ Esto borrarÃ¡ todas sus variantes. No se puede deshacer.`);
                   <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                     {imageTiles.map((url) => {
                       const activeImage = images.find((image) => image.url === url);
-                      const active = Boolean(activeImage);
+                      const active = Boolean(activeImage && activeImage.visible !== false);
                       const visibleInAll = imageVisibleInAllVariants(url);
                       return (
                       <div
@@ -862,37 +921,44 @@ Esto borrarÃ¡ todas sus variantes. No se puede deshacer.`);
                           draggedImageId === activeImage?.id ? "opacity-40" : "",
                         ].join(" ")}
                       >
-                        <label className="block cursor-pointer">
+                        <div>
                           <div className="aspect-square overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={url} alt={name} className="h-full w-full object-cover" />
                           </div>
-                          <span className="mt-2 flex items-center gap-2 text-xs text-zinc-300">
+                          <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-zinc-300">
                             <input
                               type="checkbox"
                               checked={active}
-                              onChange={(event) => toggleVariantImage(url, event.target.checked)}
+                              onChange={(event) => void toggleVariantImage(url, event.target.checked)}
                             />
                             Mostrar
-                          </span>
-                          <span className="mt-2 flex items-center gap-2 text-xs text-zinc-300">
+                          </label>
+                          <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-zinc-300">
                             <input
                               type="checkbox"
                               checked={visibleInAll}
                               onChange={(event) => toggleAllVariantsImage(url, event.target.checked)}
                             />
                             Mostrar en todas
-                          </span>
-                        </label>
+                          </label>
+                        </div>
                         {activeImage && (
                           <button
                             type="button"
-                            onClick={() => removeImage(activeImage.id)}
+                            onClick={() => setImageToRemove(activeImage)}
                             className="mt-2 w-full rounded-lg border border-red-700 bg-red-600 px-2 py-1 text-xs font-semibold text-white hover:bg-red-700"
                           >
                             Quitar de variante
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => setImageUrlToRemoveFromAll(url)}
+                          className="mt-2 w-full rounded-lg border border-red-800 bg-red-900 px-2 py-1 text-xs font-semibold text-white hover:bg-red-950"
+                        >
+                          Eliminar de todas las variantes
+                        </button>
                       </div>
                       );
                     })}
@@ -917,6 +983,32 @@ Esto borrarÃ¡ todas sus variantes. No se puede deshacer.`);
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={Boolean(imageToRemove)}
+        title="Quitar imagen de la variante"
+        description="La imagen dejará de mostrarse en esta variante. Si está activa en otras variantes, seguirá disponible allí."
+        confirmLabel="Quitar imagen"
+        cancelLabel="Cancelar"
+        variant="danger"
+        loading={removingImage}
+        onConfirm={() => void confirmRemoveImage()}
+        onCancel={() => {
+          if (!removingImage) setImageToRemove(null);
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(imageUrlToRemoveFromAll)}
+        title="Eliminar imagen de todas las variantes"
+        description="La imagen se quitará de todas las variantes de este producto. No se puede deshacer desde esta pantalla."
+        confirmLabel="Eliminar de todas"
+        cancelLabel="Cancelar"
+        variant="danger"
+        loading={removingImageFromAll}
+        onConfirm={() => void confirmRemoveImageFromAllVariants()}
+        onCancel={() => {
+          if (!removingImageFromAll) setImageUrlToRemoveFromAll(null);
+        }}
+      />
     </main>
   );
 }

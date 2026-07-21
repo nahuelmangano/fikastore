@@ -44,7 +44,7 @@ function money(value: number) {
 }
 
 type ListedProduct = Prisma.ProductGetPayload<{
-  include: { images: { orderBy: { sortOrder: "asc" }; take: 1 } };
+  include: { images: { where: { visible: true }; orderBy: { sortOrder: "asc" }; take: 1 } };
 }>;
 
 type ProductGroup = {
@@ -138,7 +138,7 @@ export default async function ProductsPage({
   const [allProducts, selectedCategory] = await Promise.all([
     prisma.product.findMany({
       where,
-      include: { images: { orderBy: { sortOrder: "asc" }, take: 1 } },
+      include: { images: { where: { visible: true }, orderBy: { sortOrder: "asc" }, take: 1 } },
     }),
     category && category !== "all"
       ? prisma.category.findUnique({
