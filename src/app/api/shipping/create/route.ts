@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { epickRequest, mapEpickStatus } from "@/lib/epick";
+import { epickRequest, mapEpickStatus, splitEpickAddressLine } from "@/lib/epick";
 import { isStaffRole } from "@/lib/roles";
 import { getProviderConfigValue } from "@/lib/shippingProviderConfig";
 
@@ -61,6 +61,7 @@ export async function POST(req: Request) {
     const width = await envNumber("EPICK_PKG_WIDTH", 20);
     const height = await envNumber("EPICK_PKG_HEIGHT", 10);
     const weight = await envNumber("EPICK_PKG_WEIGHT", 1);
+    const addresseeAddress = splitEpickAddressLine(order.shippingAddressLine);
 
     payload = {
       info: {
@@ -90,8 +91,8 @@ export async function POST(req: Request) {
         name: order.shippingName,
         phone: order.shippingPhone,
         email: order.user?.email || (await requireEnv("EPICK_SENDER_EMAIL")),
-        street: order.shippingAddressLine,
-        number: order.shippingAddressLine,
+        street: addresseeAddress.street,
+        number: addresseeAddress.number,
         city: order.shippingCity,
         province: (await getProviderConfigValue("epick", "EPICK_ADDRESSEE_PROVINCE")) || order.shippingCity,
         extra: "",

@@ -7,10 +7,34 @@ import { isStaffRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
 
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string; imageId: string }> }) {
+  const { id, imageId } = await params;
+  const session = await auth();
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (typeof body.visible !== "boolean") {
+    return NextResponse.json({ ok: false, error: "Visibilidad requerida" }, { status: 400 });
+  }
+
+  const img = await prisma.productImage.findFirst({
+    where: { id: imageId, productId: id },
+  });
+  if (!img) return NextResponse.json({ ok: false, error: "Imagen no existe" }, { status: 404 });
+
+  const image = await prisma.productImage.update({
+    where: { id: img.id },
+    data: { visible: body.visible },
+  });
+
+  return NextResponse.json({ ok: true, image });
+}
+
 export async function DELETE(_: Request, { params }: { params: Promise<{ id: string; imageId: string }> }) {
   const { id, imageId } = await params;
   const session = await auth();
-  const role = (session?.user as any)?.role;
+  const role = (session?.user as { role?: string } | undefined)?.role;
   if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const img = await prisma.productImage.findFirst({
@@ -20,8 +44,8 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
 
   await prisma.productImage.delete({ where: { id: img.id } });
 
-  // borrado del archivo si está en /public/uploads
-  if (img.url.startsWith("/uploads/")) {
+  const remainingUses = await prisma.productImage.count({ where: { url: img.url } });
+  if (remainingUses === 0 && img.url.startsWith("/uploads/")) {
     const filepath = path.join(process.cwd(), "public", img.url);
     await unlink(filepath).catch(() => {});
   }

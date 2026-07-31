@@ -171,7 +171,7 @@ export default function AdminOrderDetail({ order }: { order: any }) {
                 setStatus(data.order.status);
                 setMsg("✅ Pedido cancelado.");
               }}
-              className="w-full rounded-2xl border border-red-900/40 bg-red-900/20 px-4 py-3 text-sm font-semibold text-red-200 hover:bg-red-900/30 disabled:opacity-50 sm:w-auto"
+              className="w-full rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50 sm:w-auto"
             >
               {cancelLoading ? "Cancelando..." : "Cancelar pedido"}
             </button>

@@ -18,14 +18,16 @@ model User {
 
   orders       Order[]
   cartSnapshot CartSnapshot?
+  stockNotifications StockNotification[]
 }
 
 model Product {
   id          String         @id @default(cuid())
   categoryId  String?
+  sortOrder   Int            @default(0)
   name        String
   slug        String         @unique
-  description String?
+  description String?        @db.NVarChar(max)
   price       Decimal        @db.Decimal(18, 2)
   stock       Int            @default(0)
   isActive    Boolean        @default(true)
@@ -36,14 +38,35 @@ model Product {
   orderItems  OrderItem[]
   promotions  PromotionProduct[]
   category    Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  stockNotifications StockNotification[]
 
   @@index([isActive])
   @@index([slug])
   @@index([categoryId])
+  @@index([sortOrder])
+}
+
+model StockNotification {
+  id         String    @id @default(cuid())
+  userId     String
+  productId  String
+  status     String    @default("pending") // pending|notified
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  notifiedAt DateTime?
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product    Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([productId, status])
+  @@index([userId])
 }
 
 model Category {
   id          String    @id @default(cuid())
+  parentId    String?
+  sortOrder   Int       @default(0)
   name        String
   slug        String    @unique
   description String?
@@ -51,8 +74,11 @@ model Category {
   updatedAt   DateTime  @updatedAt
 
   products    Product[]
+  parent      Category? @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children    Category[] @relation("CategoryHierarchy")
 
   @@index([slug])
+  @@index([parentId, sortOrder])
 }
 
 model Promotion {
@@ -90,6 +116,7 @@ model ProductImage {
   productId String
   url       String
   sortOrder Int      @default(0)
+  visible   Boolean  @default(true)
 
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
@@ -111,6 +138,9 @@ model Order {
   shippingProvince    String  @default("")
   shippingProvinceCode String @default("")
   shippingMethod      String?  // epick|andreani|correo|pickup
+  shippingDeliveryType String? // D|S
+  shippingBranchCode   String?
+  shippingBranchName   String?
   shippingAmount      Decimal  @db.Decimal(18, 2) @default(0)
 
   shippedAt           DateTime? // ✅ cuando lo marcás como enviado

@@ -1,11 +1,14 @@
 import { prisma } from "@/lib/prisma";
+import { flattenCategories } from "@/lib/categories";
 import AdminCategoriesPage from "./ui";
 
 export default async function CategoriesPage() {
   const categories = await prisma.category.findMany({
-    orderBy: { name: "asc" },
+    orderBy: [{ parentId: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
     select: {
       id: true,
+      parentId: true,
+      sortOrder: true,
       name: true,
       slug: true,
       description: true,
@@ -13,5 +16,5 @@ export default async function CategoriesPage() {
     },
   });
 
-  return <AdminCategoriesPage initialCategories={categories} />;
+  return <AdminCategoriesPage initialCategories={flattenCategories(categories)} />;
 }

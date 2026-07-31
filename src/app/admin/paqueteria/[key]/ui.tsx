@@ -16,9 +16,11 @@ type Field = {
 export default function AdminCarrierConfig({
   providerKey,
   providerName,
+  canCreateTestShipments,
 }: {
   providerKey: ShippingCarrierKey;
   providerName: string;
+  canCreateTestShipments: boolean;
 }) {
   const [fields, setFields] = useState<Field[]>([]);
   const [loading, setLoading] = useState(true);
@@ -142,7 +144,348 @@ export default function AdminCarrierConfig({
             </button>
           </div>
         </form>
+
+        {(providerKey === "correo" || providerKey === "epick") && canCreateTestShipments && (
+          <TestShipmentPanel providerKey={providerKey} providerName={providerName} />
+        )}
       </div>
     </main>
+  );
+}
+
+type TestShipmentResult = {
+  ok?: boolean;
+  error?: string;
+  details?: string;
+  order?: {
+    id?: string;
+    orderNumber?: number;
+  };
+  shipment?: {
+    id?: string;
+    shippingId?: string | null;
+    epickOrderId?: string | null;
+    senderCode?: string | null;
+    status?: string;
+  };
+  response?: unknown;
+};
+
+type CorreoAgency = {
+  code: string;
+  name: string;
+  addressLine?: string;
+  city?: string;
+  province?: string;
+  provinceCode?: string;
+  zip?: string;
+};
+
+const ARGENTINA_PROVINCES = [
+  { name: "Ciudad Autónoma de Buenos Aires", code: "C" },
+  { name: "Buenos Aires", code: "B" },
+  { name: "Catamarca", code: "K" },
+  { name: "Chaco", code: "H" },
+  { name: "Chubut", code: "U" },
+  { name: "Córdoba", code: "X" },
+  { name: "Corrientes", code: "W" },
+  { name: "Entre Ríos", code: "E" },
+  { name: "Formosa", code: "P" },
+  { name: "Jujuy", code: "Y" },
+  { name: "La Pampa", code: "L" },
+  { name: "La Rioja", code: "F" },
+  { name: "Mendoza", code: "M" },
+  { name: "Misiones", code: "N" },
+  { name: "Neuquén", code: "Q" },
+  { name: "Río Negro", code: "R" },
+  { name: "Salta", code: "A" },
+  { name: "San Juan", code: "J" },
+  { name: "San Luis", code: "D" },
+  { name: "Santa Cruz", code: "Z" },
+  { name: "Santa Fe", code: "S" },
+  { name: "Santiago del Estero", code: "G" },
+  { name: "Tierra del Fuego", code: "V" },
+  { name: "Tucumán", code: "T" },
+];
+
+function TestShipmentPanel({
+  providerKey,
+  providerName,
+}: {
+  providerKey: "correo" | "epick";
+  providerName: string;
+}) {
+  const [form, setForm] = useState({
+    name: "Destinatario Prueba",
+    phone: "1100000000",
+    email: "",
+    deliveryType: "D",
+    branchCode: "",
+    streetName: "Av Siempre Viva",
+    streetNumber: "742",
+    city: "CABA",
+    province: "Ciudad Autónoma de Buenos Aires",
+    zip: "1000",
+    declaredValue: "1000",
+  });
+  const [loading, setLoading] = useState(false);
+  const [agencies, setAgencies] = useState<CorreoAgency[]>([]);
+  const [agenciesLoading, setAgenciesLoading] = useState(false);
+  const [agenciesError, setAgenciesError] = useState<string | null>(null);
+  const [result, setResult] = useState<TestShipmentResult | null>(null);
+
+  const update = (key: keyof typeof form, value: string) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const isCorreo = providerKey === "correo";
+  const shipmentId = isCorreo ? result?.shipment?.shippingId : result?.shipment?.epickOrderId;
+  const provinceCode = ARGENTINA_PROVINCES.find((p) => p.name === form.province)?.code || "";
+  const selectedAgency = agencies.find((agency) => agency.code === form.branchCode) || null;
+
+  useEffect(() => {
+    if (!isCorreo || form.deliveryType !== "S" || !provinceCode) {
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      setAgenciesLoading(true);
+      setAgenciesError(null);
+      const res = await fetch("/api/shipping/correo-argentino/agencies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provinceCode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (cancelled) return;
+      setAgenciesLoading(false);
+      if (!res.ok) {
+        setAgencies([]);
+        setAgenciesError(data?.error || "No se pudieron cargar sucursales.");
+        return;
+      }
+      const nextAgencies = Array.isArray(data?.agencies) ? data.agencies : [];
+      setAgencies(nextAgencies);
+      setForm((prev) =>
+        nextAgencies.some((agency: CorreoAgency) => agency.code === prev.branchCode)
+          ? prev
+          : { ...prev, branchCode: "" }
+      );
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form.deliveryType, form.province, isCorreo, provinceCode]);
+
+  return (
+    <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Probar creación de envío</h2>
+          <p className="mt-1 text-sm text-zinc-400">
+            Crea una orden interna pagada y la envía a {providerName} usando la configuración guardada.
+          </p>
+        </div>
+        {result?.order?.id && (
+          <Link
+            href={`/admin/orders/${result.order.id}`}
+            className="rounded-xl border border-zinc-800 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900/60"
+          >
+            Ver orden
+          </Link>
+        )}
+      </div>
+
+      <form
+        className="mt-5"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setLoading(true);
+          setResult(null);
+
+          const res = await fetch(`/api/admin/shipping/${providerKey}/test-shipment`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...form,
+              deliveryType: isCorreo ? form.deliveryType : undefined,
+              addressLine: `${form.streetName} ${form.streetNumber}`.trim(),
+              provinceCode,
+              branch:
+                isCorreo && form.deliveryType === "S" && selectedAgency
+                  ? {
+                      code: selectedAgency.code,
+                      name: selectedAgency.name,
+                      addressLine: selectedAgency.addressLine,
+                      city: selectedAgency.city,
+                      province: selectedAgency.province,
+                      provinceCode: selectedAgency.provinceCode,
+                      zip: selectedAgency.zip,
+                    }
+                  : undefined,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          setLoading(false);
+          setResult(data);
+        }}
+      >
+        {isCorreo && (
+          <div className="mb-4 flex flex-wrap gap-2">
+            {[
+              { value: "D", label: "A domicilio" },
+              { value: "S", label: "A sucursal" },
+            ].map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() =>
+                  setForm((prev) => ({
+                    ...prev,
+                    deliveryType: option.value,
+                    branchCode: option.value === "S" ? prev.branchCode : "",
+                  }))
+                }
+                className={`rounded-xl border px-3 py-2 text-sm font-semibold ${
+                  form.deliveryType === option.value
+                    ? "border-emerald-300 bg-emerald-200 text-emerald-950"
+                    : "border-zinc-800 bg-zinc-950 text-zinc-300 hover:bg-zinc-900"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <TextInput label="Nombre destinatario" value={form.name} onChange={(v) => update("name", v)} />
+          <TextInput label="Teléfono" value={form.phone} onChange={(v) => update("phone", v)} />
+          <TextInput label="Email destinatario" value={form.email} onChange={(v) => update("email", v)} />
+          <TextInput label="Calle" value={form.streetName} onChange={(v) => update("streetName", v)} />
+          <TextInput label="Altura" value={form.streetNumber} onChange={(v) => update("streetNumber", v)} />
+          <TextInput label="Ciudad" value={form.city} onChange={(v) => update("city", v)} />
+          <ProvinceSelect value={form.province} onChange={(v) => update("province", v)} />
+          {isCorreo && form.deliveryType === "S" && (
+            <label className="text-xs text-zinc-400">
+              Sucursal destino
+              <select
+                value={form.branchCode}
+                onChange={(e) => update("branchCode", e.target.value)}
+                disabled={agenciesLoading}
+                className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 disabled:opacity-60"
+              >
+                <option value="">
+                  {agenciesLoading ? "Cargando sucursales..." : "Seleccionar sucursal"}
+                </option>
+                {agencies.map((agency) => (
+                  <option key={agency.code} value={agency.code}>
+                    {agency.name} - {agency.addressLine || agency.city || agency.code}
+                  </option>
+                ))}
+              </select>
+              {agenciesError && <div className="mt-1 text-xs text-amber-300">{agenciesError}</div>}
+            </label>
+          )}
+          <TextInput label="Código postal" value={form.zip} onChange={(v) => update("zip", v)} />
+          <TextInput label="Valor declarado" value={form.declaredValue} onChange={(v) => update("declaredValue", v)} />
+        </div>
+
+        <div className="mt-5 flex justify-end">
+          <button
+            disabled={loading || (isCorreo && form.deliveryType === "S" && !selectedAgency)}
+            className="rounded-xl bg-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-100 disabled:opacity-50"
+          >
+            {loading ? "Creando envío..." : "Crear envío de prueba"}
+          </button>
+        </div>
+      </form>
+
+      {result && (
+        <div
+          className={`mt-4 rounded-xl border p-3 text-sm ${
+            result.ok
+              ? "border-emerald-700/40 bg-emerald-950/40 text-emerald-100"
+              : "border-amber-700/40 bg-amber-50 text-amber-900"
+          }`}
+        >
+          {result.ok ? (
+            <div className="space-y-1">
+              <div>Envío creado correctamente.</div>
+              <div className="font-mono text-xs">
+                Orden #{result.order?.orderNumber ?? "—"} · {isCorreo ? "ShippingId" : "EpickOrderId"}:{" "}
+                {shipmentId || "sin id"}
+              </div>
+              {!isCorreo && result.shipment?.senderCode && (
+                <div className="font-mono text-xs">Sender code: {result.shipment.senderCode}</div>
+              )}
+              <div className="font-mono text-xs">Estado: {result.shipment?.status || "—"}</div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <div>{result.error || "No se pudo crear el envío."}</div>
+              {result.details && <div className="font-mono text-xs">{result.details}</div>}
+              {result.order?.id && (
+                <div className="font-mono text-xs">Orden de prueba creada: #{result.order.orderNumber ?? result.order.id}</div>
+              )}
+            </div>
+          )}
+
+          {result.response ? (
+            <pre className="mt-3 max-h-64 overflow-auto rounded-lg bg-zinc-950/70 p-3 text-xs text-zinc-100">
+              {JSON.stringify(result.response, null, 2)}
+            </pre>
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ProvinceSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="text-xs text-zinc-400">
+      Provincia
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+      >
+        {ARGENTINA_PROVINCES.map((province) => (
+          <option key={province.code} value={province.name}>
+            {province.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function TextInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="text-xs text-zinc-400">
+      {label}
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+      />
+    </label>
   );
 }

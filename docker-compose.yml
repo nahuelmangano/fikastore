@@ -57,12 +57,16 @@ services:
       SITE_URL: ${SITE_URL:-http://localhost:3000}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-change-this-secret-before-production}
       MP_ACCESS_TOKEN: ${MP_ACCESS_TOKEN:-}
+      MP_OAUTH_CLIENT_ID: ${MP_OAUTH_CLIENT_ID:-}
+      MP_OAUTH_CLIENT_SECRET: ${MP_OAUTH_CLIENT_SECRET:-}
+      APP_SECRET_ENCRYPTION_KEY: ${APP_SECRET_ENCRYPTION_KEY:-}
       CRON_SECRET: ${CRON_SECRET:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      MAILING_ENCRYPTION_KEY: ${MAILING_ENCRYPTION_KEY:-}
       EPICK_BASE_URL: ${EPICK_BASE_URL:-https://dev-ar.e-pick.com.ar}
       EPICK_PHONE: ${EPICK_PHONE:-}
       EPICK_PASSWORD: ${EPICK_PASSWORD:-}
@@ -86,10 +90,9 @@ services:
     ports:
       - "${APP_PORT:-3000}:3000"
     volumes:
-      - uploads:/app/public/uploads
+      - ${UPLOADS_DIR:-./data/uploads}:/app/public/uploads
     command: ["sh", "-c", "npx prisma migrate deploy && npm run start"]
     restart: unless-stopped
 
 volumes:
   mssql-data:
-  uploads:

@@ -1,10 +1,20 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { flattenCategories } from "@/lib/categories";
 import { isStaffRole } from "@/lib/roles";
 import { slugify } from "@/lib/slug";
 
 export const runtime = "nodejs";
+
+async function nextSortOrder(parentId: string | null) {
+  const maxSort = await prisma.category.aggregate({
+    where: { parentId },
+    _max: { sortOrder: true },
+  });
+
+  return (maxSort._max.sortOrder ?? -1) + 1;
+}
 
 export async function GET() {
   const session = await auth();
@@ -12,11 +22,11 @@ export async function GET() {
   if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const categories = await prisma.category.findMany({
-    orderBy: { name: "asc" },
+    orderBy: [{ parentId: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
     include: { _count: { select: { products: true } } },
   });
 
-  return NextResponse.json({ ok: true, categories });
+  return NextResponse.json({ ok: true, categories: flattenCategories(categories) });
 }
 
 export async function POST(req: Request) {
@@ -27,6 +37,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const name = String(body.name || "").trim();
   const description = String(body.description || "").trim() || null;
+  const parentId = String(body.parentId || "").trim() || null;
   const slug = slugify(String(body.slug || "").trim() || name);
 
   if (!name) return NextResponse.json({ ok: false, error: "Nombre requerido" }, { status: 400 });
@@ -34,9 +45,13 @@ export async function POST(req: Request) {
 
   const exists = await prisma.category.findUnique({ where: { slug } });
   if (exists) return NextResponse.json({ ok: false, error: "Ese slug ya existe" }, { status: 409 });
+  if (parentId) {
+    const parent = await prisma.category.findUnique({ where: { id: parentId }, select: { id: true } });
+    if (!parent) return NextResponse.json({ ok: false, error: "Categoria padre invalida" }, { status: 400 });
+  }
 
   const category = await prisma.category.create({
-    data: { name, slug, description },
+    data: { name, slug, description, parentId, sortOrder: await nextSortOrder(parentId) },
     include: { _count: { select: { products: true } } },
   });
 

@@ -91,6 +91,23 @@ export async function epickGetToken(): Promise<string> {
   return login();
 }
 
+export function splitEpickAddressLine(addressLine: string) {
+  const normalized = addressLine.trim().replace(/\s+/g, " ");
+  const match = normalized.match(/^(.*?)\s+(\d+[a-zA-Z0-9/-]*)$/);
+
+  if (!match) {
+    return {
+      street: normalized,
+      number: "S/N",
+    };
+  }
+
+  return {
+    street: match[1].trim(),
+    number: match[2].trim(),
+  };
+}
+
 export function mapEpickStatus(input: string | undefined): string {
   const s = String(input || "").trim().toUpperCase();
   if (!s) return "PENDING";

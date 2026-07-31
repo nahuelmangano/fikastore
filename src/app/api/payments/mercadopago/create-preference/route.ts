@@ -1,27 +1,21 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { publicBaseUrl } from "@/lib/publicUrl";
+import { getResolvedMercadoPagoAccessToken } from "@/lib/storeSettings";
 
 export const runtime = "nodejs";
 
 function baseUrl(req: Request) {
-  const envUrl =
-    process.env.APP_URL ||
-    process.env.SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXTAUTH_URL;
+  return publicBaseUrl(req);
+}
 
-  if (envUrl) return envUrl.replace(/\/$/, "");
-
-  const origin = req.headers.get("origin");
-  if (origin) return origin.replace(/\/$/, "");
-
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
-  const proto = req.headers.get("x-forwarded-proto") || "http";
-
-  if (host) return `${proto}://${host}`.replace(/\/$/, "");
-
-  return "http://localhost:3000";
+function canUseAutoReturn(site: string) {
+  try {
+    return new URL(site).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 export async function POST(req: Request) {
@@ -59,7 +53,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const token = process.env.MP_ACCESS_TOKEN;
+  const token = await getResolvedMercadoPagoAccessToken();
 
   if (!token) {
     return NextResponse.json(
@@ -77,7 +71,17 @@ export async function POST(req: Request) {
     currency_id: "ARS",
   }));
 
-  const body = {
+  const body: {
+    items: typeof items;
+    external_reference: string;
+    notification_url: string;
+    back_urls: {
+      success: string;
+      failure: string;
+      pending: string;
+    };
+    auto_return?: "approved";
+  } = {
     items,
     external_reference: order.id,
     notification_url: `${site}/api/webhooks/mercadopago`,
@@ -86,8 +90,16 @@ export async function POST(req: Request) {
       failure: `${site}/pay/failure?orderId=${order.id}`,
       pending: `${site}/pay/pending?orderId=${order.id}`,
     },
-    auto_return: "approved" as const,
   };
+
+  if (canUseAutoReturn(site)) {
+    body.auto_return = "approved";
+  } else {
+    console.warn(
+      "MP auto_return disabled: Mercado Pago requires an HTTPS public URL.",
+      { site }
+    );
+  }
 
   console.log("SITE =", site);
   console.log("BODY =", JSON.stringify(body, null, 2));

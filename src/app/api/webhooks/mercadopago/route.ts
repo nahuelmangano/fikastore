@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendMail } from "@/lib/mailer";
 import { orderPaidTemplate } from "@/lib/email-templates";
+import { getMailingSettings, getResolvedMercadoPagoAccessToken } from "@/lib/storeSettings";
+import { notifyBackInStock } from "@/lib/stockNotifications";
 
 type MpWebhookBody = any;
 
 async function fetchPayment(paymentId: string) {
-  const token = process.env.MP_ACCESS_TOKEN;
+  const token = await getResolvedMercadoPagoAccessToken();
   if (!token) throw new Error("MP_ACCESS_TOKEN missing");
 
   const r = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
@@ -21,7 +23,7 @@ async function fetchPayment(paymentId: string) {
 }
 
 async function fetchMerchantOrder(orderId: string) {
-  const token = process.env.MP_ACCESS_TOKEN;
+  const token = await getResolvedMercadoPagoAccessToken();
   if (!token) throw new Error("MP_ACCESS_TOKEN missing");
 
   const r = await fetch(`https://api.mercadopago.com/merchant_orders/${orderId}`, {
@@ -46,7 +48,7 @@ function normalizeStatus(mpStatus: string | undefined): string {
   return "unknown";
 }
 
-async function upsertPaymentAndUpdateOrder(payment: any) {
+async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
   const mpStatus = normalizeStatus(payment.status);
   const paymentId = String(payment.id);
   const orderId =
@@ -76,6 +78,7 @@ async function upsertPaymentAndUpdateOrder(payment: any) {
   let orderTotal = 0;
   let orderNumber: number | undefined;
   let orderItems: { name: string; qty: number; unit: number; subtotal: number }[] = [];
+  const restoredProductIds = new Set<string>();
 
   await prisma.$transaction(async (tx) => {
     const existing = await tx.payment.findFirst({
@@ -142,10 +145,20 @@ async function upsertPaymentAndUpdateOrder(payment: any) {
     if (mpStatus === "rejected" || mpStatus === "cancelled" || mpStatus === "refunded") {
       if (order.status === "pending_payment") {
         for (const it of order.items) {
-          await tx.product.update({
+          const product = await tx.product.findUnique({
+            where: { id: it.productId },
+            select: { stock: true },
+          });
+
+          const updatedProduct = await tx.product.update({
             where: { id: it.productId },
             data: { stock: { increment: it.quantity } },
+            select: { id: true, stock: true },
           });
+
+          if ((product?.stock ?? 0) <= 0 && updatedProduct.stock > 0) {
+            restoredProductIds.add(updatedProduct.id);
+          }
         }
         await tx.order.update({
           where: { id: order.id },
@@ -157,20 +170,29 @@ async function upsertPaymentAndUpdateOrder(payment: any) {
 
   // ✅ Enviar email fuera de la transacción (mejor práctica)
   if (shouldSendPaidEmail && emailTo) {
+    const mailing = await getMailingSettings();
+    if (!mailing.purchaseEnabled) {
+      await Promise.all(Array.from(restoredProductIds).map((productId) => notifyBackInStock(productId, req)));
+      return;
+    }
+
     const html = orderPaidTemplate({
       customerName: emailName,
       orderNumber,
       orderId,
       total: orderTotal,
       items: orderItems,
+      message: mailing.purchaseMessage,
     });
 
     await sendMail({
       to: emailTo,
-      subject: "FikaStore · Pago confirmado ✅",
+      subject: mailing.purchaseSubject,
       html,
     }).catch(() => {});
   }
+
+  await Promise.all(Array.from(restoredProductIds).map((productId) => notifyBackInStock(productId, req)));
 }
 
 export async function POST(req: Request) {
@@ -218,11 +240,11 @@ export async function POST(req: Request) {
               }
             : await fetchPayment(String(p.id));
 
-        await upsertPaymentAndUpdateOrder(payment);
+        await upsertPaymentAndUpdateOrder(payment, req);
       }
     } else {
       const payment = await fetchPayment(String(dataId));
-      await upsertPaymentAndUpdateOrder(payment);
+      await upsertPaymentAndUpdateOrder(payment, req);
     }
 
     return NextResponse.json({ ok: true });

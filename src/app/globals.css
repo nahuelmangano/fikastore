@@ -9,6 +9,21 @@
   --text-muted: rgba(131, 83, 33, 0.68);
   --accent: #835321;
   --accent-contrast: #f7fafc;
+  --admin-primary: #8b5a2b;
+  --admin-primary-hover: #70471f;
+  --admin-background: #faf8f5;
+  --admin-surface: rgba(255, 255, 255, 0.72);
+  --admin-surface-muted: #f2ece5;
+  --admin-border: #e5d7c8;
+  --admin-text: #5f3b18;
+  --admin-text-soft: #70471f;
+  --admin-muted: #8f6a49;
+  --admin-muted-2: #a37a55;
+  --admin-radius: 1.5rem;
+  --admin-shadow: 0 16px 40px rgba(80, 52, 28, 0.05);
+  --admin-space-page: 2rem;
+  --admin-space-section: 2rem;
+  --admin-control-height: 2.75rem;
 }
 
 @theme inline {
@@ -34,6 +49,8 @@ body {
 html,
 body {
   background-color: var(--background);
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 /* Palette overrides for existing zinc-based classes */
@@ -103,4 +120,39 @@ body {
 
 .cart-drawer {
   animation: cart-slide-in 220ms ease-out;
+}
+
+.admin-input {
+  width: 100%;
+  border-radius: 1rem;
+  border: 1px solid var(--admin-border);
+  background: var(--admin-background);
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  color: var(--admin-text);
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.admin-input::placeholder {
+  color: var(--admin-muted-2);
+}
+
+.admin-input:focus {
+  border-color: var(--admin-primary);
+  box-shadow: 0 0 0 3px rgba(139, 90, 43, 0.15);
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --admin-space-page: 1.5rem;
+    --admin-space-section: 1.5rem;
+    --admin-control-height: 2.5rem;
+  }
+
+  .admin-input {
+    min-height: var(--admin-control-height);
+    padding-top: 0.625rem;
+    padding-bottom: 0.625rem;
+  }
 }

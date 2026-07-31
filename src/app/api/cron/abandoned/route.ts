@@ -2,15 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendMail } from "@/lib/mailer";
 import { cartAbandonedTemplate, pendingPaymentTemplate } from "@/lib/email-templates";
+import { publicBaseUrl } from "@/lib/publicUrl";
 
 export const runtime = "nodejs";
-
-function siteUrl() {
-  return (process.env.SITE_URL || process.env.NEXTAUTH_URL || "http://localhost:3000").replace(
-    /\/$/,
-    ""
-  );
-}
 
 function isAuthorized(req: Request) {
   const secret = process.env.CRON_SECRET;
@@ -24,7 +18,7 @@ export async function POST(req: Request) {
   }
 
   const cutoff = new Date(Date.now() - 10 * 60 * 1000);
-  const baseUrl = siteUrl();
+  const baseUrl = publicBaseUrl(req);
 
   const [carts, payments] = await Promise.all([
     prisma.cartSnapshot.findMany({

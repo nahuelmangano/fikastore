@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 type CategoryOption = {
   id: string;
   name: string;
   slug: string;
+  label?: string;
 };
 
 function currentParam(name: string, fallback: string) {
@@ -32,16 +34,19 @@ export default function StoreSearch({ categories }: { categories: CategoryOption
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="text-2xl leading-none text-black hover:text-zinc-600"
+        className="flex items-center text-black hover:text-zinc-600"
         aria-label="Buscar"
       >
-        ⌕
+        <svg aria-hidden="true" className="h-[21px] w-[21px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.6-3.6" />
+        </svg>
       </button>
 
       {open && (
         <form
-          action="/"
-          className="absolute right-0 top-full z-50 mt-8 w-[min(92vw,720px)] border border-zinc-200 bg-white p-4 text-black shadow-xl"
+          action="/products"
+          className="fixed left-4 right-4 top-24 z-50 w-auto border border-zinc-200 bg-white p-4 text-black shadow-xl sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-8 sm:w-[min(92vw,720px)]"
         >
           <div className="grid gap-3 md:grid-cols-2">
             <div>
@@ -65,7 +70,7 @@ export default function StoreSearch({ categories }: { categories: CategoryOption
                 <option value="all">Todas</option>
                 {categories.map((category) => (
                   <option key={category.id} value={category.slug}>
-                    {category.name}
+                    {category.label ?? category.name}
                   </option>
                 ))}
               </select>
@@ -100,9 +105,9 @@ export default function StoreSearch({ categories }: { categories: CategoryOption
           </div>
 
           <div className="mt-4 flex items-center justify-end gap-2">
-            <a href="/" className="border border-zinc-300 px-4 py-2 text-sm uppercase hover:bg-zinc-50">
+            <Link href="/products" className="border border-zinc-300 px-4 py-2 text-sm uppercase hover:bg-zinc-50">
               Limpiar
-            </a>
+            </Link>
             <button type="submit" className="bg-black px-4 py-2 text-sm font-semibold uppercase text-white">
               Buscar
             </button>
