@@ -193,6 +193,7 @@ export default async function AdminProductsPage({
   const totalPages = manualOrder ? 1 : Math.max(1, Math.ceil(total / PAGE_SIZE));
   const products = manualOrder ? productGroups : productGroups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const baseParams = { q, status, sort, category };
+  const returnHref = buildHref("/admin/products", { ...baseParams, page });
   const exportHref = buildHref("/api/admin/products/export", baseParams);
   const flatCategories = flattenCategories(categories);
   const catalogGroups = groupMetricProducts(catalogProducts);
@@ -322,6 +323,7 @@ export default async function AdminProductsPage({
           key={buildHref("products", { ...baseParams, page })}
           initialProducts={products}
           baseParams={baseParams}
+          returnHref={returnHref}
           manualOrder={manualOrder}
         />
 

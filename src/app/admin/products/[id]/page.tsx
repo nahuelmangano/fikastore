@@ -55,12 +55,17 @@ function toEditorProduct(product: ProductForEditor) {
 
 export default async function AdminProductEditPage({
   params,
+  searchParams,
 }: {
   params: { id?: string } | Promise<{ id?: string }>;
+  searchParams?: { returnTo?: string } | Promise<{ returnTo?: string }>;
 }) {
   const resolvedParams = await Promise.resolve(params);
+  const resolvedSearchParams = await Promise.resolve(searchParams ?? {});
   const id = resolvedParams?.id?.trim();
   if (!id) return notFound();
+  const rawReturnTo = resolvedSearchParams.returnTo?.trim();
+  const backHref = rawReturnTo?.startsWith("/admin/products") ? rawReturnTo : "/admin/products";
 
   const product = await prisma.product.findUnique({
     where: { id },
@@ -88,6 +93,7 @@ export default async function AdminProductEditPage({
       product={toEditorProduct(product)}
       variants={sortVariantsBySize(variants.length > 0 ? variants : [product]).map(toEditorProduct)}
       categories={flattenCategories(categories)}
+      backHref={backHref}
     />
   );
 }

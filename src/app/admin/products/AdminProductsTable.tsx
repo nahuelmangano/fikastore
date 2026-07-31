@@ -62,10 +62,12 @@ function dispatchBulkSelectionChange() {
 export default function AdminProductsTable({
   initialProducts,
   baseParams,
+  returnHref,
   manualOrder,
 }: {
   initialProducts: ProductGroup[];
   baseParams: Record<string, string>;
+  returnHref: string;
   manualOrder: boolean;
 }) {
   const [products, setProducts] = useState(initialProducts);
@@ -263,10 +265,10 @@ export default function AdminProductsTable({
 
                   <td className="sticky right-0 bg-white/95 px-4 py-4 xl:py-2.5">
                     <div className="flex justify-end gap-2">
-                      <Link href={`/admin/products/${p.id}`} className="rounded-xl border border-[var(--admin-border)] px-3 py-1.5 text-center text-xs font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)]">
+                      <Link href={`/admin/products/${p.id}?${new URLSearchParams({ returnTo: returnHref }).toString()}`} className="rounded-xl border border-[var(--admin-border)] px-3 py-1.5 text-center text-xs font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)]">
                         Editar
                       </Link>
-                      <DuplicateProductButton productId={p.id} />
+                      <DuplicateProductButton productId={p.id} returnHref={returnHref} />
                     </div>
                   </td>
                 </tr>

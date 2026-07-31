@@ -53,14 +53,25 @@ const FONT_OPTIONS = [
   { label: "Elegante", value: "Times New Roman" },
 ];
 
+const TEXT_COLOR_OPTIONS = [
+  { label: "Negro", value: "#1f1309" },
+  { label: "Marca", value: "#8a4f1d" },
+  { label: "Rojo", value: "#dc2626" },
+  { label: "Verde", value: "#15803d" },
+  { label: "Azul", value: "#2563eb" },
+  { label: "Gris", value: "#525252" },
+];
+
 export default function AdminProductEditor({
   product,
   variants,
   categories,
+  backHref,
 }: {
   product: EditableProduct;
   variants: EditableProduct[];
   categories: CategoryOption[];
+  backHref: string;
 }) {
   const [items, setItems] = useState<EditableProduct[]>(variants);
   const [selectedId, setSelectedId] = useState(product.id);
@@ -209,6 +220,20 @@ export default function AdminProductEditor({
   function formatDescription(command: string, value?: string) {
     descriptionRef.current?.focus();
     document.execCommand(command, false, value);
+    syncDescriptionFromEditor();
+  }
+
+  function clearDescriptionFormatting() {
+    const editor = descriptionRef.current;
+    if (!editor) return;
+
+    const lines = editor.innerText.split(/\r?\n/);
+    editor.replaceChildren();
+    lines.forEach((line, index) => {
+      if (index > 0) editor.appendChild(document.createElement("br"));
+      editor.appendChild(document.createTextNode(line));
+    });
+    editor.focus();
     syncDescriptionFromEditor();
   }
 
@@ -534,7 +559,7 @@ No se puede deshacer.`);
 
     const remaining = items.filter((item) => item.id !== target.id);
     if (remaining.length === 0) {
-      window.location.href = "/admin/products";
+      window.location.href = backHref;
       return;
     }
 
@@ -571,14 +596,14 @@ Esto borrarÃ¡ todas sus variantes. No se puede deshacer.`);
       return;
     }
 
-    window.location.href = "/admin/products";
+    window.location.href = backHref;
   }
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto max-w-6xl px-4 py-10">
         <div className="flex items-center justify-between">
-          <Link href="/admin/products" className="text-sm text-zinc-400 hover:text-zinc-200">
+          <Link href={backHref} className="text-sm text-zinc-400 hover:text-zinc-200">
             ← Volver
           </Link>
 
@@ -791,15 +816,33 @@ Esto borrarÃ¡ todas sus variantes. No se puede deshacer.`);
                       ))}
                     </select>
 
-                    <label className="flex h-8 items-center gap-2 rounded-lg border border-zinc-800 px-2 text-sm">
-                      Color
-                      <input
-                        type="color"
-                        defaultValue="#8a4f1d"
-                        onChange={(event) => formatDescription("foreColor", event.target.value)}
-                        className="h-5 w-8 border-0 bg-transparent p-0"
-                      />
-                    </label>
+                    <div className="flex h-8 items-center gap-1 rounded-lg border border-zinc-800 px-2">
+                      <span className="mr-1 text-sm">Color</span>
+                      {TEXT_COLOR_OPTIONS.map((color) => (
+                        <button
+                          key={color.value}
+                          type="button"
+                          onClick={() => formatDescription("foreColor", color.value)}
+                          title={color.label}
+                          aria-label={`Color ${color.label}`}
+                          className="h-5 w-5 rounded-full border border-zinc-700 transition hover:scale-110 focus:outline-none focus:ring-2 focus:ring-zinc-300"
+                          style={{ backgroundColor: color.value }}
+                        />
+                      ))}
+                      <label
+                        title="Otro color"
+                        className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-zinc-700 text-[10px] font-semibold transition hover:scale-110 focus-within:ring-2 focus-within:ring-zinc-300"
+                      >
+                        +
+                        <input
+                          type="color"
+                          defaultValue="#8a4f1d"
+                          onChange={(event) => formatDescription("foreColor", event.target.value)}
+                          className="sr-only"
+                          aria-label="Elegir otro color"
+                        />
+                      </label>
+                    </div>
 
                     <label className="flex h-8 cursor-pointer items-center rounded-lg border border-zinc-800 px-2 text-sm hover:bg-zinc-900/60">
                       Imagen
@@ -814,6 +857,14 @@ Esto borrarÃ¡ todas sus variantes. No se puede deshacer.`);
                         }}
                       />
                     </label>
+
+                    <button
+                      type="button"
+                      onClick={clearDescriptionFormatting}
+                      className="h-8 rounded-lg border border-zinc-800 px-2 text-sm hover:bg-zinc-900/60"
+                    >
+                      Limpiar formato
+                    </button>
                   </div>
 
                   <div

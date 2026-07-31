@@ -320,13 +320,6 @@ export default function ProductDetailClient({
               )}
             </div>
 
-            {selected.description && (
-              <div
-                className="mt-4 text-sm leading-6 text-zinc-300 [&_img]:my-4 [&_img]:max-w-full [&_img]:rounded-xl"
-                dangerouslySetInnerHTML={{ __html: sanitizeRichText(selected.description) }}
-              />
-            )}
-
             {variants.length > 1 && (
               <div className="mt-6">
                 <div className="text-sm font-medium text-zinc-300">Variantes</div>
@@ -501,6 +494,13 @@ export default function ProductDetailClient({
                 )}
               </div>
             </div>
+
+            {selected.description && (
+              <div
+                className="mt-6 text-sm leading-6 text-zinc-300 [&_img]:my-4 [&_img]:max-w-full [&_img]:rounded-xl"
+                dangerouslySetInnerHTML={{ __html: sanitizeRichText(selected.description) }}
+              />
+            )}
           </div>
         </div>
       </div>

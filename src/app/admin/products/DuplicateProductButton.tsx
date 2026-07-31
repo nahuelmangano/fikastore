@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export default function DuplicateProductButton({ productId }: { productId: string }) {
+export default function DuplicateProductButton({ productId, returnHref }: { productId: string; returnHref: string }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
@@ -24,7 +24,7 @@ export default function DuplicateProductButton({ productId }: { productId: strin
 
     const nextId = String(data?.product?.id || "");
     if (nextId) {
-      router.push(`/admin/products/${nextId}`);
+      router.push(`/admin/products/${nextId}?${new URLSearchParams({ returnTo: returnHref }).toString()}`);
       router.refresh();
       return;
     }
