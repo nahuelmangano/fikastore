@@ -1,9 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { flattenCategories } from "@/lib/categories";
+import { auth } from "@/auth";
 import {
   getAnnouncementText,
   getFaviconUrl,
   getHomeCategoryTiles,
+  getMercadoPagoSettings,
   getSiteTitle,
   getStoreLogoUrl,
   getTemporaryShutdownSettings,
@@ -12,6 +14,8 @@ import { getInformationSections } from "@/lib/informationSections";
 import AdminSettingsPage from "./ui";
 
 export default async function SettingsPage() {
+  const session = await auth();
+  const currentUserRole = (session?.user as { role?: string } | undefined)?.role || "";
   const [
     announcementText,
     logoUrl,
@@ -19,6 +23,7 @@ export default async function SettingsPage() {
     siteTitle,
     faviconUrl,
     temporaryShutdown,
+    mercadoPagoSettings,
     informationSections,
     categories,
   ] = await Promise.all([
@@ -28,6 +33,7 @@ export default async function SettingsPage() {
     getSiteTitle(),
     getFaviconUrl(),
     getTemporaryShutdownSettings(),
+    getMercadoPagoSettings(),
     getInformationSections(),
     prisma.category.findMany({
       orderBy: { name: "asc" },
@@ -43,6 +49,8 @@ export default async function SettingsPage() {
       siteTitle={siteTitle}
       faviconUrl={faviconUrl}
       temporaryShutdown={temporaryShutdown}
+      mercadoPagoSettings={mercadoPagoSettings}
+      currentUserRole={currentUserRole}
       informationSections={informationSections}
       categories={flattenCategories(categories)}
     />

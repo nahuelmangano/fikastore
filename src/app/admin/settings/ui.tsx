@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   CheckCircle2,
+  CreditCard,
   Eye,
   FileText,
   GripVertical,
@@ -53,11 +54,18 @@ type TemporaryShutdownSettings = {
   message: string;
 };
 
+type MercadoPagoSettings = {
+  accessTokenConfigured: boolean;
+  source: "oauth" | "manual" | "env" | "none";
+  connectedUserId?: string;
+  expiresAt?: string;
+};
+
 type BrowserCryptoWithUuid = Crypto & {
   randomUUID?: () => string;
 };
 
-type SettingsTab = "appearance" | "home" | "content" | "pages" | "categories";
+type SettingsTab = "appearance" | "home" | "content" | "pages" | "categories" | "payments";
 
 const tabs: { key: SettingsTab; label: string; icon: LucideIcon }[] = [
   { key: "appearance", label: "Apariencia", icon: Paintbrush },
@@ -65,6 +73,7 @@ const tabs: { key: SettingsTab; label: string; icon: LucideIcon }[] = [
   { key: "content", label: "Contenido", icon: Monitor },
   { key: "pages", label: "Páginas", icon: FileText },
   { key: "categories", label: "Categorías", icon: LayoutGrid },
+  { key: "payments", label: "Medios de pago", icon: CreditCard },
 ];
 
 function createClientId() {
@@ -100,6 +109,8 @@ export default function AdminSettingsPage({
   siteTitle,
   faviconUrl,
   temporaryShutdown,
+  mercadoPagoSettings,
+  currentUserRole,
   informationSections,
   categories,
 }: {
@@ -109,6 +120,8 @@ export default function AdminSettingsPage({
   siteTitle: string;
   faviconUrl: string;
   temporaryShutdown: TemporaryShutdownSettings;
+  mercadoPagoSettings: MercadoPagoSettings;
+  currentUserRole: string;
   informationSections: InformationSection[];
   categories: CategoryOption[];
 }) {
@@ -119,6 +132,8 @@ export default function AdminSettingsPage({
   const [favicon, setFavicon] = useState(faviconUrl);
   const [shutdownEnabled, setShutdownEnabled] = useState(temporaryShutdown.isShutdown);
   const [shutdownMessage, setShutdownMessage] = useState(temporaryShutdown.message);
+  const [mpAccessToken, setMpAccessToken] = useState("");
+  const [mpSettings, setMpSettings] = useState(mercadoPagoSettings);
   const [tiles, setTiles] = useState<HomeCategoryTile[]>(homeCategoryTiles);
   const [sections, setSections] = useState<InformationSection[]>(informationSections);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
@@ -128,12 +143,14 @@ export default function AdminSettingsPage({
   const [browserLoading, setBrowserLoading] = useState(false);
   const [faviconLoading, setFaviconLoading] = useState(false);
   const [shutdownLoading, setShutdownLoading] = useState(false);
+  const [mpLoading, setMpLoading] = useState(false);
   const [logoLoading, setLogoLoading] = useState(false);
   const [tilesLoading, setTilesLoading] = useState(false);
   const [sectionsLoading, setSectionsLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [browserMsg, setBrowserMsg] = useState<string | null>(null);
   const [shutdownMsg, setShutdownMsg] = useState<string | null>(null);
+  const [mpMsg, setMpMsg] = useState<string | null>(null);
   const [tileMsg, setTileMsg] = useState<string | null>(null);
   const [sectionsMsg, setSectionsMsg] = useState<string | null>(null);
   const informationContentRef = useRef<HTMLDivElement | null>(null);
@@ -145,6 +162,27 @@ export default function AdminSettingsPage({
     // The editor should load content only when opening/switching pages, not on every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingSectionId]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const oauthStatus = params.get("mp_oauth");
+    if (!oauthStatus) return;
+
+    setActiveTab("payments");
+    const messages: Record<string, string> = {
+      connected: "Cuenta de MercadoPago conectada.",
+      denied: "No se autorizó la conexión con MercadoPago.",
+      forbidden: "No tenés permisos para conectar MercadoPago.",
+      invalid_state: "La conexión venció. Intentá conectar MercadoPago nuevamente.",
+      missing_client_id: "Falta configurar MP_OAUTH_CLIENT_ID en el servidor.",
+      missing_credentials: "OAuth no está disponible: faltan MP_OAUTH_CLIENT_ID y MP_OAUTH_CLIENT_SECRET en el servidor. MP_ACCESS_TOKEN solo mantiene activo el checkout actual.",
+      token_error: "MercadoPago no pudo validar la autorización. Revisá que la URL de redirección configurada en Developers coincida exactamente con la de esta tienda.",
+      save_error: "No se pudo guardar la conexión de MercadoPago.",
+    };
+
+    setMpMsg(messages[oauthStatus] || "No se pudo completar la conexión de MercadoPago.");
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
 
   async function saveBrowserTitle() {
     setBrowserMsg(null);
@@ -216,6 +254,47 @@ export default function AdminSettingsPage({
     setShutdownEnabled(data.isShutdown === true);
     setShutdownMessage(String(data.message || ""));
     setShutdownMsg(data.isShutdown ? "Tienda apagada temporalmente." : "Tienda encendida.");
+  }
+
+  async function saveMercadoPagoSettings() {
+    setMpMsg(null);
+    setMpLoading(true);
+
+    const res = await fetch("/api/admin/settings/mercadopago", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accessToken: mpAccessToken }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    setMpLoading(false);
+
+    if (!res.ok) {
+      setMpMsg(String(data?.error || "No se pudo guardar MercadoPago."));
+      return;
+    }
+
+    setMpSettings(data.settings);
+    setMpAccessToken("");
+    setMpMsg("Cuenta de MercadoPago guardada.");
+  }
+
+  async function disconnectMercadoPago() {
+    setMpMsg(null);
+    setMpLoading(true);
+
+    const res = await fetch("/api/admin/settings/mercadopago", { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    setMpLoading(false);
+
+    if (!res.ok) {
+      setMpMsg(String(data?.error || "No se pudo desconectar MercadoPago."));
+      return;
+    }
+
+    setMpSettings(data.settings);
+    setMpAccessToken("");
+    setMpMsg("MercadoPago desconectado.");
   }
 
   async function save() {
@@ -452,6 +531,8 @@ export default function AdminSettingsPage({
 
   const editingSection = sections.find((section) => section.id === editingSectionId) ?? null;
   const sectionsEnabled = sections.some((section) => section.isActive);
+  const canManageMercadoPagoOAuth = currentUserRole === "merchant";
+  const canManageMercadoPagoManualToken = currentUserRole === "admin";
 
   return (
     <main className="min-h-screen bg-[#FAF8F5] text-[#70471F]">
@@ -663,6 +744,108 @@ export default function AdminSettingsPage({
               syncInformationContentFromEditor={syncInformationContentFromEditor}
               saveSections={saveSections}
             />
+          </div>
+        ) : null}
+
+        {activeTab === "payments" ? (
+          <div className="mt-8 xl:mt-6 grid gap-6 xl:gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+            <SectionCard title="Medios de pago" description="Configurá las credenciales para cobrar pedidos online." icon={CreditCard}>
+              <div className="rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-5 xl:p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <StatusBadge active={mpSettings.accessTokenConfigured} />
+                      <span className="text-sm font-semibold text-[#5F3B18]">
+                        {mpSettings.accessTokenConfigured ? "MercadoPago configurado" : "MercadoPago sin configurar"}
+                      </span>
+                    </div>
+                    <p className="mt-3 max-w-xl text-sm leading-6 text-[#8F6A49]">
+                      Usá el Access Token de tu cuenta para crear preferencias de pago y validar notificaciones.
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-[#E5D7C8] bg-white/70 px-3 py-1 text-xs font-semibold text-[#8B5A2B]">
+                    {mpSettings.source === "oauth"
+                      ? "OAuth"
+                      : mpSettings.source === "manual"
+                        ? "Manual"
+                        : mpSettings.source === "env"
+                          ? "Variable de entorno"
+                          : "Pendiente"}
+                  </span>
+                </div>
+
+                <div className="mt-5 flex flex-wrap items-center gap-3">
+                  {canManageMercadoPagoOAuth ? (
+                    <Link
+                      href="/api/admin/settings/mercadopago/oauth/start"
+                      className="inline-flex items-center gap-2 rounded-2xl bg-[#8B5A2B] px-4 py-2 text-sm font-semibold text-white shadow-sm transition duration-150 hover:bg-[#70471F]"
+                    >
+                      <CreditCard className="h-4 w-4" aria-hidden="true" />
+                      {mpSettings.source === "oauth" ? "Reconectar MercadoPago" : "Conectar con MercadoPago"}
+                    </Link>
+                  ) : null}
+                  {canManageMercadoPagoOAuth && (mpSettings.source === "oauth" || mpSettings.source === "manual") ? (
+                    <SecondaryButton onClick={disconnectMercadoPago} loading={mpLoading} label="Desconectar" />
+                  ) : null}
+                </div>
+
+                {canManageMercadoPagoManualToken ? (
+                  <div className="mt-6 rounded-3xl border border-[#E5D7C8] bg-white/70 p-5 xl:p-4">
+                    <FieldLabel
+                      label="Access Token manual"
+                      help={mpSettings.source === "manual" ? "Hay un token guardado. Ingresá uno nuevo solo si querés reemplazarlo." : "Usalo solo como alternativa si OAuth no está disponible."}
+                    />
+                    <input
+                      type="password"
+                      value={mpAccessToken}
+                      onChange={(e) => setMpAccessToken(e.target.value)}
+                      placeholder={mpSettings.accessTokenConfigured ? "Token ya configurado" : "APP_USR-..."}
+                      autoComplete="off"
+                      className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
+                    />
+
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                      <PrimaryButton onClick={saveMercadoPagoSettings} loading={mpLoading} label={mpSettings.source === "manual" ? "Actualizar token" : "Guardar token"} />
+                    </div>
+                  </div>
+                ) : null}
+
+                {mpMsg ? <Notice>{mpMsg}</Notice> : null}
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Checkout" description="Estado operativo del cobro online." icon={CreditCard}>
+              <div className="grid gap-3">
+                <div className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
+                  <div className="text-sm font-semibold text-[#5F3B18]">Proveedor</div>
+                  <div className="mt-1 text-sm text-[#8F6A49]">MercadoPago</div>
+                </div>
+                <div className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
+                  <div className="text-sm font-semibold text-[#5F3B18]">Credencial activa</div>
+                  <div className="mt-1 text-sm text-[#8F6A49]">
+                    {mpSettings.source === "oauth"
+                      ? "Cuenta conectada por OAuth"
+                      : mpSettings.source === "manual"
+                        ? "Token manual guardado desde configuración"
+                      : mpSettings.source === "env"
+                        ? "MP_ACCESS_TOKEN del servidor"
+                        : "Sin token disponible"}
+                  </div>
+                </div>
+                {mpSettings.connectedUserId ? (
+                  <div className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
+                    <div className="text-sm font-semibold text-[#5F3B18]">Cuenta conectada</div>
+                    <div className="mt-1 text-sm text-[#8F6A49]">{mpSettings.connectedUserId}</div>
+                  </div>
+                ) : null}
+                {mpSettings.expiresAt ? (
+                  <div className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
+                    <div className="text-sm font-semibold text-[#5F3B18]">Renovación</div>
+                    <div className="mt-1 text-sm text-[#8F6A49]">Automática antes del vencimiento.</div>
+                  </div>
+                ) : null}
+              </div>
+            </SectionCard>
           </div>
         ) : null}
 

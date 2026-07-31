@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { publicBaseUrl } from "@/lib/publicUrl";
+import { getResolvedMercadoPagoAccessToken } from "@/lib/storeSettings";
 
 export const runtime = "nodejs";
 
@@ -52,7 +53,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const token = process.env.MP_ACCESS_TOKEN;
+  const token = await getResolvedMercadoPagoAccessToken();
 
   if (!token) {
     return NextResponse.json(

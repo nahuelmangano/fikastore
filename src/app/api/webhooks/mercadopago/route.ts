@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendMail } from "@/lib/mailer";
 import { orderPaidTemplate } from "@/lib/email-templates";
-import { getMailingSettings } from "@/lib/storeSettings";
+import { getMailingSettings, getResolvedMercadoPagoAccessToken } from "@/lib/storeSettings";
 import { notifyBackInStock } from "@/lib/stockNotifications";
 
 type MpWebhookBody = any;
 
 async function fetchPayment(paymentId: string) {
-  const token = process.env.MP_ACCESS_TOKEN;
+  const token = await getResolvedMercadoPagoAccessToken();
   if (!token) throw new Error("MP_ACCESS_TOKEN missing");
 
   const r = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
@@ -23,7 +23,7 @@ async function fetchPayment(paymentId: string) {
 }
 
 async function fetchMerchantOrder(orderId: string) {
-  const token = process.env.MP_ACCESS_TOKEN;
+  const token = await getResolvedMercadoPagoAccessToken();
   if (!token) throw new Error("MP_ACCESS_TOKEN missing");
 
   const r = await fetch(`https://api.mercadopago.com/merchant_orders/${orderId}`, {

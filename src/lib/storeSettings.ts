@@ -10,6 +10,7 @@ const FAVICON_URL_KEY = "favicon_url";
 const TEMPORARY_SHUTDOWN_KEY = "temporary_shutdown";
 const MAILING_SETTINGS_KEY = "mailing_settings";
 const MAILING_SMTP_SETTINGS_KEY = "mailing_smtp_settings";
+const MERCADOPAGO_SETTINGS_KEY = "mercadopago_settings";
 const ENCRYPTED_VALUE_PREFIX = "enc:v1:";
 
 export const DEFAULT_ANNOUNCEMENT_TEXT =
@@ -57,6 +58,13 @@ export type ResolvedSmtpConfig = {
   source: "admin" | "env";
 };
 
+export type MercadoPagoSettings = {
+  accessTokenConfigured: boolean;
+  source: "oauth" | "manual" | "env" | "none";
+  connectedUserId?: string;
+  expiresAt?: string;
+};
+
 type StoredMailingSettings = Pick<
   MailingSettings,
   | "purchaseEnabled"
@@ -74,6 +82,16 @@ type StoredMailingSmtpSettings = {
   smtpFrom: string;
   smtpReplyTo: string;
   encryptedSmtpPass?: string;
+};
+
+type StoredMercadoPagoSettings = {
+  encryptedAccessToken?: string;
+  encryptedRefreshToken?: string;
+  expiresAt?: string;
+  connectedUserId?: string;
+  tokenType?: string;
+  scope?: string;
+  mode?: "oauth" | "manual";
 };
 
 export const DEFAULT_TEMPORARY_SHUTDOWN_MESSAGE =
@@ -372,6 +390,10 @@ export function canEncryptMailingSecrets() {
   return Boolean(encryptionKey());
 }
 
+export function canEncryptMercadoPagoSecrets() {
+  return Boolean(encryptionKey());
+}
+
 function encryptSecret(value: string) {
   const key = encryptionKey();
   if (!key) throw new Error("MAILING_ENCRYPTION_KEY missing");
@@ -394,7 +416,7 @@ function decryptSecret(value: string) {
   const key = encryptionKey();
   if (!key) throw new Error("MAILING_ENCRYPTION_KEY missing");
 
-  const payload = value.slice(ENCRYPTED_VALUE_PREFIX.length);
+  const payload = value.slice(ENCRYPTED_VALUE_PREFIX.length).replace(/^\./, "");
   const [iv, tag, encrypted] = payload.split(".");
   if (!iv || !tag || !encrypted) throw new Error("Invalid encrypted mailing secret");
 
@@ -592,4 +614,193 @@ export async function setMailingSettings(settings: MailingSettings) {
       isSecret: false,
     },
   });
+}
+
+async function getStoredMercadoPagoSettings(): Promise<StoredMercadoPagoSettings | null> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: MERCADOPAGO_SETTINGS_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return null;
+
+  try {
+    const parsed = JSON.parse(row.value) as Partial<StoredMercadoPagoSettings>;
+    const encryptedAccessToken = String(parsed.encryptedAccessToken || "").trim();
+    return encryptedAccessToken ? { encryptedAccessToken } : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getMercadoPagoSettings(): Promise<MercadoPagoSettings> {
+  const stored = await getStoredMercadoPagoSettings();
+  const envAccessToken = String(process.env.MP_ACCESS_TOKEN || "").trim();
+
+  if (stored?.encryptedAccessToken) {
+    return {
+      accessTokenConfigured: true,
+      source: stored.mode === "oauth" || stored.encryptedRefreshToken ? "oauth" : "manual",
+      connectedUserId: stored.connectedUserId,
+      expiresAt: stored.expiresAt,
+    };
+  }
+
+  if (envAccessToken) {
+    return { accessTokenConfigured: true, source: "env" };
+  }
+
+  return { accessTokenConfigured: false, source: "none" };
+}
+
+export async function setMercadoPagoSettings(settings: { accessToken?: string }) {
+  const accessToken = String(settings.accessToken || "").trim();
+
+  if (!accessToken) {
+    return prisma.shippingProviderSetting.deleteMany({
+      where: { provider: STOREFRONT_SETTINGS_PROVIDER, key: MERCADOPAGO_SETTINGS_KEY },
+    });
+  }
+
+  if (!canEncryptMercadoPagoSecrets()) {
+    throw new Error("APP_SECRET_ENCRYPTION_KEY or MAILING_ENCRYPTION_KEY missing");
+  }
+
+  const value: StoredMercadoPagoSettings = {
+    encryptedAccessToken: encryptSecret(accessToken),
+    mode: "manual",
+  };
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: MERCADOPAGO_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: MERCADOPAGO_SETTINGS_KEY,
+      value: JSON.stringify(value),
+      isSecret: true,
+    },
+    update: {
+      value: JSON.stringify(value),
+      isSecret: true,
+    },
+  });
+}
+
+export async function setMercadoPagoOAuthSettings(settings: {
+  accessToken: string;
+  refreshToken?: string;
+  expiresIn?: number;
+  connectedUserId?: string;
+  tokenType?: string;
+  scope?: string;
+}) {
+  const accessToken = String(settings.accessToken || "").trim();
+  const refreshToken = String(settings.refreshToken || "").trim();
+
+  if (!accessToken) throw new Error("Mercado Pago access token missing");
+  if (!canEncryptMercadoPagoSecrets()) {
+    throw new Error("APP_SECRET_ENCRYPTION_KEY or MAILING_ENCRYPTION_KEY missing");
+  }
+
+  const expiresIn = Number(settings.expiresIn || 0);
+  const expiresAt =
+    Number.isFinite(expiresIn) && expiresIn > 0
+      ? new Date(Date.now() + expiresIn * 1000).toISOString()
+      : undefined;
+
+  const value: StoredMercadoPagoSettings = {
+    encryptedAccessToken: encryptSecret(accessToken),
+    encryptedRefreshToken: refreshToken ? encryptSecret(refreshToken) : undefined,
+    expiresAt,
+    connectedUserId: String(settings.connectedUserId || "").trim() || undefined,
+    tokenType: String(settings.tokenType || "").trim() || undefined,
+    scope: String(settings.scope || "").trim() || undefined,
+    mode: "oauth",
+  };
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: MERCADOPAGO_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: MERCADOPAGO_SETTINGS_KEY,
+      value: JSON.stringify(value),
+      isSecret: true,
+    },
+    update: {
+      value: JSON.stringify(value),
+      isSecret: true,
+    },
+  });
+}
+
+export async function clearMercadoPagoSettings() {
+  return prisma.shippingProviderSetting.deleteMany({
+    where: { provider: STOREFRONT_SETTINGS_PROVIDER, key: MERCADOPAGO_SETTINGS_KEY },
+  });
+}
+
+async function refreshMercadoPagoOAuthToken(stored: StoredMercadoPagoSettings) {
+  const clientId = String(process.env.MP_OAUTH_CLIENT_ID || process.env.MP_CLIENT_ID || "").trim();
+  const clientSecret = String(process.env.MP_OAUTH_CLIENT_SECRET || process.env.MP_CLIENT_SECRET || "").trim();
+
+  if (!clientId || !clientSecret || !stored.encryptedRefreshToken) {
+    return decryptSecret(stored.encryptedAccessToken || "");
+  }
+
+  const res = await fetch("https://api.mercadopago.com/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: decryptSecret(stored.encryptedRefreshToken),
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`Mercado Pago OAuth refresh failed: ${JSON.stringify(data)}`);
+  }
+
+  await setMercadoPagoOAuthSettings({
+    accessToken: String(data.access_token || ""),
+    refreshToken: String(data.refresh_token || ""),
+    expiresIn: Number(data.expires_in || 0),
+    connectedUserId: data.user_id ? String(data.user_id) : stored.connectedUserId,
+    tokenType: data.token_type ? String(data.token_type) : stored.tokenType,
+    scope: data.scope ? String(data.scope) : stored.scope,
+  });
+
+  return String(data.access_token || "");
+}
+
+export async function getResolvedMercadoPagoAccessToken() {
+  const stored = await getStoredMercadoPagoSettings();
+  if (stored?.encryptedAccessToken) {
+    if (stored.encryptedRefreshToken && stored.expiresAt) {
+      const expiresAt = new Date(stored.expiresAt).getTime();
+      const shouldRefresh = Number.isFinite(expiresAt) && expiresAt - Date.now() < 7 * 24 * 60 * 60 * 1000;
+      if (shouldRefresh) return refreshMercadoPagoOAuthToken(stored);
+    }
+
+    return decryptSecret(stored.encryptedAccessToken);
+  }
+
+  return String(process.env.MP_ACCESS_TOKEN || "").trim();
 }
