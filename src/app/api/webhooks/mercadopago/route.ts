@@ -4,6 +4,7 @@ import { sendMail } from "@/lib/mailer";
 import { orderPaidTemplate } from "@/lib/email-templates";
 import { getMailingSettings, getResolvedMercadoPagoAccessToken } from "@/lib/storeSettings";
 import { notifyBackInStock } from "@/lib/stockNotifications";
+import { publicBaseUrl } from "@/lib/publicUrl";
 
 type MpWebhookBody = any;
 
@@ -48,6 +49,21 @@ function normalizeStatus(mpStatus: string | undefined): string {
   return "unknown";
 }
 
+function absoluteUrl(value: string | null | undefined, req?: Request) {
+  const url = String(value || "").trim();
+  if (!url) return undefined;
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${publicBaseUrl(req)}${url.startsWith("/") ? url : `/${url}`}`;
+}
+
+function splitProductName(name: string) {
+  const [base, ...rest] = name.split(/\s+—\s+/);
+  return {
+    baseName: (base || name).trim(),
+    variantName: rest.join(" — ").trim(),
+  };
+}
+
 async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
   const mpStatus = normalizeStatus(payment.status);
   const paymentId = String(payment.id);
@@ -77,7 +93,13 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
   let emailName = "";
   let orderTotal = 0;
   let orderNumber: number | undefined;
-  let orderItems: { name: string; qty: number; unit: number; subtotal: number }[] = [];
+  let orderDate: Date | undefined;
+  let shippingInfo: Parameters<typeof orderPaidTemplate>[0]["shipping"];
+  let billingAddress: Parameters<typeof orderPaidTemplate>[0]["billingAddress"];
+  let paymentInfo: Parameters<typeof orderPaidTemplate>[0]["payment"];
+  let subtotal = 0;
+  let discount = 0;
+  let orderItems: Parameters<typeof orderPaidTemplate>[0]["items"] = [];
   const restoredProductIds = new Set<string>();
 
   await prisma.$transaction(async (tx) => {
@@ -108,7 +130,21 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
 
     const order = await tx.order.findUnique({
       where: { id: orderId },
-      include: { items: true },
+      include: {
+        items: {
+          include: {
+            product: {
+              include: {
+                images: {
+                  where: { visible: true },
+                  orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+                  take: 1,
+                },
+              },
+            },
+          },
+        },
+      },
     });
     if (!order) return;
 
@@ -131,12 +167,48 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
           emailName = user.name ?? "";
           orderTotal = Number(order.total);
           orderNumber = order.orderNumber ?? undefined;
-          orderItems = order.items.map((it: any) => ({
-            name: it.nameSnapshot,
-            qty: it.quantity,
-            unit: Number(it.unitPrice),
-            subtotal: Number(it.subtotal),
-          }));
+          orderDate = order.createdAt;
+          subtotal = order.items.reduce((acc: number, it: any) => acc + Number(it.subtotal), 0);
+          const shippingAmount = Number(order.shippingAmount || 0);
+          const reportedPaidAmount = Number(payment.transaction_amount || payment.transaction_details?.total_paid_amount);
+          const totalPaid = Number.isFinite(reportedPaidAmount) && reportedPaidAmount > 0 ? reportedPaidAmount : orderTotal;
+          discount = Math.max(0, subtotal + shippingAmount - totalPaid);
+          shippingInfo = {
+            method: order.shippingMethod,
+            deliveryType: order.shippingDeliveryType,
+            branchName: order.shippingBranchName,
+            addressLine: order.shippingAddressLine,
+            city: order.shippingCity,
+            province: order.shippingProvince,
+            zip: order.shippingZip,
+            amount: shippingAmount,
+          };
+          billingAddress = {
+            name: order.shippingName,
+            addressLine: order.shippingAddressLine,
+            city: order.shippingCity,
+            province: order.shippingProvince,
+            zip: order.shippingZip,
+          };
+          paymentInfo = {
+            provider: "Mercado Pago",
+            status: mpStatus,
+            method: payment.payment_method_id ? String(payment.payment_method_id) : undefined,
+            paymentId,
+            installments: Number.isFinite(Number(payment.installments)) ? Number(payment.installments) : undefined,
+            amount: totalPaid,
+          };
+          orderItems = order.items.map((it: any) => {
+            const split = splitProductName(it.nameSnapshot);
+            return {
+              name: split.baseName,
+              variantName: split.variantName,
+              qty: it.quantity,
+              unit: Number(it.unitPrice),
+              subtotal: Number(it.subtotal),
+              imageUrl: absoluteUrl(it.product?.images?.[0]?.url, req),
+            };
+          });
         }
       }
       return;
@@ -179,7 +251,13 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
     const html = orderPaidTemplate({
       customerName: emailName,
       orderNumber,
+      orderDate,
       orderId,
+      payment: paymentInfo,
+      shipping: shippingInfo,
+      billingAddress,
+      subtotal,
+      discount,
       total: orderTotal,
       items: orderItems,
       message: mailing.purchaseMessage,

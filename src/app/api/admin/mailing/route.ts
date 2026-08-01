@@ -6,7 +6,9 @@ import {
   setMailingSettings,
   setMailingSmtpSettings,
 } from "@/lib/storeSettings";
+import { orderPaidTemplate, stockBackInStockTemplate } from "@/lib/email-templates";
 import { sendMail } from "@/lib/mailer";
+import { publicBaseUrl } from "@/lib/publicUrl";
 import { isAdminRole, isStaffRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
@@ -17,6 +19,103 @@ const MAX_SMTP_FIELD_LENGTH = 255;
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function renderBackInStockSubject(template: string, productName: string) {
+  return template.replaceAll("{{productName}}", productName).trim();
+}
+
+async function buildMailPreview(input: {
+  template: string;
+  subject?: string;
+  message?: string;
+  req: Request;
+}) {
+  const mailing = await getMailingSettings();
+  const subject = String(input.subject || "").trim();
+  const message = String(input.message || "").trim();
+
+  if (input.template === "purchase") {
+    const testSubject = subject || mailing.purchaseSubject;
+    const testMessage = message || mailing.purchaseMessage;
+
+    if (!testSubject || !testMessage) {
+      throw new Error("Completa el asunto y mensaje de compra para previsualizar el envio.");
+    }
+
+    return {
+      subject: testSubject,
+      html: orderPaidTemplate({
+        customerName: "Cliente de prueba",
+        orderId: "test-order",
+        orderNumber: 1001,
+        orderDate: new Date(),
+        payment: {
+          provider: "Mercado Pago",
+          status: "approved",
+          method: "visa",
+          paymentId: "123456789",
+          installments: 1,
+          amount: 24900,
+        },
+        shipping: {
+          method: "correo",
+          deliveryType: "D",
+          addressLine: "Av. Corrientes 1234",
+          city: "CABA",
+          province: "Buenos Aires",
+          zip: "1043",
+          amount: 0,
+        },
+        billingAddress: {
+          name: "Cliente de prueba",
+          addressLine: "Av. Corrientes 1234",
+          city: "CABA",
+          province: "Buenos Aires",
+          zip: "1043",
+        },
+        subtotal: 24900,
+        discount: 0,
+        total: 24900,
+        items: [
+          { name: "Producto de prueba", variantName: "Talle M", qty: 1, unit: 14900, subtotal: 14900, imageUrl: `${publicBaseUrl(input.req)}/fika-logo.svg` },
+          { name: "Variante de ejemplo", variantName: "Talle L", qty: 2, unit: 5000, subtotal: 10000, imageUrl: `${publicBaseUrl(input.req)}/fika-logo.svg` },
+        ],
+        message: testMessage,
+      }),
+    };
+  }
+
+  if (input.template === "backInStock") {
+    const productName = "Producto de prueba";
+    const testSubject = renderBackInStockSubject(subject || mailing.backInStockSubject, productName);
+    const testMessage = message || mailing.backInStockMessage;
+
+    if (!testSubject || !testMessage) {
+      throw new Error("Completa el asunto y mensaje de vuelta de stock para previsualizar el envio.");
+    }
+
+    return {
+      subject: testSubject,
+      html: stockBackInStockTemplate({
+        customerName: "Cliente de prueba",
+        productName,
+        productUrl: `${publicBaseUrl(input.req)}/products/producto-de-prueba`,
+        imageUrl: `${publicBaseUrl(input.req)}/fika-logo.svg`,
+        message: testMessage,
+      }),
+    };
+  }
+
+  return {
+    subject: "FikaStore · Prueba de mailing",
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#111;">
+        <h2 style="margin:0 0 10px;">Prueba de mailing</h2>
+        <p style="margin:0;color:#444;">La configuracion SMTP esta funcionando correctamente.</p>
+      </div>
+    `,
+  };
 }
 
 export async function GET() {
@@ -105,6 +204,30 @@ export async function PATCH(req: Request) {
   return NextResponse.json({ ok: true, settings: await getMailingSettings() });
 }
 
+export async function PUT(req: Request) {
+  const session = await auth();
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+
+  const body = await req.json().catch(() => ({}));
+  const template = String(body.template || "smtp").trim();
+
+  try {
+    const preview = await buildMailPreview({
+      template,
+      subject: String(body.subject || "").trim(),
+      message: String(body.message || "").trim(),
+      req,
+    });
+    return NextResponse.json({ ok: true, preview });
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : "No se pudo generar la previsualizacion." },
+      { status: 400 }
+    );
+  }
+}
+
 export async function POST(req: Request) {
   const session = await auth();
   const user = session?.user as { role?: string; email?: string | null } | undefined;
@@ -112,21 +235,23 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const to = String(body.to || user?.email || "").trim();
+  const template = String(body.template || "smtp").trim();
 
   if (!to || !isValidEmail(to)) {
     return NextResponse.json({ ok: false, error: "Indica un email valido para la prueba." }, { status: 400 });
   }
 
   try {
+    const preview = await buildMailPreview({
+      template,
+      subject: String(body.subject || "").trim(),
+      message: String(body.message || "").trim(),
+      req,
+    });
     await sendMail({
       to,
-      subject: "FikaStore · Prueba de mailing",
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#111;">
-          <h2 style="margin:0 0 10px;">Prueba de mailing</h2>
-          <p style="margin:0;color:#444;">La configuracion SMTP esta funcionando correctamente.</p>
-        </div>
-      `,
+      subject: preview.subject,
+      html: preview.html,
     });
   } catch (error) {
     return NextResponse.json(

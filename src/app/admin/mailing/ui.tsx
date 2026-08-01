@@ -15,7 +15,9 @@ export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, 
   const [smtpPass, setSmtpPass] = useState("");
   const [testEmail, setTestEmail] = useState("");
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [testing, setTesting] = useState<"purchase" | "backInStock" | "smtp" | null>(null);
+  const [previewing, setPreviewing] = useState<"purchase" | "backInStock" | null>(null);
+  const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
   const [msg, setMsg] = useState("");
 
   function updateField<K extends keyof MailingSettings>(field: K, value: MailingSettings[K]) {
@@ -44,24 +46,68 @@ export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, 
     setMsg("Configuracion de mailing guardada.");
   }
 
-  async function sendTestEmail() {
-    setTesting(true);
+  async function sendTestEmail(template: "purchase" | "backInStock" | "smtp") {
+    setTesting(template);
     setMsg("");
+
+    const testPayload =
+      template === "purchase"
+        ? {
+            to: testEmail,
+            template,
+          }
+        : template === "backInStock"
+        ? {
+            to: testEmail,
+            template,
+          }
+        : { to: testEmail, template };
 
     const res = await fetch("/api/admin/mailing", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: testEmail }),
+      body: JSON.stringify(testPayload),
     });
     const data = await res.json().catch(() => null);
 
-    setTesting(false);
+    setTesting(null);
     if (!res.ok || !data?.ok) {
       setMsg(String(data?.error || "No se pudo enviar el email de prueba."));
       return;
     }
 
     setMsg("Email de prueba enviado.");
+  }
+
+  async function previewEmail(template: "purchase" | "backInStock") {
+    setPreviewing(template);
+    setMsg("");
+
+    const payload =
+      template === "purchase"
+        ? {
+            template,
+          }
+        : template === "backInStock"
+        ? {
+            template,
+          }
+        : { template };
+
+    const res = await fetch("/api/admin/mailing", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => null);
+
+    setPreviewing(null);
+    if (!res.ok || !data?.ok) {
+      setMsg(String(data?.error || "No se pudo generar la previsualizacion."));
+      return;
+    }
+
+    setPreview(data.preview);
   }
 
   return (
@@ -79,30 +125,55 @@ export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, 
           </Link>
         </div>
 
+        {canManageSmtp ? (
+          <section className="mt-8 xl:mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5 xl:p-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-64 flex-1">
+                <TextInput label="Email para probar envios" value={testEmail} onChange={setTestEmail} placeholder="admin@example.com" />
+              </div>
+              <button
+                type="button"
+                onClick={() => sendTestEmail("smtp")}
+                disabled={testing !== null}
+                className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {testing === "smtp" ? "Enviando..." : "Probar SMTP"}
+              </button>
+            </div>
+          </section>
+        ) : null}
+
         <div className="mt-8 xl:mt-6 grid gap-5 xl:gap-4 lg:grid-cols-2">
           <MailBlock
             title="Compra de producto"
             description="Se envia cuando Mercado Pago confirma el pago."
             enabled={settings.purchaseEnabled}
-            subject={settings.purchaseSubject}
-            message={settings.purchaseMessage}
             onEnabledChange={(value) => updateField("purchaseEnabled", value)}
-            onSubjectChange={(value) => updateField("purchaseSubject", value)}
-            onMessageChange={(value) => updateField("purchaseMessage", value)}
+            canSendTest={canManageSmtp}
+            testLabel={testing === "purchase" ? "Enviando..." : "Probar compra"}
+            testDisabled={testing !== null}
+            onTest={() => sendTestEmail("purchase")}
+            previewLabel={previewing === "purchase" ? "Cargando..." : "Ver preview"}
+            previewDisabled={previewing !== null}
+            onPreview={() => previewEmail("purchase")}
           />
 
           <MailBlock
             title="Vuelta de stock"
             description="Se envia a quienes pidieron aviso cuando un producto vuelve a tener stock."
             enabled={settings.backInStockEnabled}
-            subject={settings.backInStockSubject}
-            message={settings.backInStockMessage}
-            subjectHint="Podes usar {{productName}} en el asunto."
             onEnabledChange={(value) => updateField("backInStockEnabled", value)}
-            onSubjectChange={(value) => updateField("backInStockSubject", value)}
-            onMessageChange={(value) => updateField("backInStockMessage", value)}
+            canSendTest={canManageSmtp}
+            testLabel={testing === "backInStock" ? "Enviando..." : "Probar stock"}
+            testDisabled={testing !== null}
+            onTest={() => sendTestEmail("backInStock")}
+            previewLabel={previewing === "backInStock" ? "Cargando..." : "Ver preview"}
+            previewDisabled={previewing !== null}
+            onPreview={() => previewEmail("backInStock")}
           />
         </div>
+
+        <MailPreview preview={preview} />
 
         {canManageSmtp ? (
         <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5 xl:p-4">
@@ -145,19 +216,6 @@ export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, 
             </label>
           </div>
 
-          <div className="mt-5 flex flex-wrap items-end gap-3">
-            <div className="min-w-64 flex-1">
-              <TextInput label="Email para prueba" value={testEmail} onChange={setTestEmail} placeholder="admin@example.com" />
-            </div>
-            <button
-              type="button"
-              onClick={sendTestEmail}
-              disabled={testing}
-              className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {testing ? "Enviando..." : "Enviar prueba"}
-            </button>
-          </div>
         </section>
         ) : null}
 
@@ -201,26 +259,50 @@ function TextInput({
   );
 }
 
+function MailPreview({ preview }: { preview: { subject: string; html: string } | null }) {
+  if (!preview) return null;
+
+  return (
+    <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5 xl:p-4">
+      <div>
+        <h2 className="text-base font-semibold">Preview real del mail</h2>
+      </div>
+      <div className="mt-4 overflow-hidden rounded-xl border border-zinc-800 bg-white">
+        <iframe
+          title="Preview del email"
+          srcDoc={preview.html}
+          className="h-[560px] w-full bg-white"
+          sandbox=""
+        />
+      </div>
+    </section>
+  );
+}
+
 function MailBlock({
   title,
   description,
   enabled,
-  subject,
-  message,
-  subjectHint,
   onEnabledChange,
-  onSubjectChange,
-  onMessageChange,
+  canSendTest,
+  testLabel,
+  testDisabled,
+  onTest,
+  previewLabel,
+  previewDisabled,
+  onPreview,
 }: {
   title: string;
   description: string;
   enabled: boolean;
-  subject: string;
-  message: string;
-  subjectHint?: string;
   onEnabledChange: (value: boolean) => void;
-  onSubjectChange: (value: string) => void;
-  onMessageChange: (value: string) => void;
+  canSendTest?: boolean;
+  testLabel?: string;
+  testDisabled?: boolean;
+  onTest?: () => void;
+  previewLabel: string;
+  previewDisabled: boolean;
+  onPreview: () => void;
 }) {
   return (
     <section className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5 xl:p-4">
@@ -244,28 +326,26 @@ function MailBlock({
         </button>
       </div>
 
-      <label className="mt-5 block text-sm font-medium text-zinc-200">
-        Asunto
-        <input
-          value={subject}
-          onChange={(e) => onSubjectChange(e.target.value)}
-          maxLength={140}
-          className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500"
-        />
-      </label>
-      {subjectHint ? <p className="mt-2 text-xs text-zinc-500">{subjectHint}</p> : null}
-
-      <label className="mt-5 block text-sm font-medium text-zinc-200">
-        Mensaje
-        <textarea
-          value={message}
-          onChange={(e) => onMessageChange(e.target.value)}
-          maxLength={1200}
-          rows={9}
-          className="mt-2 w-full resize-y rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm leading-6 text-zinc-100 outline-none focus:border-zinc-500"
-        />
-      </label>
-      <div className="mt-2 text-right text-xs text-zinc-500">{message.length}/1200</div>
+      <div className="mt-6 flex flex-wrap justify-end gap-3">
+        <button
+          type="button"
+          onClick={onPreview}
+          disabled={previewDisabled}
+          className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {previewLabel}
+        </button>
+        {canSendTest && onTest ? (
+          <button
+            type="button"
+            onClick={onTest}
+            disabled={testDisabled}
+            className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {testLabel || "Probar envio"}
+          </button>
+        ) : null}
+      </div>
     </section>
   );
 }

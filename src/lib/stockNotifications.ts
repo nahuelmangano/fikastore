@@ -8,10 +8,23 @@ function renderSubject(template: string, productName: string) {
   return template.replaceAll("{{productName}}", productName).trim();
 }
 
+function absoluteUrl(value: string | null | undefined, baseUrl: string) {
+  const url = String(value || "").trim();
+  if (!url) return undefined;
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${baseUrl}${url.startsWith("/") ? url : `/${url}`}`;
+}
+
 export async function notifyBackInStock(productId: string, req?: Request) {
   const product = await prisma.product.findUnique({
     where: { id: productId },
-    select: { id: true, name: true, slug: true, stock: true, isActive: true },
+    include: {
+      images: {
+        where: { visible: true },
+        orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+        take: 1,
+      },
+    },
   });
 
   if (!product || !product.isActive || product.stock <= 0) return { sent: 0 };
@@ -38,6 +51,7 @@ export async function notifyBackInStock(productId: string, req?: Request) {
           customerName: notification.user.name || notification.user.email,
           productName: product.name,
           productUrl: `${baseUrl}/products/${product.slug}`,
+          imageUrl: absoluteUrl(product.images[0]?.url, baseUrl),
           message: mailing.backInStockMessage,
         }),
       });
