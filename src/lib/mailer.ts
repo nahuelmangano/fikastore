@@ -11,7 +11,7 @@ export async function getTransport(config?: ResolvedSmtpConfig) {
   });
 }
 
-export async function sendMail(opts: { to: string; subject: string; html: string }) {
+export async function sendMail(opts: { to: string; subject: string; html: string; text?: string }) {
   const config = await getResolvedSmtpConfig();
   const transport = await getTransport(config);
 
@@ -21,5 +21,6 @@ export async function sendMail(opts: { to: string; subject: string; html: string
     to: opts.to,
     subject: opts.subject,
     html: opts.html,
+    text: opts.text,
   });
 }

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import FilterChips from "@/components/admin/data/FilterChips";
 
-type OrderStatusFilter = "all" | "pending_payment" | "paid" | "shipped" | "cancelled" | "refunded";
+type OrderStatusFilter = "all" | "pending_payment" | "paid" | "shipped" | "delivered" | "cancelled" | "refunded";
 
 type OrderQuickFiltersProps = {
   currentStatus: string;
@@ -31,6 +31,7 @@ export default function OrderQuickFilters({ currentStatus, counts, baseParams }:
         { value: "pending_payment", label: "Pendientes", count: counts.pending_payment },
         { value: "paid", label: "Pagados", count: counts.paid },
         { value: "shipped", label: "Enviados", count: counts.shipped },
+        { value: "delivered", label: "Entregados", count: counts.delivered },
         { value: "cancelled", label: "Cancelados", count: counts.cancelled },
         { value: "refunded", label: "Reembolsados", count: counts.refunded },
       ].filter((option) => option.value === "all" || option.count > 0 || option.value === value)}
@@ -39,5 +40,5 @@ export default function OrderQuickFilters({ currentStatus, counts, baseParams }:
 }
 
 function isOrderStatusFilter(value: string): value is OrderStatusFilter {
-  return ["all", "pending_payment", "paid", "shipped", "cancelled", "refunded"].includes(value);
+  return ["all", "pending_payment", "paid", "shipped", "delivered", "cancelled", "refunded"].includes(value);
 }

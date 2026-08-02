@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { MailingSettings } from "@/lib/storeSettings";
 
@@ -8,6 +8,36 @@ type AdminMailingPageProps = {
   initialSettings: MailingSettings;
   canSaveSmtpSecrets: boolean;
   canManageSmtp: boolean;
+};
+
+type AutomaticEmailTemplate = {
+  key: string;
+  name: string;
+  category: string;
+  subject: string;
+  html: string;
+  text: string;
+  enabled: boolean;
+  variables: string[];
+  updatedAt: string;
+  lastSentAt: string | null;
+  sentCount: number;
+  errorCount: number;
+};
+
+type EmailJobSettings = {
+  paymentRemindersEnabled: boolean;
+  paymentReminderHours: number[];
+  maxPaymentReminders: number;
+  reviewRequestEnabled: boolean;
+  reviewRequestDelayDays: number;
+  birthdayCouponEnabled: boolean;
+  birthdayCouponOffsetDays: number;
+  birthdayCouponDiscountType: "percent" | "amount";
+  birthdayCouponDiscountValue: number;
+  birthdayCouponDurationDays: number;
+  birthdayCouponMinPurchaseAmount: number;
+  birthdayCouponMaxUses: number;
 };
 
 export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, canManageSmtp }: AdminMailingPageProps) {
@@ -18,7 +48,50 @@ export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, 
   const [testing, setTesting] = useState<"purchase" | "backInStock" | "smtp" | null>(null);
   const [previewing, setPreviewing] = useState<"purchase" | "backInStock" | null>(null);
   const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
+  const [automaticTemplates, setAutomaticTemplates] = useState<AutomaticEmailTemplate[]>([]);
+  const [jobSettings, setJobSettings] = useState<EmailJobSettings | null>(null);
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(null);
+  const [templateDraft, setTemplateDraft] = useState<{ subject: string; html: string; text: string } | null>(null);
+  const [automaticLoading, setAutomaticLoading] = useState(false);
+  const [automaticMsg, setAutomaticMsg] = useState("");
   const [msg, setMsg] = useState("");
+  const automaticTemplateRows = automaticTemplates.filter((template) => template.key !== "back-in-stock");
+
+  async function loadAutomaticTemplates() {
+    setAutomaticLoading(true);
+    const res = await fetch("/api/admin/mailing/automatic");
+    const data = await res.json().catch(() => null);
+    setAutomaticLoading(false);
+    if (!res.ok || !data?.ok) {
+      setAutomaticMsg(String(data?.error || "No se pudieron cargar los emails automaticos."));
+      return;
+    }
+    setAutomaticTemplates(data.templates || []);
+    setJobSettings(data.jobSettings || null);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadInitialAutomaticTemplates() {
+      setAutomaticLoading(true);
+      const res = await fetch("/api/admin/mailing/automatic");
+      const data = await res.json().catch(() => null);
+      if (cancelled) return;
+      setAutomaticLoading(false);
+      if (!res.ok || !data?.ok) {
+        setAutomaticMsg(String(data?.error || "No se pudieron cargar los emails automaticos."));
+        return;
+      }
+      setAutomaticTemplates(data.templates || []);
+      setJobSettings(data.jobSettings || null);
+    }
+
+    loadInitialAutomaticTemplates();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function updateField<K extends keyof MailingSettings>(field: K, value: MailingSettings[K]) {
     setSettings((current) => ({ ...current, [field]: value }));
@@ -110,6 +183,64 @@ export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, 
     setPreview(data.preview);
   }
 
+  function selectAutomaticTemplate(template: AutomaticEmailTemplate) {
+    setSelectedTemplateKey(template.key);
+    setTemplateDraft({ subject: template.subject, html: template.html, text: template.text });
+    setAutomaticMsg("");
+  }
+
+  async function updateAutomaticTemplate(key: string, patch: Partial<AutomaticEmailTemplate>) {
+    setAutomaticMsg("");
+    const res = await fetch("/api/admin/mailing/automatic", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, ...patch }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) {
+      setAutomaticMsg(String(data?.error || "No se pudo guardar la plantilla."));
+      return;
+    }
+    await loadAutomaticTemplates();
+    setAutomaticMsg("Plantilla guardada.");
+  }
+
+  async function automaticAction(action: string, key?: string) {
+    setAutomaticMsg("");
+    const res = await fetch("/api/admin/mailing/automatic", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, key, to: testEmail }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) {
+      setAutomaticMsg(String(data?.error || "No se pudo ejecutar la accion."));
+      return;
+    }
+    if (action === "preview") setPreview(data.preview);
+    if (action !== "preview") {
+      await loadAutomaticTemplates();
+      setAutomaticMsg(action === "test" ? "Email de prueba enviado." : "Accion ejecutada.");
+    }
+  }
+
+  async function saveJobSettings() {
+    if (!jobSettings) return;
+    setAutomaticMsg("");
+    const res = await fetch("/api/admin/mailing/automatic", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobSettings }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) {
+      setAutomaticMsg(String(data?.error || "No se pudo guardar la configuracion de procesos."));
+      return;
+    }
+    setJobSettings(data.jobSettings);
+    setAutomaticMsg("Configuracion de procesos guardada.");
+  }
+
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto max-w-5xl px-4 py-10 xl:py-6">
@@ -174,6 +305,169 @@ export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, 
         </div>
 
         <MailPreview preview={preview} />
+
+        <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5 xl:p-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-base font-semibold">Emails automaticos</h2>
+              <p className="mt-1 text-sm text-zinc-400">Plantillas, estado, pruebas, preview e historial resumido de envios.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => automaticAction("retry-failed")}
+              className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900"
+            >
+              Reintentar fallidos
+            </button>
+          </div>
+
+          {automaticMsg ? <p className="mt-4 text-sm text-zinc-400">{automaticMsg}</p> : null}
+
+          {jobSettings ? (
+            <div className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+              <h3 className="font-semibold text-zinc-100">Procesos programados</h3>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                <label className="text-sm font-medium text-zinc-200">
+                  Recordatorios activos
+                  <select
+                    value={jobSettings.paymentRemindersEnabled ? "on" : "off"}
+                    onChange={(e) => setJobSettings((current) => current ? { ...current, paymentRemindersEnabled: e.target.value === "on" } : current)}
+                    className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
+                  >
+                    <option value="on">Habilitado</option>
+                    <option value="off">Deshabilitado</option>
+                  </select>
+                </label>
+                <TextInput
+                  label="Horas recordatorio"
+                  value={jobSettings.paymentReminderHours.join(",")}
+                  onChange={(value) => setJobSettings((current) => current ? { ...current, paymentReminderHours: value.split(",").map((item) => Number(item.trim())).filter((item) => Number.isFinite(item)) } : current)}
+                  placeholder="24,48"
+                />
+                <TextInput
+                  label="Maximo recordatorios"
+                  value={String(jobSettings.maxPaymentReminders)}
+                  onChange={(value) => setJobSettings((current) => current ? { ...current, maxPaymentReminders: Number(value) } : current)}
+                />
+                <label className="text-sm font-medium text-zinc-200">
+                  Opiniones activas
+                  <select
+                    value={jobSettings.reviewRequestEnabled ? "on" : "off"}
+                    onChange={(e) => setJobSettings((current) => current ? { ...current, reviewRequestEnabled: e.target.value === "on" } : current)}
+                    className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
+                  >
+                    <option value="on">Habilitado</option>
+                    <option value="off">Deshabilitado</option>
+                  </select>
+                </label>
+                <TextInput
+                  label="Dias para opinion"
+                  value={String(jobSettings.reviewRequestDelayDays)}
+                  onChange={(value) => setJobSettings((current) => current ? { ...current, reviewRequestDelayDays: Number(value) } : current)}
+                />
+                <label className="text-sm font-medium text-zinc-200">
+                  Cumpleanos activos
+                  <select
+                    value={jobSettings.birthdayCouponEnabled ? "on" : "off"}
+                    onChange={(e) => setJobSettings((current) => current ? { ...current, birthdayCouponEnabled: e.target.value === "on" } : current)}
+                    className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
+                  >
+                    <option value="on">Habilitado</option>
+                    <option value="off">Deshabilitado</option>
+                  </select>
+                </label>
+                <TextInput label="Offset cumpleanos" value={String(jobSettings.birthdayCouponOffsetDays)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponOffsetDays: Number(value) } : current)} />
+                <TextInput label="Descuento cumpleanos" value={String(jobSettings.birthdayCouponDiscountValue)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponDiscountValue: Number(value) } : current)} />
+                <TextInput label="Duracion cupon dias" value={String(jobSettings.birthdayCouponDurationDays)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponDurationDays: Number(value) } : current)} />
+              </div>
+              <button type="button" onClick={saveJobSettings} className="mt-4 rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white">
+                Guardar procesos
+              </button>
+            </div>
+          ) : null}
+
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[900px] border-collapse text-sm">
+              <thead className="text-left text-zinc-400">
+                <tr className="border-b border-zinc-800">
+                  <th className="py-3 pr-3">Email</th>
+                  <th className="py-3 pr-3">Categoria</th>
+                  <th className="py-3 pr-3">Estado</th>
+                  <th className="py-3 pr-3">Ultima modificacion</th>
+                  <th className="py-3 pr-3">Ultimo envio</th>
+                  <th className="py-3 pr-3">Envios</th>
+                  <th className="py-3 pr-3">Errores</th>
+                  <th className="py-3">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {automaticTemplateRows.map((template) => (
+                  <tr key={template.key} className="border-b border-zinc-800/70">
+                    <td className="py-3 pr-3 font-semibold text-zinc-100">{template.name}</td>
+                    <td className="py-3 pr-3 text-zinc-300">{template.category}</td>
+                    <td className="py-3 pr-3">
+                      <button
+                        type="button"
+                        onClick={() => updateAutomaticTemplate(template.key, { enabled: !template.enabled })}
+                        className={[
+                          "rounded-xl border px-3 py-1.5 text-xs font-semibold",
+                          template.enabled
+                            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                            : "border-zinc-700 bg-zinc-950 text-zinc-400",
+                        ].join(" ")}
+                      >
+                        {template.enabled ? "Habilitado" : "Deshabilitado"}
+                      </button>
+                    </td>
+                    <td className="py-3 pr-3 text-zinc-400">{new Date(template.updatedAt).toLocaleString("es-AR")}</td>
+                    <td className="py-3 pr-3 text-zinc-400">{template.lastSentAt ? new Date(template.lastSentAt).toLocaleString("es-AR") : "-"}</td>
+                    <td className="py-3 pr-3 text-zinc-300">{template.sentCount}</td>
+                    <td className="py-3 pr-3 text-zinc-300">{template.errorCount}</td>
+                    <td className="py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" onClick={() => selectAutomaticTemplate(template)} className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900">Editar</button>
+                        <button type="button" onClick={() => automaticAction("preview", template.key)} className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900">Preview</button>
+                        {canManageSmtp ? <button type="button" onClick={() => automaticAction("test", template.key)} className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900">Prueba</button> : null}
+                        {canManageSmtp ? <button type="button" onClick={() => automaticAction("restore", template.key)} className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900">Restaurar</button> : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {automaticLoading ? <p className="mt-4 text-sm text-zinc-400">Cargando...</p> : null}
+          </div>
+
+          {selectedTemplateKey && templateDraft ? (
+            <div className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="font-semibold text-zinc-100">{automaticTemplates.find((item) => item.key === selectedTemplateKey)?.name}</h3>
+                <button type="button" onClick={() => setSelectedTemplateKey(null)} className="rounded-xl border border-zinc-700 px-3 py-1.5 text-sm font-semibold text-zinc-100">Cerrar</button>
+              </div>
+              <div className="mt-4 grid gap-4">
+                <TextInput label="Asunto" value={templateDraft.subject} onChange={(value) => setTemplateDraft((current) => current ? { ...current, subject: value } : current)} />
+                <label className="block text-sm font-medium text-zinc-200">
+                  HTML
+                  <textarea value={templateDraft.html} onChange={(e) => setTemplateDraft((current) => current ? { ...current, html: e.target.value } : current)} rows={8} className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500" />
+                </label>
+                <label className="block text-sm font-medium text-zinc-200">
+                  Texto plano
+                  <textarea value={templateDraft.text} onChange={(e) => setTemplateDraft((current) => current ? { ...current, text: e.target.value } : current)} rows={4} className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500" />
+                </label>
+                <p className="text-xs text-zinc-500">
+                  Variables: {(automaticTemplates.find((item) => item.key === selectedTemplateKey)?.variables || []).map((variable) => `{{${variable}}}`).join(" ")}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => updateAutomaticTemplate(selectedTemplateKey, templateDraft)}
+                  className="w-fit rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
+                >
+                  Guardar plantilla
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </section>
 
         {canManageSmtp ? (
         <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5 xl:p-4">

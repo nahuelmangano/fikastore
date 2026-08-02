@@ -1,12 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { sendMail } from "@/lib/mailer";
-import { stockBackInStockTemplate } from "@/lib/email-templates";
 import { publicBaseUrl } from "@/lib/publicUrl";
 import { getMailingSettings } from "@/lib/storeSettings";
-
-function renderSubject(template: string, productName: string) {
-  return template.replaceAll("{{productName}}", productName).trim();
-}
+import { queueAndSendEmailNotification } from "@/lib/emailNotificationService";
 
 function absoluteUrl(value: string | null | undefined, baseUrl: string) {
   const url = String(value || "").trim();
@@ -44,16 +39,20 @@ export async function notifyBackInStock(productId: string, req?: Request) {
     if (!notification.user.email) continue;
 
     try {
-      await sendMail({
+      await queueAndSendEmailNotification({
+        templateKey: "back-in-stock",
         to: notification.user.email,
-        subject: renderSubject(mailing.backInStockSubject, product.name),
-        html: stockBackInStockTemplate({
+        recipientUserId: notification.userId,
+        productId: product.id,
+        idempotencyKey: `back-in-stock:${notification.id}`,
+        payload: {
           customerName: notification.user.name || notification.user.email,
           productName: product.name,
           productUrl: `${baseUrl}/products/${product.slug}`,
           imageUrl: absoluteUrl(product.images[0]?.url, baseUrl),
-          message: mailing.backInStockMessage,
-        }),
+          storeName: "FikaStore",
+          storeUrl: baseUrl,
+        },
       });
 
       await prisma.stockNotification.update({

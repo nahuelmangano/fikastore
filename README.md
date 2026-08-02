@@ -86,6 +86,53 @@ Mailing
 
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` funcionan como fallback si no hay SMTP configurado desde el admin.
 - `MAILING_ENCRYPTION_KEY` es requerida para guardar contrasenas SMTP desde el panel admin. Debe ser un secreto estable en produccion.
+- `INTERNAL_CRON_SECRET` protege el procesador interno de emails automaticos. Debe configurarse siempre en produccion.
+
+### Emails automaticos
+
+El panel `Admin > Mailing` administra las plantillas automaticas, su estado, preview, pruebas, historial resumido y parametros de procesos programados.
+
+Modelos incorporados:
+
+- `EmailTemplate`, `EmailNotification`, `EmailNotificationAttempt`, `ScheduledEmailJob`
+- `ReturnRequest`, `ReturnItem`, `Refund`
+- `BirthdayCoupon`, `ProductReviewToken`
+
+Eventos cubiertos:
+
+- Pago aprobado, rechazado y pendiente.
+- Recordatorios de pago pendiente.
+- Solicitud de opinion post-entrega.
+- Cupon de cumpleaños.
+- Confirmacion de devolucion.
+- Reembolso realizado.
+- Vuelta de stock, pedido enviado y carrito abandonado quedan preparados dentro del servicio central.
+
+Los emails no se envian directamente desde rutas o webhooks: se encolan mediante `EmailNotificationService`, que aplica idempotencia, renderiza plantilla, registra intentos, registra errores y permite reintentos.
+
+Ruta de procesamiento programado:
+
+```bash
+curl -X POST http://localhost:3000/api/internal/email-jobs/process \
+  -H "Authorization: Bearer $INTERNAL_CRON_SECRET"
+```
+
+El procesador es idempotente, trabaja por lotes y reserva trabajos antes de enviarlos para reducir duplicados en multiples instancias.
+
+Para Docker/cron, ejecutarlo con la frecuencia deseada desde el host o un contenedor cron. Ejemplo cada 10 minutos:
+
+```cron
+*/10 * * * * curl -fsS -X POST https://TU_DOMINIO/api/internal/email-jobs/process -H "Authorization: Bearer TU_SECRETO"
+```
+
+Cumpleaños del 29 de febrero: en años no bisiestos se procesa el beneficio el 28 de febrero.
+
+Comandos de base de datos:
+
+```bash
+npx prisma migrate deploy
+npx prisma generate
+```
 
 ### Endpoints internos
 

@@ -4,8 +4,24 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type OrderResp =
-  | { ok: true; order: any }
+  | { ok: true; order: OrderDetails }
   | { ok: false; error: string };
+
+type OrderDetails = {
+  status?: string | null;
+  total: number | string;
+  items: Array<{
+    name: string;
+    quantity: number;
+    unitPrice: number | string;
+    subtotal: number | string;
+  }>;
+  payment?: {
+    provider: string;
+    status: string;
+    paymentId?: string | null;
+  } | null;
+};
 
 function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
@@ -13,7 +29,7 @@ function money(n: number) {
 
 function badge(status: string) {
   const s = (status || "").toLowerCase();
-  if (s === "paid" || s === "approved") return "border-emerald-900/40 bg-emerald-900/20 text-emerald-200";
+  if (s === "paid" || s === "approved" || s === "shipped" || s === "delivered") return "border-emerald-900/40 bg-emerald-900/20 text-emerald-200";
   if (s === "pending_payment" || s === "pending" || s === "in_process") return "border-amber-900/40 bg-amber-900/20 text-amber-200";
   if (s === "cancelled" || s === "rejected" || s === "failure") return "border-red-900/40 bg-red-900/20 text-red-200";
   return "border-zinc-800 bg-zinc-900/30 text-zinc-200";
@@ -33,7 +49,7 @@ export default function PayResultClient({
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<OrderResp | null>(null);
 
-  const ok = data && (data as any).ok;
+  const ok = data?.ok === true;
 
   useEffect(() => {
     let alive = true;
@@ -62,7 +78,7 @@ export default function PayResultClient({
     };
   }, [orderId]);
 
-  const order = ok ? (data as any).order : null;
+  const order = ok ? data.order : null;
 
   const effectiveStatus = useMemo(() => {
     if (!order) return "unknown";
@@ -96,9 +112,9 @@ export default function PayResultClient({
               <div className="mt-4 text-sm text-zinc-300">Cargando estado…</div>
             )}
 
-            {!loading && data && !(data as any).ok && (
+            {!loading && data && !data.ok && (
               <div className="mt-4 rounded-xl border border-red-900/40 bg-red-900/20 p-3 text-sm text-red-200">
-                {(data as any).error || "No se pudo cargar la orden."}
+                {data.error || "No se pudo cargar la orden."}
               </div>
             )}
 
@@ -110,7 +126,7 @@ export default function PayResultClient({
                 </div>
 
                 <div className="mt-4 space-y-2">
-                  {order.items.map((it: any, idx: number) => (
+                  {order.items.map((it, idx) => (
                     <div key={idx} className="flex items-start justify-between gap-4 text-sm">
                       <div className="min-w-0">
                         <div className="truncate font-medium">{it.name}</div>

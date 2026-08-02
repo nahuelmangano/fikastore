@@ -13,12 +13,17 @@ model User {
   name         String?
   passwordHash String
   role         String   @default("customer") // "customer" | "merchant" | "admin"
+  birthDate    DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   orders       Order[]
   cartSnapshot CartSnapshot?
   stockNotifications StockNotification[]
+  emailNotifications EmailNotification[]
+  birthdayCoupons BirthdayCoupon[]
+  reviewTokens ProductReviewToken[]
+  returnRequests ReturnRequest[]
 }
 
 model Product {
@@ -39,6 +44,9 @@ model Product {
   promotions  PromotionProduct[]
   category    Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   stockNotifications StockNotification[]
+  returnItems ReturnItem[]
+  reviewTokens ProductReviewToken[]
+  emailNotifications EmailNotification[]
 
   @@index([isActive])
   @@index([slug])
@@ -144,6 +152,7 @@ model Order {
   shippingAmount      Decimal  @db.Decimal(18, 2) @default(0)
 
   shippedAt           DateTime? // ✅ cuando lo marcás como enviado
+  deliveredAt         DateTime?
   notes               String?   // ✅ notas internas/admin (opcional)
 
   createdAt           DateTime @default(now())
@@ -154,10 +163,16 @@ model Order {
   payments            Payment[]
   epickShipment       EPickShipment?
   correoShipment      CorreoShipment?
+  emailNotifications  EmailNotification[]
+  scheduledEmailJobs  ScheduledEmailJob[]
+  returnRequests      ReturnRequest[]
+  refunds             Refund[]
+  reviewTokens        ProductReviewToken[]
 
   @@index([userId])
   @@index([status])
   @@index([shippedAt])
+  @@index([deliveredAt])
   @@unique([orderNumber])
 }
 
@@ -269,12 +284,232 @@ model Payment {
   updatedAt    DateTime @updatedAt
 
   order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  emailNotifications EmailNotification[]
+  scheduledEmailJobs ScheduledEmailJob[]
+  refunds      Refund[]
 
   @@index([orderId])
   @@index([provider])
   @@index([status])
   @@index([paymentId])
 
+}
+
+model EmailTemplate {
+  id            String   @id @default(cuid())
+  key           String   @unique
+  name          String
+  category      String
+  subject       String
+  html          String   @db.NVarChar(max)
+  text          String   @db.NVarChar(max)
+  enabled       Boolean  @default(true)
+  variablesJson String   @db.NVarChar(max)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  notifications EmailNotification[]
+
+  @@index([category])
+  @@index([enabled])
+}
+
+model EmailNotification {
+  id             String   @id @default(cuid())
+  templateKey    String
+  recipientEmail String
+  recipientUserId String?
+  orderId        String?
+  paymentId      String?
+  productId      String?
+  returnRequestId String?
+  refundId       String?
+  idempotencyKey String   @unique
+  status         String   @default("pending") // pending|processing|sent|failed|cancelled
+  payloadJson    String   @db.NVarChar(max)
+  isTest         Boolean  @default(false)
+  attemptCount   Int      @default(0)
+  lastAttemptAt  DateTime?
+  sentAt         DateTime?
+  errorMessage   String?  @db.NVarChar(max)
+  lockedAt       DateTime?
+  lockedBy       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  template       EmailTemplate @relation(fields: [templateKey], references: [key], onDelete: NoAction, onUpdate: Cascade)
+  recipientUser  User?         @relation(fields: [recipientUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  order          Order?        @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  payment        Payment?      @relation(fields: [paymentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product        Product?      @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  returnRequest  ReturnRequest? @relation(fields: [returnRequestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  refund         Refund?       @relation(fields: [refundId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  attempts       EmailNotificationAttempt[]
+
+  @@index([templateKey])
+  @@index([recipientUserId])
+  @@index([orderId])
+  @@index([paymentId])
+  @@index([returnRequestId])
+  @@index([refundId])
+  @@index([status, createdAt])
+  @@index([lockedAt])
+}
+
+model EmailNotificationAttempt {
+  id             String   @id @default(cuid())
+  notificationId String
+  status         String
+  errorMessage   String?  @db.NVarChar(max)
+  durationMs     Int?
+  createdAt      DateTime @default(now())
+
+  notification   EmailNotification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ScheduledEmailJob {
+  id             String   @id @default(cuid())
+  type           String
+  runAt          DateTime
+  status         String   @default("pending") // pending|processing|completed|failed|cancelled
+  idempotencyKey String   @unique
+  payloadJson    String   @db.NVarChar(max)
+  orderId        String?
+  paymentId      String?
+  lockedAt       DateTime?
+  lockedBy       String?
+  attemptCount   Int      @default(0)
+  lastAttemptAt  DateTime?
+  errorMessage   String?  @db.NVarChar(max)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  order          Order?   @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  payment        Payment? @relation(fields: [paymentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([type])
+  @@index([status, runAt])
+  @@index([orderId])
+  @@index([paymentId])
+  @@index([lockedAt])
+}
+
+model ReturnRequest {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  orderId         String
+  userId          String
+  status          String   @default("REQUESTED") // REQUESTED|APPROVED|REJECTED|IN_TRANSIT|RECEIVED|COMPLETED|CANCELLED
+  reason          String?
+  comments        String?  @db.NVarChar(max)
+  requestedAt     DateTime @default(now())
+  approvedAt      DateTime?
+  receivedAt      DateTime?
+  estimatedAmount Decimal? @db.Decimal(18, 2)
+  resolutionMethod String?
+  returnInstructions String? @db.NVarChar(max)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user            User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  items           ReturnItem[]
+  refunds         Refund[]
+  emailNotifications EmailNotification[]
+
+  @@index([orderId])
+  @@index([userId])
+  @@index([status])
+  @@index([requestedAt])
+}
+
+model ReturnItem {
+  id              String   @id @default(cuid())
+  returnRequestId String
+  productId       String
+  quantity        Int
+  reason          String?
+  createdAt       DateTime @default(now())
+
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product         Product       @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([returnRequestId])
+  @@index([productId])
+}
+
+model Refund {
+  id              String   @id @default(cuid())
+  orderId         String
+  paymentId       String?
+  returnRequestId String?
+  provider        String   @default("mercadopago")
+  providerRefundId String?
+  status          String   @default("pending") // pending|processed|failed|cancelled
+  amount          Decimal  @db.Decimal(18, 2)
+  type            String   @default("partial") // partial|total
+  processedAt     DateTime?
+  rawJson         String?  @db.NVarChar(max)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  payment         Payment? @relation(fields: [paymentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  returnRequest   ReturnRequest? @relation(fields: [returnRequestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  emailNotifications EmailNotification[]
+
+  @@index([provider, providerRefundId])
+  @@index([orderId])
+  @@index([paymentId])
+  @@index([returnRequestId])
+  @@index([status])
+  @@index([processedAt])
+}
+
+model BirthdayCoupon {
+  id              String   @id @default(cuid())
+  userId          String
+  year            Int
+  code            String   @unique
+  discountType    String   @default("percent") // percent|amount
+  discountValue   Decimal  @db.Decimal(18, 2)
+  minPurchaseAmount Decimal? @db.Decimal(18, 2)
+  maxUses         Int      @default(1)
+  usedCount       Int      @default(0)
+  startsAt        DateTime
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([userId, year])
+  @@index([code])
+  @@index([startsAt, expiresAt])
+}
+
+model ProductReviewToken {
+  id          String   @id @default(cuid())
+  tokenHash   String   @unique
+  userId      String
+  orderId     String
+  productId   String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product     Product  @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([userId, orderId, productId])
+  @@index([orderId])
+  @@index([productId])
+  @@index([expiresAt])
 }
 
 model CartSnapshot {

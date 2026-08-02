@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { sendMail } from "@/lib/mailer";
-import { cartAbandonedTemplate, pendingPaymentTemplate } from "@/lib/email-templates";
 import { publicBaseUrl } from "@/lib/publicUrl";
+import { queueAndSendEmailNotification } from "@/lib/emailNotificationService";
 
 export const runtime = "nodejs";
 
@@ -10,6 +9,76 @@ function isAuthorized(req: Request) {
   const secret = process.env.CRON_SECRET;
   if (!secret) return true;
   return req.headers.get("x-cron-secret") === secret;
+}
+
+type SnapshotCartItem = {
+  productId: string;
+  name: string;
+  price: number;
+  quantity: number;
+};
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function money(value: number) {
+  return `$${value.toLocaleString("es-AR")}`;
+}
+
+function parseCartItems(itemsJson: string): SnapshotCartItem[] {
+  const parsed = JSON.parse(itemsJson);
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .map((item) => ({
+      productId: String(item?.productId || "").trim(),
+      name: String(item?.name || "").trim(),
+      price: Number(item?.price),
+      quantity: Math.floor(Number(item?.quantity)),
+    }))
+    .filter(
+      (item) =>
+        item.productId &&
+        item.name &&
+        Number.isFinite(item.price) &&
+        item.price >= 0 &&
+        Number.isFinite(item.quantity) &&
+        item.quantity > 0
+    );
+}
+
+function cartItemsHtml(items: SnapshotCartItem[]) {
+  if (items.length === 0) return "<p style=\"margin:0;color:#555;\">Tu carrito guardado tiene productos pendientes.</p>";
+  const total = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
+
+  const rows = items
+    .map((item) => {
+      const subtotal = item.price * item.quantity;
+      return `
+        <div style="display:flex;justify-content:space-between;gap:16px;margin:10px 0;">
+          <div>
+            <div style="font-weight:700;color:#111;">${escapeHtml(item.name)}</div>
+            <div style="font-size:13px;color:#666;">Cantidad: ${item.quantity} · Unitario: ${money(item.price)}</div>
+          </div>
+          <div style="font-weight:700;color:#111;white-space:nowrap;">${money(subtotal)}</div>
+        </div>
+      `;
+    })
+    .join("");
+
+  return `${rows}<div style="border-top:1px solid #eee;margin-top:12px;padding-top:12px;text-align:right;font-weight:800;color:#111;">Total: ${money(total)}</div>`;
+}
+
+function cartItemsText(items: SnapshotCartItem[]) {
+  if (items.length === 0) return "Productos pendientes en tu carrito.";
+  const total = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  return `${items.map((item) => `${item.name} x${item.quantity} (${money(item.price * item.quantity)})`).join("; ")}. Total: ${money(total)}`;
 }
 
 export async function POST(req: Request) {
@@ -46,19 +115,9 @@ export async function POST(req: Request) {
   let pendingSent = 0;
 
   for (const cart of carts) {
-    let items: { name: string; qty: number; unit: number; subtotal: number }[] = [];
+    let items: SnapshotCartItem[] = [];
     try {
-      const parsed = JSON.parse(cart.itemsJson) as {
-        name: string;
-        price: number;
-        quantity: number;
-      }[];
-      items = parsed.map((it) => ({
-        name: it.name,
-        qty: it.quantity,
-        unit: it.price,
-        subtotal: it.price * it.quantity,
-      }));
+      items = parseCartItems(cart.itemsJson);
     } catch {
       await prisma.cartSnapshot.update({
         where: { id: cart.id },
@@ -67,17 +126,19 @@ export async function POST(req: Request) {
       continue;
     }
 
-    const total = items.reduce((acc, it) => acc + it.subtotal, 0);
-
-    await sendMail({
+    await queueAndSendEmailNotification({
+      templateKey: "cart-abandoned",
       to: cart.user.email,
-      subject: "Tenés productos en tu carrito",
-      html: cartAbandonedTemplate({
+      recipientUserId: cart.userId,
+      idempotencyKey: `cart-abandoned:${cart.id}`,
+      payload: {
         customerName: cart.user.name || cart.user.email,
-        siteUrl: baseUrl,
-        items,
-        total,
-      }),
+        cartItemsHtml: cartItemsHtml(items),
+        cartItemsText: cartItemsText(items),
+        cartUrl: `${baseUrl}/cart`,
+        storeName: "FikaStore",
+        storeUrl: baseUrl,
+      },
     });
 
     await prisma.cartSnapshot.update({
@@ -99,17 +160,22 @@ export async function POST(req: Request) {
 
     const total = items.reduce((acc, it) => acc + it.subtotal, 0);
 
-    await sendMail({
+    await queueAndSendEmailNotification({
+      templateKey: "payment-pending-reminder",
       to: order.user.email,
-      subject: "Tu pago quedó pendiente",
-      html: pendingPaymentTemplate({
+      recipientUserId: order.userId,
+      orderId: order.id,
+      paymentId: payment.id,
+      idempotencyKey: `payment-reminder:${payment.id}:legacy`,
+      payload: {
         customerName: order.user.name || order.user.email,
-        orderNumber: order.orderNumber,
-        orderId: order.id,
-        siteUrl: baseUrl,
-        items,
-        total,
-      }),
+        orderNumber: order.orderNumber ? `#${order.orderNumber}` : order.id,
+        paymentAmount: `$${total.toLocaleString("es-AR")}`,
+        reminderNumber: "1",
+        paymentUrl: `${baseUrl}/pay/pending?orderId=${order.id}`,
+        storeName: "FikaStore",
+        storeUrl: baseUrl,
+      },
     });
 
     await prisma.payment.update({

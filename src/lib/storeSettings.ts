@@ -10,6 +10,7 @@ const FAVICON_URL_KEY = "favicon_url";
 const TEMPORARY_SHUTDOWN_KEY = "temporary_shutdown";
 const MAILING_SETTINGS_KEY = "mailing_settings";
 const MAILING_SMTP_SETTINGS_KEY = "mailing_smtp_settings";
+const EMAIL_JOB_SETTINGS_KEY = "email_job_settings";
 const MERCADOPAGO_SETTINGS_KEY = "mercadopago_settings";
 const ENCRYPTED_VALUE_PREFIX = "enc:v1:";
 
@@ -30,6 +31,21 @@ export type HomeCategoryTile = {
 export type TemporaryShutdownSettings = {
   isShutdown: boolean;
   message: string;
+};
+
+export type EmailJobSettings = {
+  paymentRemindersEnabled: boolean;
+  paymentReminderHours: number[];
+  maxPaymentReminders: number;
+  reviewRequestEnabled: boolean;
+  reviewRequestDelayDays: number;
+  birthdayCouponEnabled: boolean;
+  birthdayCouponOffsetDays: number;
+  birthdayCouponDiscountType: "percent" | "amount";
+  birthdayCouponDiscountValue: number;
+  birthdayCouponDurationDays: number;
+  birthdayCouponMinPurchaseAmount: number;
+  birthdayCouponMaxUses: number;
 };
 
 export type MailingSettings = {
@@ -96,6 +112,21 @@ type StoredMercadoPagoSettings = {
 
 export const DEFAULT_TEMPORARY_SHUTDOWN_MESSAGE =
   "La tienda se encuentra apagada temporalmente. Volve a visitarnos pronto.";
+
+export const DEFAULT_EMAIL_JOB_SETTINGS: EmailJobSettings = {
+  paymentRemindersEnabled: true,
+  paymentReminderHours: [24, 48],
+  maxPaymentReminders: 2,
+  reviewRequestEnabled: true,
+  reviewRequestDelayDays: 10,
+  birthdayCouponEnabled: true,
+  birthdayCouponOffsetDays: 0,
+  birthdayCouponDiscountType: "percent",
+  birthdayCouponDiscountValue: 15,
+  birthdayCouponDurationDays: 14,
+  birthdayCouponMinPurchaseAmount: 0,
+  birthdayCouponMaxUses: 1,
+};
 
 export const DEFAULT_MAILING_SETTINGS: MailingSettings = {
   purchaseEnabled: true,
@@ -359,6 +390,73 @@ export async function setTemporaryShutdownSettings(settings: TemporaryShutdownSe
     create: {
       provider: STOREFRONT_SETTINGS_PROVIDER,
       key: TEMPORARY_SHUTDOWN_KEY,
+      value,
+      isSecret: false,
+    },
+    update: {
+      value,
+      isSecret: false,
+    },
+  });
+}
+
+function normalizeEmailJobSettings(value: Partial<EmailJobSettings> | null | undefined): EmailJobSettings {
+  const reminderHours = Array.isArray(value?.paymentReminderHours)
+    ? value.paymentReminderHours
+        .map((item) => Math.floor(Number(item)))
+        .filter((item) => Number.isFinite(item) && item > 0 && item <= 24 * 30)
+        .slice(0, 5)
+    : DEFAULT_EMAIL_JOB_SETTINGS.paymentReminderHours;
+
+  return {
+    paymentRemindersEnabled: value?.paymentRemindersEnabled !== false,
+    paymentReminderHours: reminderHours.length ? reminderHours : DEFAULT_EMAIL_JOB_SETTINGS.paymentReminderHours,
+    maxPaymentReminders: Math.max(0, Math.min(5, Math.floor(Number(value?.maxPaymentReminders ?? DEFAULT_EMAIL_JOB_SETTINGS.maxPaymentReminders)))),
+    reviewRequestEnabled: value?.reviewRequestEnabled !== false,
+    reviewRequestDelayDays: Math.max(7, Math.min(15, Math.floor(Number(value?.reviewRequestDelayDays ?? DEFAULT_EMAIL_JOB_SETTINGS.reviewRequestDelayDays)))),
+    birthdayCouponEnabled: value?.birthdayCouponEnabled !== false,
+    birthdayCouponOffsetDays: Math.max(-30, Math.min(30, Math.floor(Number(value?.birthdayCouponOffsetDays ?? DEFAULT_EMAIL_JOB_SETTINGS.birthdayCouponOffsetDays)))),
+    birthdayCouponDiscountType: value?.birthdayCouponDiscountType === "amount" ? "amount" : "percent",
+    birthdayCouponDiscountValue: Math.max(0, Number(value?.birthdayCouponDiscountValue ?? DEFAULT_EMAIL_JOB_SETTINGS.birthdayCouponDiscountValue)),
+    birthdayCouponDurationDays: Math.max(1, Math.min(365, Math.floor(Number(value?.birthdayCouponDurationDays ?? DEFAULT_EMAIL_JOB_SETTINGS.birthdayCouponDurationDays)))),
+    birthdayCouponMinPurchaseAmount: Math.max(0, Number(value?.birthdayCouponMinPurchaseAmount ?? DEFAULT_EMAIL_JOB_SETTINGS.birthdayCouponMinPurchaseAmount)),
+    birthdayCouponMaxUses: Math.max(1, Math.min(20, Math.floor(Number(value?.birthdayCouponMaxUses ?? DEFAULT_EMAIL_JOB_SETTINGS.birthdayCouponMaxUses)))),
+  };
+}
+
+export async function getEmailJobSettings(): Promise<EmailJobSettings> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: EMAIL_JOB_SETTINGS_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return DEFAULT_EMAIL_JOB_SETTINGS;
+
+  try {
+    return normalizeEmailJobSettings(JSON.parse(row.value) as Partial<EmailJobSettings>);
+  } catch {
+    return DEFAULT_EMAIL_JOB_SETTINGS;
+  }
+}
+
+export async function setEmailJobSettings(settings: Partial<EmailJobSettings>) {
+  const value = JSON.stringify(normalizeEmailJobSettings(settings));
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: EMAIL_JOB_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: EMAIL_JOB_SETTINGS_KEY,
       value,
       isSecret: false,
     },

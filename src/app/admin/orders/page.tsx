@@ -84,6 +84,7 @@ function orderStatus(status: string) {
     pending_payment: { label: "Pendiente", variant: "warning" },
     paid: { label: "Pagado", variant: "success" },
     shipped: { label: "Enviado", variant: "info" },
+    delivered: { label: "Entregado", variant: "success" },
     cancelled: { label: "Cancelado", variant: "danger" },
     refunded: { label: "Reembolsado", variant: "neutral" },
   };
@@ -104,6 +105,7 @@ function paymentStatus(status?: string) {
 }
 
 function shippingStatus(order: ListedOrder) {
+  if (order.status === "delivered") return { label: "Entregado", variant: "success" as const };
   if (order.shippedAt || order.status === "shipped") return { label: "Enviado", variant: "success" as const };
   if (order.correoShipment?.status) return { label: `Correo · ${translateCorreo(order.correoShipment.status)}`, variant: "info" as const };
   if (order.epickShipment?.status) return { label: `E-pick · ${translateEpick(order.epickShipment.status)}`, variant: "info" as const };
@@ -194,9 +196,9 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
     prisma.order.count({ where }),
     prisma.order.count(),
     prisma.order.count({ where: { status: "pending_payment" } }),
-    prisma.order.count({ where: { status: { in: ["paid", "shipped"] } } }),
+    prisma.order.count({ where: { status: { in: ["paid", "shipped", "delivered"] } } }),
     prisma.order.aggregate({
-      where: { status: { in: ["paid", "shipped"] } },
+      where: { status: { in: ["paid", "shipped", "delivered"] } },
       _sum: { total: true },
     }),
     prisma.order.groupBy({ by: ["status"], _count: { _all: true } }),
@@ -310,8 +312,8 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
         <section className="mt-8 xl:mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard title="Pedidos" value={totalOrders} description="Total histórico" icon={ShoppingBag} />
           <StatCard title="Pendientes" value={pendingOrders} description="Esperando pago" icon={CalendarClock} />
-          <StatCard title="Pagados" value={paidOrders} description="Pagados o enviados" icon={PackageCheck} />
-          <StatCard title="Facturación" value={money(paidRevenue)} description="Pedidos pagados/enviados" icon={CreditCard} />
+          <StatCard title="Pagados" value={paidOrders} description="Pagados, enviados o entregados" icon={PackageCheck} />
+          <StatCard title="Facturación" value={money(paidRevenue)} description="Pedidos pagos/enviados/entregados" icon={CreditCard} />
         </section>
 
         <SectionCard className="mt-8 xl:mt-6">
@@ -326,6 +328,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
                   pending_payment: statusCounts.pending_payment ?? 0,
                   paid: statusCounts.paid ?? 0,
                   shipped: statusCounts.shipped ?? 0,
+                  delivered: statusCounts.delivered ?? 0,
                   cancelled: statusCounts.cancelled ?? 0,
                   refunded: statusCounts.refunded ?? 0,
                 }}
@@ -348,7 +351,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
                 <label className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Estado pedido</label>
                 <select name="status" defaultValue={status} className="admin-input mt-2">
                   <option value="all">Todos</option>
-                  {["pending_payment", "paid", "shipped", "cancelled", "refunded"]
+                  {["pending_payment", "paid", "shipped", "delivered", "cancelled", "refunded"]
                     .filter((value) => activeStatusValues.includes(value) || value === status)
                     .map((value) => (
                       <option key={value} value={value}>

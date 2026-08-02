@@ -3,8 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { Prisma } from "@prisma/client";
 import { normalizePromoCode, priceCartItems } from "@/lib/promotions";
-import { getTemporaryShutdownSettings } from "@/lib/storeSettings";
+import { getEmailJobSettings, getTemporaryShutdownSettings } from "@/lib/storeSettings";
 import { validateArgentinaPostalCodeProvince } from "@/lib/argentinaPostalCode";
+import { publicBaseUrl } from "@/lib/publicUrl";
+import { queueAndSendEmailNotification, scheduleEmailJob } from "@/lib/emailNotificationService";
 
 export const runtime = "nodejs";
 
@@ -191,6 +193,7 @@ export async function POST(req: Request) {
             create: {
               provider: "mercadopago",
               status: "pending",
+              pendingAt: new Date(),
             },
           },
         },
@@ -206,6 +209,62 @@ export async function POST(req: Request) {
 
       return { orderId: order.id };
     });
+
+    const createdOrder = await prisma.order.findUnique({
+      where: { id: result.orderId },
+      include: {
+        user: { select: { id: true, email: true, name: true } },
+        payments: { orderBy: { createdAt: "desc" }, take: 1 },
+      },
+    });
+
+    if (createdOrder?.user.email) {
+      const payment = createdOrder.payments[0];
+      const baseUrl = publicBaseUrl(req);
+
+      queueAndSendEmailNotification({
+        templateKey: "payment-pending",
+        to: createdOrder.user.email,
+        recipientUserId: createdOrder.user.id,
+        orderId: createdOrder.id,
+        paymentId: payment?.id,
+        idempotencyKey: `payment-pending:${payment?.id || createdOrder.id}`,
+        payload: {
+          customerName: createdOrder.user.name || createdOrder.user.email,
+          orderNumber: `#${createdOrder.orderNumber}`,
+          paymentAmount: `$${Number(createdOrder.total).toLocaleString("es-AR")}`,
+          paymentMethod: "Mercado Pago",
+          paymentInstructions: "Podés completar el pago desde el enlace de tu pedido.",
+          paymentDueDate: "No informada",
+          paymentUrl: `${baseUrl}/pay/pending?orderId=${createdOrder.id}`,
+          storeName: "FikaStore",
+          storeUrl: baseUrl,
+        },
+      }).catch((error) => console.error("payment pending email queue failed", error instanceof Error ? error.message : error));
+
+      getEmailJobSettings()
+        .then((emailJobSettings) => {
+          if (!emailJobSettings.paymentRemindersEnabled || !payment?.id) return;
+
+          return Promise.all(
+            emailJobSettings.paymentReminderHours.slice(0, emailJobSettings.maxPaymentReminders).map((hours, index) =>
+              scheduleEmailJob({
+                type: "payment-reminder",
+                runAt: new Date(Date.now() + hours * 60 * 60 * 1000),
+                idempotencyKey: `payment-reminder:${payment.id}:${index + 1}`,
+                orderId: createdOrder.id,
+                paymentId: payment.id,
+                payload: {
+                  paymentId: payment.id,
+                  orderId: createdOrder.id,
+                  reminderNumber: index + 1,
+                },
+              })
+            )
+          );
+        })
+        .catch((error) => console.error("payment reminder scheduling failed", error instanceof Error ? error.message : error));
+    }
 
     return NextResponse.json({ ok: true, orderId: result.orderId });
   } catch (e: unknown) {

@@ -57,6 +57,7 @@ function statusLabel(status: string) {
     pending_payment: "Pendiente",
     paid: "Pagado",
     shipped: "Enviado",
+    delivered: "Entregado",
     cancelled: "Cancelado",
     refunded: "Reintegrado",
   };
@@ -89,7 +90,7 @@ export default async function AdminDashboardPage() {
   ] = await Promise.all([
     prisma.order.aggregate({
       where: {
-        status: { in: ["paid", "shipped"] },
+        status: { in: ["paid", "shipped", "delivered"] },
         createdAt: { gte: todayStart, lt: todayEnd },
       },
       _sum: { total: true },
