@@ -8,6 +8,7 @@ type AdminMailingPageProps = {
   initialSettings: MailingSettings;
   canSaveSmtpSecrets: boolean;
   canManageSmtp: boolean;
+  canManageAutomaticEmails: boolean;
 };
 
 type AutomaticEmailTemplate = {
@@ -40,7 +41,12 @@ type EmailJobSettings = {
   birthdayCouponMaxUses: number;
 };
 
-export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, canManageSmtp }: AdminMailingPageProps) {
+export default function AdminMailingPage({
+  initialSettings,
+  canSaveSmtpSecrets,
+  canManageSmtp,
+  canManageAutomaticEmails,
+}: AdminMailingPageProps) {
   const [settings, setSettings] = useState(initialSettings);
   const [smtpPass, setSmtpPass] = useState("");
   const [testEmail, setTestEmail] = useState("");
@@ -190,6 +196,7 @@ export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, 
   }
 
   async function updateAutomaticTemplate(key: string, patch: Partial<AutomaticEmailTemplate>) {
+    if (!canManageAutomaticEmails) return;
     setAutomaticMsg("");
     const res = await fetch("/api/admin/mailing/automatic", {
       method: "PATCH",
@@ -225,6 +232,7 @@ export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, 
   }
 
   async function saveJobSettings() {
+    if (!canManageAutomaticEmails) return;
     if (!jobSettings) return;
     setAutomaticMsg("");
     const res = await fetch("/api/admin/mailing/automatic", {
@@ -310,15 +318,23 @@ export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, 
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-base font-semibold">Emails automaticos</h2>
-              <p className="mt-1 text-sm text-zinc-400">Plantillas, estado, pruebas, preview e historial resumido de envios.</p>
+              <p className="mt-1 text-sm text-zinc-400">
+                {canManageAutomaticEmails
+                  ? "Activa o desactiva cada email automatico por separado."
+                  : "Emails automaticos gestionados por el administrador."}
+              </p>
             </div>
-            <button
-              type="button"
-              onClick={() => automaticAction("retry-failed")}
-              className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900"
-            >
-              Reintentar fallidos
-            </button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {canManageAutomaticEmails ? (
+                <button
+                  type="button"
+                  onClick={() => automaticAction("retry-failed")}
+                  className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900"
+                >
+                  Reintentar fallidos
+                </button>
+              ) : null}
+            </div>
           </div>
 
           {automaticMsg ? <p className="mt-4 text-sm text-zinc-400">{automaticMsg}</p> : null}
@@ -332,6 +348,7 @@ export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, 
                   <select
                     value={jobSettings.paymentRemindersEnabled ? "on" : "off"}
                     onChange={(e) => setJobSettings((current) => current ? { ...current, paymentRemindersEnabled: e.target.value === "on" } : current)}
+                    disabled={!canManageAutomaticEmails}
                     className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
                   >
                     <option value="on">Habilitado</option>
@@ -343,17 +360,20 @@ export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, 
                   value={jobSettings.paymentReminderHours.join(",")}
                   onChange={(value) => setJobSettings((current) => current ? { ...current, paymentReminderHours: value.split(",").map((item) => Number(item.trim())).filter((item) => Number.isFinite(item)) } : current)}
                   placeholder="24,48"
+                  disabled={!canManageAutomaticEmails}
                 />
                 <TextInput
                   label="Maximo recordatorios"
                   value={String(jobSettings.maxPaymentReminders)}
                   onChange={(value) => setJobSettings((current) => current ? { ...current, maxPaymentReminders: Number(value) } : current)}
+                  disabled={!canManageAutomaticEmails}
                 />
                 <label className="text-sm font-medium text-zinc-200">
                   Opiniones activas
                   <select
                     value={jobSettings.reviewRequestEnabled ? "on" : "off"}
                     onChange={(e) => setJobSettings((current) => current ? { ...current, reviewRequestEnabled: e.target.value === "on" } : current)}
+                    disabled={!canManageAutomaticEmails}
                     className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
                   >
                     <option value="on">Habilitado</option>
@@ -364,25 +384,29 @@ export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, 
                   label="Dias para opinion"
                   value={String(jobSettings.reviewRequestDelayDays)}
                   onChange={(value) => setJobSettings((current) => current ? { ...current, reviewRequestDelayDays: Number(value) } : current)}
+                  disabled={!canManageAutomaticEmails}
                 />
                 <label className="text-sm font-medium text-zinc-200">
                   Cumpleanos activos
                   <select
                     value={jobSettings.birthdayCouponEnabled ? "on" : "off"}
                     onChange={(e) => setJobSettings((current) => current ? { ...current, birthdayCouponEnabled: e.target.value === "on" } : current)}
+                    disabled={!canManageAutomaticEmails}
                     className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
                   >
                     <option value="on">Habilitado</option>
                     <option value="off">Deshabilitado</option>
                   </select>
                 </label>
-                <TextInput label="Offset cumpleanos" value={String(jobSettings.birthdayCouponOffsetDays)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponOffsetDays: Number(value) } : current)} />
-                <TextInput label="Descuento cumpleanos" value={String(jobSettings.birthdayCouponDiscountValue)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponDiscountValue: Number(value) } : current)} />
-                <TextInput label="Duracion cupon dias" value={String(jobSettings.birthdayCouponDurationDays)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponDurationDays: Number(value) } : current)} />
+                <TextInput label="Offset cumpleanos" value={String(jobSettings.birthdayCouponOffsetDays)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponOffsetDays: Number(value) } : current)} disabled={!canManageAutomaticEmails} />
+                <TextInput label="Descuento cumpleanos" value={String(jobSettings.birthdayCouponDiscountValue)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponDiscountValue: Number(value) } : current)} disabled={!canManageAutomaticEmails} />
+                <TextInput label="Duracion cupon dias" value={String(jobSettings.birthdayCouponDurationDays)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponDurationDays: Number(value) } : current)} disabled={!canManageAutomaticEmails} />
               </div>
-              <button type="button" onClick={saveJobSettings} className="mt-4 rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white">
-                Guardar procesos
-              </button>
+              {canManageAutomaticEmails ? (
+                <button type="button" onClick={saveJobSettings} className="mt-4 rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white">
+                  Guardar procesos
+                </button>
+              ) : null}
             </div>
           ) : null}
 
@@ -409,14 +433,15 @@ export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, 
                       <button
                         type="button"
                         onClick={() => updateAutomaticTemplate(template.key, { enabled: !template.enabled })}
+                        disabled={!canManageAutomaticEmails}
                         className={[
-                          "rounded-xl border px-3 py-1.5 text-xs font-semibold",
+                          "rounded-xl border px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed",
                           template.enabled
                             ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
                             : "border-zinc-700 bg-zinc-950 text-zinc-400",
                         ].join(" ")}
-                      >
-                        {template.enabled ? "Habilitado" : "Deshabilitado"}
+                        >
+                          {template.enabled ? "Habilitado" : "Deshabilitado"}
                       </button>
                     </td>
                     <td className="py-3 pr-3 text-zinc-400">{new Date(template.updatedAt).toLocaleString("es-AR")}</td>
@@ -425,10 +450,19 @@ export default function AdminMailingPage({ initialSettings, canSaveSmtpSecrets, 
                     <td className="py-3 pr-3 text-zinc-300">{template.errorCount}</td>
                     <td className="py-3">
                       <div className="flex flex-wrap gap-2">
-                        <button type="button" onClick={() => selectAutomaticTemplate(template)} className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900">Editar</button>
                         <button type="button" onClick={() => automaticAction("preview", template.key)} className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900">Preview</button>
-                        {canManageSmtp ? <button type="button" onClick={() => automaticAction("test", template.key)} className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900">Prueba</button> : null}
-                        {canManageSmtp ? <button type="button" onClick={() => automaticAction("restore", template.key)} className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900">Restaurar</button> : null}
+                        {canManageAutomaticEmails ? (
+                          <button
+                            type="button"
+                            onClick={() => updateAutomaticTemplate(template.key, { enabled: !template.enabled })}
+                            className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900"
+                          >
+                            {template.enabled ? "Desactivar" : "Activar"}
+                          </button>
+                        ) : null}
+                        {canManageAutomaticEmails ? <button type="button" onClick={() => selectAutomaticTemplate(template)} className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900">Editar</button> : null}
+                        {canManageAutomaticEmails ? <button type="button" onClick={() => automaticAction("test", template.key)} className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900">Prueba</button> : null}
+                        {canManageAutomaticEmails ? <button type="button" onClick={() => automaticAction("restore", template.key)} className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900">Restaurar</button> : null}
                       </div>
                     </td>
                   </tr>
@@ -533,11 +567,13 @@ function TextInput({
   label,
   value,
   placeholder,
+  disabled,
   onChange,
 }: {
   label: string;
   value: string;
   placeholder?: string;
+  disabled?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
@@ -547,7 +583,8 @@ function TextInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+        disabled={disabled}
+        className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
       />
     </label>
   );

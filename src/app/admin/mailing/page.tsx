@@ -15,6 +15,7 @@ export default async function MailingPage() {
       initialSettings={settings}
       canSaveSmtpSecrets={canEncryptMailingSecrets()}
       canManageSmtp={isAdminRole(role)}
+      canManageAutomaticEmails={isAdminRole(role)}
     />
   );
 }

@@ -109,6 +109,7 @@ export async function PATCH(req: Request) {
   const session = await auth();
   const role = (session?.user as { role?: string } | undefined)?.role;
   if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  if (!isAdminRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
   if (body.jobSettings) {
