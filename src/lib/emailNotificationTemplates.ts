@@ -177,10 +177,11 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefault[] = [
     category: "Productos",
     subject: "{{storeName}} · {{productName}} volvió a estar disponible",
     enabled: true,
-    variables: ["customerName", "productName", "productUrl", "storeName", "storeUrl"],
+    variables: ["customerName", "productName", "productHtml", "productUrl", "storeName", "storeUrl"],
     html: layout(
       "Volvió a estar disponible",
       `<p style="margin:0 0 18px;color:#444;">Hola {{customerName}}, {{productName}} ya tiene stock.</p>
+       <div style="border-top:1px solid #ddd;border-bottom:1px solid #ddd;padding:14px 0;margin:14px 0;">{{{productHtml}}}</div>
        <p style="margin:18px 0 0;"><a href="{{productUrl}}" style="display:inline-block;background:#111;color:#fff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:700;">Ver producto</a></p>`
     ),
     text: "Hola {{customerName}}, {{productName}} volvió a estar disponible. Ver: {{productUrl}}",
@@ -192,7 +193,31 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefault[] = [
     subject: "{{storeName}} · Tu pedido fue enviado",
     enabled: true,
     variables: ["customerName", "orderNumber", "orderUrl", "storeName", "storeUrl"],
-    html: layout("Tu pedido fue enviado", `<p style="margin:0 0 18px;color:#444;">Hola {{customerName}}, tu pedido {{orderNumber}} ya está en camino.</p><p><a href="{{orderUrl}}" style="display:inline-block;background:#111;color:#fff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:700;">Ver pedido</a></p>`),
+    html: layout(
+      "Tu pedido fue enviado",
+      `<p style="margin:0 0 18px;color:#444;">Hola {{customerName}}, tu pedido {{orderNumber}} ya está en camino.</p>
+       <table style="width:100%;border-collapse:collapse;margin:0 0 24px;">
+         <tr>
+           <td style="width:33.33%;vertical-align:top;">
+             <div style="font-size:12px;font-weight:700;color:#111;">Orden confirmada</div>
+             <div style="margin-top:8px;height:4px;background:#111;border-radius:999px;"></div>
+           </td>
+           <td style="width:33.33%;vertical-align:top;padding-left:8px;">
+             <div style="font-size:12px;font-weight:700;color:#111;">Enviado</div>
+             <div style="margin-top:8px;height:4px;background:#111;border-radius:999px;"></div>
+           </td>
+           <td style="width:33.33%;vertical-align:top;padding-left:8px;">
+             <div style="font-size:12px;font-weight:700;color:#888;">Entregado</div>
+             <div style="margin-top:8px;height:4px;background:#ddd;border-radius:999px;"></div>
+           </td>
+         </tr>
+       </table>
+       <div style="border-top:1px solid #ddd;border-bottom:1px solid #ddd;padding:18px 0;margin-bottom:22px;">
+         <div style="font-size:12px;font-weight:700;color:#777;text-transform:uppercase;">Numero de orden</div>
+         <div style="margin-top:5px;font-size:15px;font-weight:700;color:#111;">{{orderNumber}}</div>
+       </div>
+       <p style="margin:18px 0 0;"><a href="{{orderUrl}}" style="display:inline-block;background:#111;color:#fff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:700;">Ver pedido</a></p>`
+    ),
     text: "Hola {{customerName}}, tu pedido {{orderNumber}} fue enviado. Ver pedido: {{orderUrl}}",
   },
   {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { forwardRef, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { MailingSettings } from "@/lib/storeSettings";
 
@@ -52,16 +52,18 @@ export default function AdminMailingPage({
   const [testEmail, setTestEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState<"purchase" | "backInStock" | "smtp" | null>(null);
-  const [previewing, setPreviewing] = useState<"purchase" | "backInStock" | null>(null);
   const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
   const [automaticTemplates, setAutomaticTemplates] = useState<AutomaticEmailTemplate[]>([]);
   const [jobSettings, setJobSettings] = useState<EmailJobSettings | null>(null);
   const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(null);
   const [templateDraft, setTemplateDraft] = useState<{ subject: string; html: string; text: string } | null>(null);
   const [automaticLoading, setAutomaticLoading] = useState(false);
+  const [automaticBusy, setAutomaticBusy] = useState<{ action: string; key?: string } | null>(null);
   const [automaticMsg, setAutomaticMsg] = useState("");
   const [msg, setMsg] = useState("");
-  const automaticTemplateRows = automaticTemplates.filter((template) => template.key !== "back-in-stock");
+  const previewRef = useRef<HTMLElement | null>(null);
+  const shouldScrollToPreviewRef = useRef(false);
+  const automaticTemplateRows = automaticTemplates;
 
   async function loadAutomaticTemplates() {
     setAutomaticLoading(true);
@@ -98,6 +100,14 @@ export default function AdminMailingPage({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!preview || !shouldScrollToPreviewRef.current) return;
+    shouldScrollToPreviewRef.current = false;
+    requestAnimationFrame(() => {
+      previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [preview]);
 
   function updateField<K extends keyof MailingSettings>(field: K, value: MailingSettings[K]) {
     setSettings((current) => ({ ...current, [field]: value }));
@@ -158,37 +168,6 @@ export default function AdminMailingPage({
     setMsg("Email de prueba enviado.");
   }
 
-  async function previewEmail(template: "purchase" | "backInStock") {
-    setPreviewing(template);
-    setMsg("");
-
-    const payload =
-      template === "purchase"
-        ? {
-            template,
-          }
-        : template === "backInStock"
-        ? {
-            template,
-          }
-        : { template };
-
-    const res = await fetch("/api/admin/mailing", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => null);
-
-    setPreviewing(null);
-    if (!res.ok || !data?.ok) {
-      setMsg(String(data?.error || "No se pudo generar la previsualizacion."));
-      return;
-    }
-
-    setPreview(data.preview);
-  }
-
   function selectAutomaticTemplate(template: AutomaticEmailTemplate) {
     setSelectedTemplateKey(template.key);
     setTemplateDraft({ subject: template.subject, html: template.html, text: template.text });
@@ -197,37 +176,51 @@ export default function AdminMailingPage({
 
   async function updateAutomaticTemplate(key: string, patch: Partial<AutomaticEmailTemplate>) {
     if (!canManageAutomaticEmails) return;
+    const action = patch.enabled === undefined ? "save-template" : "toggle";
+    setAutomaticBusy({ action, key });
     setAutomaticMsg("");
-    const res = await fetch("/api/admin/mailing/automatic", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key, ...patch }),
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data?.ok) {
-      setAutomaticMsg(String(data?.error || "No se pudo guardar la plantilla."));
-      return;
+    try {
+      const res = await fetch("/api/admin/mailing/automatic", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, ...patch }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        setAutomaticMsg(String(data?.error || "No se pudo guardar la plantilla."));
+        return;
+      }
+      await loadAutomaticTemplates();
+      setAutomaticMsg("Plantilla guardada.");
+    } finally {
+      setAutomaticBusy(null);
     }
-    await loadAutomaticTemplates();
-    setAutomaticMsg("Plantilla guardada.");
   }
 
   async function automaticAction(action: string, key?: string) {
+    setAutomaticBusy({ action, key });
     setAutomaticMsg("");
-    const res = await fetch("/api/admin/mailing/automatic", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, key, to: testEmail }),
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data?.ok) {
-      setAutomaticMsg(String(data?.error || "No se pudo ejecutar la accion."));
-      return;
-    }
-    if (action === "preview") setPreview(data.preview);
-    if (action !== "preview") {
-      await loadAutomaticTemplates();
-      setAutomaticMsg(action === "test" ? "Email de prueba enviado." : "Accion ejecutada.");
+    try {
+      const res = await fetch("/api/admin/mailing/automatic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, key, to: testEmail }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        setAutomaticMsg(String(data?.error || "No se pudo ejecutar la accion."));
+        return;
+      }
+      if (action === "preview") {
+        shouldScrollToPreviewRef.current = true;
+        setPreview(data.preview);
+      }
+      if (action !== "preview") {
+        await loadAutomaticTemplates();
+        setAutomaticMsg(action === "test" ? "Email de prueba enviado." : "Accion ejecutada.");
+      }
+    } finally {
+      setAutomaticBusy(null);
     }
   }
 
@@ -282,39 +275,7 @@ export default function AdminMailingPage({
           </section>
         ) : null}
 
-        <div className="mt-8 xl:mt-6 grid gap-5 xl:gap-4 lg:grid-cols-2">
-          <MailBlock
-            title="Compra de producto"
-            description="Se envia cuando Mercado Pago confirma el pago."
-            enabled={settings.purchaseEnabled}
-            onEnabledChange={(value) => updateField("purchaseEnabled", value)}
-            canSendTest={canManageSmtp}
-            testLabel={testing === "purchase" ? "Enviando..." : "Probar compra"}
-            testDisabled={testing !== null}
-            onTest={() => sendTestEmail("purchase")}
-            previewLabel={previewing === "purchase" ? "Cargando..." : "Ver preview"}
-            previewDisabled={previewing !== null}
-            onPreview={() => previewEmail("purchase")}
-          />
-
-          <MailBlock
-            title="Vuelta de stock"
-            description="Se envia a quienes pidieron aviso cuando un producto vuelve a tener stock."
-            enabled={settings.backInStockEnabled}
-            onEnabledChange={(value) => updateField("backInStockEnabled", value)}
-            canSendTest={canManageSmtp}
-            testLabel={testing === "backInStock" ? "Enviando..." : "Probar stock"}
-            testDisabled={testing !== null}
-            onTest={() => sendTestEmail("backInStock")}
-            previewLabel={previewing === "backInStock" ? "Cargando..." : "Ver preview"}
-            previewDisabled={previewing !== null}
-            onPreview={() => previewEmail("backInStock")}
-          />
-        </div>
-
-        <MailPreview preview={preview} />
-
-        <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5 xl:p-4">
+        <section className="mt-8 xl:mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5 xl:p-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-base font-semibold">Emails automaticos</h2>
@@ -329,9 +290,10 @@ export default function AdminMailingPage({
                 <button
                   type="button"
                   onClick={() => automaticAction("retry-failed")}
-                  className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900"
+                  disabled={automaticBusy !== null}
+                  className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Reintentar fallidos
+                  {automaticBusy?.action === "retry-failed" ? "Reintentando..." : "Reintentar fallidos"}
                 </button>
               ) : null}
             </div>
@@ -425,48 +387,70 @@ export default function AdminMailingPage({
                 </tr>
               </thead>
               <tbody>
-                {automaticTemplateRows.map((template) => (
-                  <tr key={template.key} className="border-b border-zinc-800/70">
-                    <td className="py-3 pr-3 font-semibold text-zinc-100">{template.name}</td>
-                    <td className="py-3 pr-3 text-zinc-300">{template.category}</td>
-                    <td className="py-3 pr-3">
-                      <button
-                        type="button"
-                        onClick={() => updateAutomaticTemplate(template.key, { enabled: !template.enabled })}
-                        disabled={!canManageAutomaticEmails}
-                        className={[
-                          "rounded-xl border px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed",
-                          template.enabled
-                            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
-                            : "border-zinc-700 bg-zinc-950 text-zinc-400",
-                        ].join(" ")}
-                        >
-                          {template.enabled ? "Habilitado" : "Deshabilitado"}
-                      </button>
-                    </td>
-                    <td className="py-3 pr-3 text-zinc-400">{new Date(template.updatedAt).toLocaleString("es-AR")}</td>
-                    <td className="py-3 pr-3 text-zinc-400">{template.lastSentAt ? new Date(template.lastSentAt).toLocaleString("es-AR") : "-"}</td>
-                    <td className="py-3 pr-3 text-zinc-300">{template.sentCount}</td>
-                    <td className="py-3 pr-3 text-zinc-300">{template.errorCount}</td>
-                    <td className="py-3">
-                      <div className="flex flex-wrap gap-2">
-                        <button type="button" onClick={() => automaticAction("preview", template.key)} className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900">Preview</button>
-                        {canManageAutomaticEmails ? (
-                          <button
-                            type="button"
-                            onClick={() => updateAutomaticTemplate(template.key, { enabled: !template.enabled })}
-                            className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900"
+                {automaticTemplateRows.map((template) => {
+                  const isBusy = (action: string) => automaticBusy?.key === template.key && automaticBusy.action === action;
+                  const rowBusy = automaticBusy?.key === template.key;
+                  const anyBusy = automaticBusy !== null;
+                  const actionButtonClass = "rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60";
+
+                  return (
+                    <tr key={template.key} className="border-b border-zinc-800/70">
+                      <td className="py-3 pr-3 font-semibold text-zinc-100">{template.name}</td>
+                      <td className="py-3 pr-3 text-zinc-300">{template.category}</td>
+                      <td className="py-3 pr-3">
+                        <button
+                          type="button"
+                          onClick={() => updateAutomaticTemplate(template.key, { enabled: !template.enabled })}
+                          disabled={!canManageAutomaticEmails || anyBusy}
+                          className={[
+                            "rounded-xl border px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60",
+                            template.enabled
+                              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                              : "border-zinc-700 bg-zinc-950 text-zinc-400",
+                          ].join(" ")}
                           >
-                            {template.enabled ? "Desactivar" : "Activar"}
+                            {isBusy("toggle") ? "Guardando..." : template.enabled ? "Habilitado" : "Deshabilitado"}
+                        </button>
+                      </td>
+                      <td className="py-3 pr-3 text-zinc-400">{new Date(template.updatedAt).toLocaleString("es-AR")}</td>
+                      <td className="py-3 pr-3 text-zinc-400">{template.lastSentAt ? new Date(template.lastSentAt).toLocaleString("es-AR") : "-"}</td>
+                      <td className="py-3 pr-3 text-zinc-300">{template.sentCount}</td>
+                      <td className="py-3 pr-3 text-zinc-300">{template.errorCount}</td>
+                      <td className="py-3">
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => automaticAction("preview", template.key)} disabled={anyBusy} className={actionButtonClass}>
+                            {isBusy("preview") ? "Cargando..." : "Preview"}
                           </button>
-                        ) : null}
-                        {canManageAutomaticEmails ? <button type="button" onClick={() => selectAutomaticTemplate(template)} className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900">Editar</button> : null}
-                        {canManageAutomaticEmails ? <button type="button" onClick={() => automaticAction("test", template.key)} className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900">Prueba</button> : null}
-                        {canManageAutomaticEmails ? <button type="button" onClick={() => automaticAction("restore", template.key)} className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900">Restaurar</button> : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {canManageAutomaticEmails ? (
+                            <button
+                              type="button"
+                              onClick={() => updateAutomaticTemplate(template.key, { enabled: !template.enabled })}
+                              disabled={anyBusy}
+                              className={actionButtonClass}
+                            >
+                              {isBusy("toggle") ? "Guardando..." : template.enabled ? "Desactivar" : "Activar"}
+                            </button>
+                          ) : null}
+                          {canManageAutomaticEmails ? (
+                            <button type="button" onClick={() => selectAutomaticTemplate(template)} disabled={rowBusy} className={actionButtonClass}>
+                              Editar
+                            </button>
+                          ) : null}
+                          {canManageAutomaticEmails ? (
+                            <button type="button" onClick={() => automaticAction("test", template.key)} disabled={anyBusy} className={actionButtonClass}>
+                              {isBusy("test") ? "Enviando..." : "Prueba"}
+                            </button>
+                          ) : null}
+                          {canManageAutomaticEmails ? (
+                            <button type="button" onClick={() => automaticAction("restore", template.key)} disabled={anyBusy} className={actionButtonClass}>
+                              {isBusy("restore") ? "Restaurando..." : "Restaurar"}
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             {automaticLoading ? <p className="mt-4 text-sm text-zinc-400">Cargando...</p> : null}
@@ -502,6 +486,8 @@ export default function AdminMailingPage({
             </div>
           ) : null}
         </section>
+
+        <MailPreview ref={previewRef} preview={preview} onClose={() => setPreview(null)} />
 
         {canManageSmtp ? (
         <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5 xl:p-4">
@@ -590,13 +576,26 @@ function TextInput({
   );
 }
 
-function MailPreview({ preview }: { preview: { subject: string; html: string } | null }) {
+const MailPreview = forwardRef<HTMLElement, {
+  preview: { subject: string; html: string } | null;
+  onClose: () => void;
+}>(function MailPreview({
+  preview,
+  onClose,
+}, ref) {
   if (!preview) return null;
 
   return (
-    <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5 xl:p-4">
-      <div>
+    <section ref={ref} className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5 xl:p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-base font-semibold">Preview real del mail</h2>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-xl border border-zinc-700 px-3 py-1.5 text-sm font-semibold text-zinc-100 hover:bg-zinc-900"
+        >
+          Cerrar
+        </button>
       </div>
       <div className="mt-4 overflow-hidden rounded-xl border border-zinc-800 bg-white">
         <iframe
@@ -608,75 +607,4 @@ function MailPreview({ preview }: { preview: { subject: string; html: string } |
       </div>
     </section>
   );
-}
-
-function MailBlock({
-  title,
-  description,
-  enabled,
-  onEnabledChange,
-  canSendTest,
-  testLabel,
-  testDisabled,
-  onTest,
-  previewLabel,
-  previewDisabled,
-  onPreview,
-}: {
-  title: string;
-  description: string;
-  enabled: boolean;
-  onEnabledChange: (value: boolean) => void;
-  canSendTest?: boolean;
-  testLabel?: string;
-  testDisabled?: boolean;
-  onTest?: () => void;
-  previewLabel: string;
-  previewDisabled: boolean;
-  onPreview: () => void;
-}) {
-  return (
-    <section className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5 xl:p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold">{title}</h2>
-          <p className="mt-1 text-sm text-zinc-400">{description}</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => onEnabledChange(!enabled)}
-          className={[
-            "shrink-0 rounded-xl border px-3 py-1.5 text-xs font-semibold",
-            enabled
-              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20"
-              : "border-zinc-700 bg-zinc-950 text-zinc-400 hover:bg-zinc-900",
-          ].join(" ")}
-          aria-pressed={enabled}
-        >
-          {enabled ? "Habilitado" : "Deshabilitado"}
-        </button>
-      </div>
-
-      <div className="mt-6 flex flex-wrap justify-end gap-3">
-        <button
-          type="button"
-          onClick={onPreview}
-          disabled={previewDisabled}
-          className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {previewLabel}
-        </button>
-        {canSendTest && onTest ? (
-          <button
-            type="button"
-            onClick={onTest}
-            disabled={testDisabled}
-            className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {testLabel || "Probar envio"}
-          </button>
-        ) : null}
-      </div>
-    </section>
-  );
-}
+});

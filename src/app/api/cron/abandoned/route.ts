@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publicBaseUrl } from "@/lib/publicUrl";
 import { queueAndSendEmailNotification } from "@/lib/emailNotificationService";
+import { absoluteImageUrl, emailProductRowsHtml } from "@/lib/emailProductRows";
 
 export const runtime = "nodejs";
 
@@ -17,15 +18,6 @@ type SnapshotCartItem = {
   price: number;
   quantity: number;
 };
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
 
 function money(value: number) {
   return `$${value.toLocaleString("es-AR")}`;
@@ -53,26 +45,19 @@ function parseCartItems(itemsJson: string): SnapshotCartItem[] {
     );
 }
 
-function cartItemsHtml(items: SnapshotCartItem[]) {
+function cartItemsHtml(items: SnapshotCartItem[], baseUrl: string, imageByProductId: Map<string, string>) {
   if (items.length === 0) return "<p style=\"margin:0;color:#555;\">Tu carrito guardado tiene productos pendientes.</p>";
   const total = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
 
-  const rows = items
-    .map((item) => {
-      const subtotal = item.price * item.quantity;
-      return `
-        <div style="display:flex;justify-content:space-between;gap:16px;margin:10px 0;">
-          <div>
-            <div style="font-weight:700;color:#111;">${escapeHtml(item.name)}</div>
-            <div style="font-size:13px;color:#666;">Cantidad: ${item.quantity} · Unitario: ${money(item.price)}</div>
-          </div>
-          <div style="font-weight:700;color:#111;white-space:nowrap;">${money(subtotal)}</div>
-        </div>
-      `;
-    })
-    .join("");
-
-  return `${rows}<div style="border-top:1px solid #eee;margin-top:12px;padding-top:12px;text-align:right;font-weight:800;color:#111;">Total: ${money(total)}</div>`;
+  return emailProductRowsHtml(
+    items.map((item) => ({
+      name: item.name,
+      imageUrl: absoluteImageUrl(baseUrl, imageByProductId.get(item.productId)),
+      details: [`Cantidad: ${item.quantity}`, `Unitario: ${money(item.price)}`],
+      amount: money(item.price * item.quantity),
+    })),
+    { totalHtml: `<div style="padding-top:12px;text-align:right;font-weight:800;color:#111;">Total: ${money(total)}</div>` }
+  );
 }
 
 function cartItemsText(items: SnapshotCartItem[]) {
@@ -126,6 +111,15 @@ export async function POST(req: Request) {
       continue;
     }
 
+    const products = await prisma.product.findMany({
+      where: { id: { in: items.map((item) => item.productId) } },
+      select: {
+        id: true,
+        images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }], take: 1, select: { url: true } },
+      },
+    });
+    const imageByProductId = new Map(products.map((product) => [product.id, product.images[0]?.url || ""]));
+
     await queueAndSendEmailNotification({
       templateKey: "cart-abandoned",
       to: cart.user.email,
@@ -133,7 +127,7 @@ export async function POST(req: Request) {
       idempotencyKey: `cart-abandoned:${cart.id}`,
       payload: {
         customerName: cart.user.name || cart.user.email,
-        cartItemsHtml: cartItemsHtml(items),
+        cartItemsHtml: cartItemsHtml(items, baseUrl, imageByProductId),
         cartItemsText: cartItemsText(items),
         cartUrl: `${baseUrl}/cart`,
         storeName: "FikaStore",

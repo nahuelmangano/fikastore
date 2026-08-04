@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isAdminRole, isStaffRole } from "@/lib/roles";
 import { sanitizeRichText, stripRichText } from "@/lib/richText";
-import { getEmailJobSettings, setEmailJobSettings } from "@/lib/storeSettings";
+import { getEmailJobSettings, getMailingSettings, setEmailJobSettings } from "@/lib/storeSettings";
 import {
   ensureDefaultEmailTemplates,
   processPendingEmailNotifications,
@@ -12,10 +12,14 @@ import {
   restoreDefaultEmailTemplate,
 } from "@/lib/emailNotificationService";
 import { publicBaseUrl } from "@/lib/publicUrl";
+import { orderPaidTemplate } from "@/lib/email-templates";
+import { sendMail } from "@/lib/mailer";
+import { emailProductRowsHtml } from "@/lib/emailProductRows";
 import type { EmailTemplateKey } from "@/lib/emailNotificationTemplates";
 
 function samplePayload(req: Request) {
   const baseUrl = publicBaseUrl(req);
+  const sampleImageUrl = `${baseUrl}/fika-logo.svg`;
   return {
     customerName: "Cliente de prueba",
     orderNumber: "#1001",
@@ -29,13 +33,22 @@ function samplePayload(req: Request) {
     paymentUrl: `${baseUrl}/pay/pending?orderId=test-order`,
     reminderNumber: "1",
     orderUrl: `${baseUrl}/account/orders/test-order`,
-    productsHtml: "<div><strong>Producto de prueba</strong><br><a href=\"#\">Dejar opinión</a></div>",
+    productsHtml: emailProductRowsHtml([
+      {
+        name: "Producto de prueba",
+        imageUrl: sampleImageUrl,
+        details: ["Cantidad: 1"],
+        linkHtml: "<a href=\"#\" style=\"display:inline-block;margin-top:8px;color:#111;\">Dejar opinión</a>",
+      },
+    ]),
     couponCode: "CUMPLE-CLIENTE-A8X4K2",
     discount: "15%",
     expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toLocaleDateString("es-AR"),
     returnCode: "DEV-A8X4K2",
     returnStatus: "APPROVED",
-    itemsHtml: "<div><strong>Producto de prueba</strong> · Cantidad 1</div>",
+    itemsHtml: emailProductRowsHtml([
+      { name: "Producto de prueba", imageUrl: sampleImageUrl, details: ["Cantidad: 1"] },
+    ]),
     nextSteps: "Seguí las instrucciones para avanzar.",
     returnInstructions: "Te contactaremos con los próximos pasos.",
     refundAmount: "$10.000",
@@ -43,29 +56,71 @@ function samplePayload(req: Request) {
     refundDate: new Date().toLocaleDateString("es-AR"),
     estimatedAccreditation: "La acreditación puede demorar algunos días hábiles.",
     productName: "Producto de prueba",
+    productHtml: emailProductRowsHtml([
+      { name: "Producto de prueba", imageUrl: sampleImageUrl, details: ["Disponible nuevamente"] },
+    ]),
     productUrl: `${baseUrl}/products/producto-de-prueba`,
-    cartItemsHtml: `
-      <div style="display:flex;justify-content:space-between;gap:16px;margin:10px 0;">
-        <div>
-          <div style="font-weight:700;color:#111;">Producto de prueba</div>
-          <div style="font-size:13px;color:#666;">Cantidad: 1 · Unitario: $24.900</div>
-        </div>
-        <div style="font-weight:700;color:#111;white-space:nowrap;">$24.900</div>
-      </div>
-      <div style="display:flex;justify-content:space-between;gap:16px;margin:10px 0;">
-        <div>
-          <div style="font-weight:700;color:#111;">Otro producto</div>
-          <div style="font-size:13px;color:#666;">Cantidad: 2 · Unitario: $8.500</div>
-        </div>
-        <div style="font-weight:700;color:#111;white-space:nowrap;">$17.000</div>
-      </div>
-      <div style="border-top:1px solid #eee;margin-top:12px;padding-top:12px;text-align:right;font-weight:800;color:#111;">Total: $41.900</div>
-    `,
+    cartItemsHtml: emailProductRowsHtml(
+      [
+        { name: "Producto de prueba", imageUrl: sampleImageUrl, details: ["Cantidad: 1", "Unitario: $24.900"], amount: "$24.900" },
+        { name: "Otro producto", imageUrl: sampleImageUrl, details: ["Cantidad: 2", "Unitario: $8.500"], amount: "$17.000" },
+      ],
+      { totalHtml: "<div style=\"padding-top:12px;text-align:right;font-weight:800;color:#111;\">Total: $41.900</div>" }
+    ),
     cartItemsText: "Producto de prueba x1 ($24.900); Otro producto x2 ($17.000). Total: $41.900",
     cartUrl: `${baseUrl}/cart`,
     supportEmail: process.env.SUPPORT_EMAIL || process.env.SMTP_FROM || "soporte@fikastore",
     storeName: "FikaStore",
     storeUrl: baseUrl,
+  };
+}
+
+async function detailedPaymentApprovedPreview(req: Request) {
+  const baseUrl = publicBaseUrl(req);
+  const mailing = await getMailingSettings();
+  const rendered = await renderEmailTemplate("payment-approved", samplePayload(req));
+
+  return {
+    subject: rendered.subject,
+    html: orderPaidTemplate({
+      customerName: "Cliente de prueba",
+      orderId: "test-order",
+      orderNumber: 1001,
+      orderDate: new Date(),
+      payment: {
+        provider: "Mercado Pago",
+        status: "approved",
+        method: "visa",
+        paymentId: "123456789",
+        installments: 1,
+        amount: 24900,
+      },
+      shipping: {
+        method: "correo",
+        deliveryType: "D",
+        addressLine: "Av. Corrientes 1234",
+        city: "CABA",
+        province: "Buenos Aires",
+        zip: "1043",
+        amount: 0,
+      },
+      billingAddress: {
+        name: "Cliente de prueba",
+        addressLine: "Av. Corrientes 1234",
+        city: "CABA",
+        province: "Buenos Aires",
+        zip: "1043",
+      },
+      subtotal: 24900,
+      discount: 0,
+      total: 24900,
+      items: [
+        { name: "Producto de prueba", variantName: "Talle M", qty: 1, unit: 14900, subtotal: 14900, imageUrl: `${baseUrl}/fika-logo.svg` },
+        { name: "Variante de ejemplo", variantName: "Talle L", qty: 2, unit: 5000, subtotal: 10000, imageUrl: `${baseUrl}/fika-logo.svg` },
+      ],
+      message: mailing.purchaseMessage,
+    }),
+    text: rendered.text,
   };
 }
 
@@ -149,6 +204,11 @@ export async function POST(req: Request) {
   }
 
   if (action === "preview") {
+    if (key === "payment-approved") {
+      const preview = await detailedPaymentApprovedPreview(req);
+      return NextResponse.json({ ok: true, preview });
+    }
+
     const preview = await renderEmailTemplate(key, samplePayload(req));
     return NextResponse.json({ ok: true, preview: { subject: preview.subject, html: preview.html, text: preview.text } });
   }
@@ -160,13 +220,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Indicá un email válido." }, { status: 400 });
     }
 
-    await queueAndSendEmailNotification({
-      templateKey: key,
-      to,
-      idempotencyKey: `admin-test:${key}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
-      isTest: true,
-      payload: samplePayload(req),
-    });
+    if (key === "payment-approved") {
+      const preview = await detailedPaymentApprovedPreview(req);
+      await sendMail({
+        to,
+        subject: preview.subject,
+        html: preview.html,
+        text: preview.text,
+      });
+    } else {
+      await queueAndSendEmailNotification({
+        templateKey: key,
+        to,
+        idempotencyKey: `admin-test:${key}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+        isTest: true,
+        payload: samplePayload(req),
+      });
+    }
     return NextResponse.json({ ok: true });
   }
 

@@ -65,7 +65,11 @@ export async function ensureDefaultEmailTemplates() {
   for (const template of EMAIL_TEMPLATE_DEFAULTS) {
     const existing = await prisma.emailTemplate.findUnique({ where: { key: template.key } });
     if (existing) {
-      if (template.key === "cart-abandoned" && !existing.html.includes("cartItemsHtml")) {
+      if (
+        (template.key === "cart-abandoned" && !existing.html.includes("cartItemsHtml")) ||
+        (template.key === "back-in-stock" && !existing.html.includes("productHtml")) ||
+        (template.key === "order-shipped" && !existing.html.includes("Entregado"))
+      ) {
         await prisma.emailTemplate.update({
           where: { key: template.key },
           data: {

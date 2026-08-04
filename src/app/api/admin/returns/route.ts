@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isStaffRole } from "@/lib/roles";
 import { queueAndSendEmailNotification } from "@/lib/emailNotificationService";
+import { absoluteImageUrl, emailProductRowsHtml } from "@/lib/emailProductRows";
 import { publicBaseUrl } from "@/lib/publicUrl";
 
 function returnCode() {
@@ -57,13 +58,27 @@ export async function POST(req: Request) {
       returnInstructions: String(body.returnInstructions || "").trim() || null,
       items: { create: returnItems },
     },
-    include: { items: { include: { product: true } } },
+    include: {
+      items: {
+        include: {
+          product: {
+            include: {
+              images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }], take: 1 },
+            },
+          },
+        },
+      },
+    },
   });
 
   const baseUrl = publicBaseUrl(req);
-  const itemsHtml = returnRequest.items
-    .map((item) => `<div style="margin:6px 0;"><strong>${item.product.name}</strong> · Cantidad ${item.quantity}</div>`)
-    .join("");
+  const itemsHtml = emailProductRowsHtml(
+    returnRequest.items.map((item) => ({
+      name: item.product.name,
+      imageUrl: absoluteImageUrl(baseUrl, item.product.images[0]?.url),
+      details: [`Cantidad: ${item.quantity}`],
+    }))
+  );
 
   await queueAndSendEmailNotification({
     templateKey: "return-confirmation",

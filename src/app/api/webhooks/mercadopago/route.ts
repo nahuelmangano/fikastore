@@ -1,10 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getResolvedMercadoPagoAccessToken } from "@/lib/storeSettings";
+import { getMailingSettings, getResolvedMercadoPagoAccessToken } from "@/lib/storeSettings";
 import { notifyBackInStock } from "@/lib/stockNotifications";
 import { publicBaseUrl } from "@/lib/publicUrl";
-import { cancelScheduledEmailJobs, queueAndSendEmailNotification } from "@/lib/emailNotificationService";
+import { cancelScheduledEmailJobs, queueAndSendEmailNotification, renderEmailTemplate } from "@/lib/emailNotificationService";
+import { orderPaidTemplate } from "@/lib/email-templates";
+import { sendMail } from "@/lib/mailer";
 
 type MpWebhookBody = any;
 
@@ -47,6 +49,103 @@ function normalizeStatus(mpStatus: string | undefined): string {
   if (s === "refunded" || s === "charged_back") return "refunded";
   if (s === "pending" || s === "in_process" || s === "authorized") return "pending";
   return "unknown";
+}
+
+function absoluteUrl(baseUrl: string, value?: string | null) {
+  if (!value) return undefined;
+  if (/^https?:\/\//i.test(value)) return value;
+  return `${baseUrl}${value.startsWith("/") ? value : `/${value}`}`;
+}
+
+async function sendDetailedPaidEmail(input: {
+  orderId: string;
+  paymentRowId?: string;
+  payment: any;
+  req?: Request;
+}) {
+  const order = await prisma.order.findUnique({
+    where: { id: input.orderId },
+    include: {
+      user: { select: { email: true, name: true } },
+      items: {
+        include: {
+          product: {
+            include: {
+              images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }], take: 1 },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!order?.user.email) return;
+
+  const baseUrl = publicBaseUrl(input.req);
+  const subtotal = order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
+  const shippingAmount = Number(order.shippingAmount);
+  const paymentAmount = Number(input.payment.transaction_amount || order.total);
+  const paymentMethod = input.payment.payment_method_id ? String(input.payment.payment_method_id) : "";
+  const subjectPayload = {
+    customerName: order.user.name || order.shippingName || order.user.email,
+    orderNumber: order.orderNumber ? `#${order.orderNumber}` : order.id,
+    orderUrl: `${baseUrl}/account/orders/${order.id}`,
+    storeName: "FikaStore",
+    storeUrl: baseUrl,
+  };
+  const [mailing, renderedTemplate] = await Promise.all([
+    getMailingSettings(),
+    renderEmailTemplate("payment-approved", subjectPayload),
+  ]);
+
+  if (!renderedTemplate.template.enabled) return;
+
+  await sendMail({
+    to: order.user.email,
+    subject: renderedTemplate.subject,
+    html: orderPaidTemplate({
+      customerName: order.user.name || order.shippingName || order.user.email,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      orderDate: order.createdAt,
+      payment: {
+        provider: "Mercado Pago",
+        status: "approved",
+        method: paymentMethod || undefined,
+        paymentId: String(input.payment.id || input.paymentRowId || ""),
+        installments: Number(input.payment.installments || 0) || undefined,
+        amount: paymentAmount,
+      },
+      shipping: {
+        method: order.shippingMethod,
+        deliveryType: order.shippingDeliveryType,
+        branchName: order.shippingBranchName,
+        addressLine: order.shippingAddressLine,
+        city: order.shippingCity,
+        province: order.shippingProvince,
+        zip: order.shippingZip,
+        amount: shippingAmount,
+      },
+      billingAddress: {
+        name: order.shippingName,
+        addressLine: order.shippingAddressLine,
+        city: order.shippingCity,
+        province: order.shippingProvince,
+        zip: order.shippingZip,
+      },
+      subtotal,
+      discount: 0,
+      total: Number(order.total),
+      items: order.items.map((item) => ({
+        name: item.nameSnapshot,
+        qty: item.quantity,
+        unit: Number(item.unitPrice),
+        subtotal: Number(item.subtotal),
+        imageUrl: absoluteUrl(baseUrl, item.product.images[0]?.url),
+      })),
+      message: mailing.purchaseMessage,
+    }),
+  });
 }
 
 async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
@@ -186,21 +285,7 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
 
   // Notificaciones fuera de la transacción.
   if (shouldSendPaidEmail && emailTo) {
-    const baseUrl = publicBaseUrl(req);
-    await queueAndSendEmailNotification({
-      templateKey: "payment-approved",
-      to: emailTo,
-      orderId,
-      paymentId: paymentRowId,
-      idempotencyKey: `payment-approved:${paymentId}`,
-      payload: {
-        customerName: emailName || emailTo,
-        orderNumber: orderNumber ? `#${orderNumber}` : orderId,
-        orderUrl: `${baseUrl}/account/orders/${orderId}`,
-        storeName: "FikaStore",
-        storeUrl: baseUrl,
-      },
-    }).catch(() => {});
+    await sendDetailedPaidEmail({ orderId, paymentRowId, payment, req }).catch(() => {});
   }
 
   if (shouldSendRejectedEmail && emailTo) {

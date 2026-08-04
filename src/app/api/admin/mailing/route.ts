@@ -9,7 +9,7 @@ import {
 import { orderPaidTemplate, stockBackInStockTemplate } from "@/lib/email-templates";
 import { publicBaseUrl } from "@/lib/publicUrl";
 import { isAdminRole, isStaffRole } from "@/lib/roles";
-import { queueAndSendEmailNotification } from "@/lib/emailNotificationService";
+import { sendMail } from "@/lib/mailer";
 
 export const runtime = "nodejs";
 
@@ -242,44 +242,17 @@ export async function POST(req: Request) {
   }
 
   try {
-    const baseUrl = publicBaseUrl(req);
-    const templateKey =
-      template === "purchase" ? "payment-approved" :
-      template === "backInStock" ? "back-in-stock" :
-      "cart-abandoned";
-    await queueAndSendEmailNotification({
-      templateKey,
+    const preview = await buildMailPreview({
+      template,
+      subject: String(body.subject || "").trim(),
+      message: String(body.message || "").trim(),
+      req,
+    });
+
+    await sendMail({
       to,
-      idempotencyKey: `admin-test:${templateKey}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
-      isTest: true,
-      payload: {
-        customerName: "Cliente de prueba",
-        orderNumber: "#1001",
-        orderUrl: `${baseUrl}/account/orders/test-order`,
-        productName: "Producto de prueba",
-        productUrl: `${baseUrl}/products/producto-de-prueba`,
-        cartItemsHtml: `
-          <div style="display:flex;justify-content:space-between;gap:16px;margin:10px 0;">
-            <div>
-              <div style="font-weight:700;color:#111;">Producto de prueba</div>
-              <div style="font-size:13px;color:#666;">Cantidad: 1 · Unitario: $24.900</div>
-            </div>
-            <div style="font-weight:700;color:#111;white-space:nowrap;">$24.900</div>
-          </div>
-          <div style="display:flex;justify-content:space-between;gap:16px;margin:10px 0;">
-            <div>
-              <div style="font-weight:700;color:#111;">Otro producto</div>
-              <div style="font-size:13px;color:#666;">Cantidad: 2 · Unitario: $8.500</div>
-            </div>
-            <div style="font-weight:700;color:#111;white-space:nowrap;">$17.000</div>
-          </div>
-          <div style="border-top:1px solid #eee;margin-top:12px;padding-top:12px;text-align:right;font-weight:800;color:#111;">Total: $41.900</div>
-        `,
-        cartItemsText: "Producto de prueba x1 ($24.900); Otro producto x2 ($17.000). Total: $41.900",
-        cartUrl: `${baseUrl}/cart`,
-        storeName: "FikaStore",
-        storeUrl: baseUrl,
-      },
+      subject: preview.subject,
+      html: preview.html,
     });
   } catch (error) {
     return NextResponse.json(
