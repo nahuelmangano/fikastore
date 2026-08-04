@@ -7,6 +7,7 @@ import { getEmailJobSettings, getTemporaryShutdownSettings } from "@/lib/storeSe
 import { validateArgentinaPostalCodeProvince } from "@/lib/argentinaPostalCode";
 import { publicBaseUrl } from "@/lib/publicUrl";
 import { queueAndSendEmailNotification, scheduleEmailJob } from "@/lib/emailNotificationService";
+import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows";
 
 export const runtime = "nodejs";
 
@@ -215,6 +216,15 @@ export async function POST(req: Request) {
       include: {
         user: { select: { id: true, email: true, name: true } },
         payments: { orderBy: { createdAt: "desc" }, take: 1 },
+        items: {
+          include: {
+            product: {
+              include: {
+                images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }], take: 1 },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -232,6 +242,8 @@ export async function POST(req: Request) {
         payload: {
           customerName: createdOrder.user.name || createdOrder.user.email,
           orderNumber: `#${createdOrder.orderNumber}`,
+          productsHtml: emailOrderItemsHtml(createdOrder.items, baseUrl, { total: createdOrder.total }),
+          productsText: emailOrderItemsText(createdOrder.items, { total: createdOrder.total }),
           paymentAmount: `$${Number(createdOrder.total).toLocaleString("es-AR")}`,
           paymentMethod: "Mercado Pago",
           paymentInstructions: "Podés completar el pago desde el enlace de tu pedido.",

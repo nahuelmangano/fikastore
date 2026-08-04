@@ -41,6 +41,7 @@ function samplePayload(req: Request) {
         linkHtml: "<a href=\"#\" style=\"display:inline-block;margin-top:8px;color:#111;\">Dejar opinión</a>",
       },
     ]),
+    productsText: "Producto de prueba x1 ($24.900)",
     couponCode: "CUMPLE-CLIENTE-A8X4K2",
     discount: "15%",
     expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toLocaleDateString("es-AR"),

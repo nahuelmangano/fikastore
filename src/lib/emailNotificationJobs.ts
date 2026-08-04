@@ -9,6 +9,7 @@ import {
   scheduleEmailJob,
 } from "@/lib/emailNotificationService";
 import { publicBaseUrl } from "@/lib/publicUrl";
+import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows";
 
 function workerId() {
   return `${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
@@ -53,7 +54,22 @@ async function processPaymentReminder(payload: Record<string, unknown>, req: Req
 
   const payment = await prisma.payment.findUnique({
     where: { id: paymentId },
-    include: { order: { include: { user: true } } },
+    include: {
+      order: {
+        include: {
+          user: true,
+          items: {
+            include: {
+              product: {
+                include: {
+                  images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }], take: 1 },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
   });
 
   if (!payment || payment.status !== "pending" || payment.order.status !== "pending_payment") {
@@ -75,6 +91,8 @@ async function processPaymentReminder(payload: Record<string, unknown>, req: Req
     payload: {
       customerName: payment.order.user.name || payment.order.user.email,
       orderNumber: payment.order.orderNumber ? `#${payment.order.orderNumber}` : payment.order.id,
+      productsHtml: emailOrderItemsHtml(payment.order.items, baseUrl, { total: payment.order.total }),
+      productsText: emailOrderItemsText(payment.order.items, { total: payment.order.total }),
       paymentAmount: money(Number(payment.order.total)),
       reminderNumber: String(reminderNumber),
       paymentUrl: `${baseUrl}/pay/pending?orderId=${payment.order.id}`,

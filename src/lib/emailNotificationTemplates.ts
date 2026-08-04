@@ -1,4 +1,4 @@
-export type EmailTemplateKey =
+﻿export type EmailTemplateKey =
   | "payment-approved"
   | "payment-rejected"
   | "payment-pending"
@@ -58,10 +58,11 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefault[] = [
     category: "Pagos",
     subject: "{{storeName}} · No pudimos aprobar tu pago",
     enabled: true,
-    variables: ["customerName", "orderNumber", "paymentAmount", "paymentMethod", "paymentStatus", "rejectionReason", "retryPaymentUrl", "storeName", "storeUrl", "supportEmail"],
+    variables: ["customerName", "orderNumber", "productsHtml", "productsText", "paymentAmount", "paymentMethod", "paymentStatus", "rejectionReason", "retryPaymentUrl", "storeName", "storeUrl", "supportEmail"],
     html: layout(
       "No pudimos aprobar tu pago",
       `<p style="margin:0 0 18px;color:#444;">Hola {{customerName}}, el pago del pedido {{orderNumber}} fue rechazado.</p>
+       <div style="border-top:1px solid #ddd;border-bottom:1px solid #ddd;padding:14px 0;margin:14px 0;">{{{productsHtml}}}</div>
        <div style="border-top:1px solid #ddd;border-bottom:1px solid #ddd;padding:16px 0;margin-bottom:18px;">
          <p style="margin:0 0 8px;color:#444;">Importe: <strong>{{paymentAmount}}</strong></p>
          <p style="margin:0 0 8px;color:#444;">Medio: <strong>{{paymentMethod}}</strong></p>
@@ -71,7 +72,7 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefault[] = [
        <p style="margin:18px 0 0;"><a href="{{retryPaymentUrl}}" style="display:inline-block;background:#111;color:#fff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:700;">Reintentar pago</a></p>
        <p style="margin:14px 0 0;color:#555;">También podés contactarnos en {{supportEmail}}.</p>`
     ),
-    text: "Hola {{customerName}}, el pago del pedido {{orderNumber}} fue rechazado. Importe: {{paymentAmount}}. Medio: {{paymentMethod}}. Estado: {{paymentStatus}}. Motivo: {{rejectionReason}}. Reintentar: {{retryPaymentUrl}}. Contacto: {{supportEmail}}",
+    text: "Hola {{customerName}}, el pago del pedido {{orderNumber}} fue rechazado. Productos: {{productsText}}. Importe: {{paymentAmount}}. Medio: {{paymentMethod}}. Estado: {{paymentStatus}}. Motivo: {{rejectionReason}}. Reintentar: {{retryPaymentUrl}}. Contacto: {{supportEmail}}",
   },
   {
     key: "payment-pending",
@@ -79,17 +80,18 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefault[] = [
     category: "Pagos",
     subject: "{{storeName}} · Tu pago está pendiente",
     enabled: true,
-    variables: ["customerName", "orderNumber", "paymentAmount", "paymentMethod", "paymentInstructions", "paymentDueDate", "paymentUrl", "storeName", "storeUrl"],
+    variables: ["customerName", "orderNumber", "productsHtml", "productsText", "paymentAmount", "paymentMethod", "paymentInstructions", "paymentDueDate", "paymentUrl", "storeName", "storeUrl"],
     html: layout(
       "Tu pago está pendiente",
       `<p style="margin:0 0 18px;color:#444;">Hola {{customerName}}, creamos tu pedido {{orderNumber}} y el pago está pendiente.</p>
+       <div style="border-top:1px solid #ddd;border-bottom:1px solid #ddd;padding:14px 0;margin:14px 0;">{{{productsHtml}}}</div>
        <p style="margin:0 0 8px;color:#444;">Importe total: <strong>{{paymentAmount}}</strong></p>
        <p style="margin:0 0 8px;color:#444;">Medio de pago: <strong>{{paymentMethod}}</strong></p>
        <p style="margin:0 0 8px;color:#444;">{{paymentInstructions}}</p>
        <p style="margin:0;color:#444;">Fecha límite: {{paymentDueDate}}</p>
        <p style="margin:18px 0 0;"><a href="{{paymentUrl}}" style="display:inline-block;background:#111;color:#fff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:700;">Completar pago</a></p>`
     ),
-    text: "Hola {{customerName}}, tu pedido {{orderNumber}} está pendiente. Total: {{paymentAmount}}. Medio: {{paymentMethod}}. {{paymentInstructions}} Fecha límite: {{paymentDueDate}}. Completar: {{paymentUrl}}",
+    text: "Hola {{customerName}}, tu pedido {{orderNumber}} está pendiente. Productos: {{productsText}}. Total: {{paymentAmount}}. Medio: {{paymentMethod}}. {{paymentInstructions}} Fecha límite: {{paymentDueDate}}. Completar: {{paymentUrl}}",
   },
   {
     key: "payment-pending-reminder",
@@ -97,14 +99,15 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefault[] = [
     category: "Pagos",
     subject: "{{storeName}} · Recordatorio de pago pendiente",
     enabled: true,
-    variables: ["customerName", "orderNumber", "paymentAmount", "reminderNumber", "paymentUrl", "storeName", "storeUrl"],
+    variables: ["customerName", "orderNumber", "productsHtml", "productsText", "paymentAmount", "reminderNumber", "paymentUrl", "storeName", "storeUrl"],
     html: layout(
       "Tu pago sigue pendiente",
       `<p style="margin:0 0 18px;color:#444;">Hola {{customerName}}, este es el recordatorio {{reminderNumber}} para completar el pago del pedido {{orderNumber}}.</p>
+       <div style="border-top:1px solid #ddd;border-bottom:1px solid #ddd;padding:14px 0;margin:14px 0;">{{{productsHtml}}}</div>
        <p style="margin:0;color:#444;">Importe total: <strong>{{paymentAmount}}</strong></p>
        <p style="margin:18px 0 0;"><a href="{{paymentUrl}}" style="display:inline-block;background:#111;color:#fff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:700;">Completar pago</a></p>`
     ),
-    text: "Recordatorio {{reminderNumber}}. El pago del pedido {{orderNumber}} sigue pendiente por {{paymentAmount}}. Completar: {{paymentUrl}}",
+    text: "Recordatorio {{reminderNumber}}. El pago del pedido {{orderNumber}} sigue pendiente. Productos: {{productsText}}. Total: {{paymentAmount}}. Completar: {{paymentUrl}}",
   },
   {
     key: "review-request",
@@ -132,9 +135,10 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefault[] = [
       "Tu regalo de cumpleaños",
       `<p style="margin:0 0 18px;color:#444;">Hola {{customerName}}, te dejamos un cupón especial para tu cumpleaños.</p>
        <div style="border:1px solid #ddd;border-radius:8px;padding:16px;font-size:22px;font-weight:800;text-align:center;">{{couponCode}}</div>
-       <p style="margin:16px 0 0;color:#444;">Descuento: {{discount}} · Vence: {{expiresAt}}</p>`
+       <p style="margin:16px 0 0;color:#444;">Descuento: {{discount}} · Vence: {{expiresAt}}</p>
+       <p style="margin:18px 0 0;"><a href="{{storeUrl}}" style="display:inline-block;background:#111;color:#fff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:700;">Ir a la tienda</a></p>`
     ),
-    text: "Hola {{customerName}}, tu cupón de cumpleaños es {{couponCode}}. Descuento: {{discount}}. Vence: {{expiresAt}}.",
+    text: "Hola {{customerName}}, tu cupón de cumpleaños es {{couponCode}}. Descuento: {{discount}}. Vence: {{expiresAt}}. Ir a la tienda: {{storeUrl}}",
   },
   {
     key: "return-confirmation",

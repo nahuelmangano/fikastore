@@ -7,6 +7,7 @@ import { publicBaseUrl } from "@/lib/publicUrl";
 import { cancelScheduledEmailJobs, queueAndSendEmailNotification, renderEmailTemplate } from "@/lib/emailNotificationService";
 import { orderPaidTemplate } from "@/lib/email-templates";
 import { sendMail } from "@/lib/mailer";
+import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows";
 
 type MpWebhookBody = any;
 
@@ -290,6 +291,20 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
 
   if (shouldSendRejectedEmail && emailTo) {
     const baseUrl = publicBaseUrl(req);
+    const rejectedOrder = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            product: {
+              include: {
+                images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }], take: 1 },
+              },
+            },
+          },
+        },
+      },
+    });
     await queueAndSendEmailNotification({
       templateKey: "payment-rejected",
       to: emailTo,
@@ -299,6 +314,8 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
       payload: {
         customerName: emailName || emailTo,
         orderNumber: orderNumber ? `#${orderNumber}` : orderId,
+        productsHtml: rejectedOrder ? emailOrderItemsHtml(rejectedOrder.items, baseUrl, { total: rejectedOrder.total }) : "",
+        productsText: rejectedOrder ? emailOrderItemsText(rejectedOrder.items, { total: rejectedOrder.total }) : "",
         paymentAmount: `$${orderTotal.toLocaleString("es-AR")}`,
         paymentMethod: payment.payment_method_id ? String(payment.payment_method_id) : "Mercado Pago",
         paymentStatus: mpStatus,

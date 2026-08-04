@@ -6,6 +6,16 @@ type EmailProductRow = {
   linkHtml?: string;
 };
 
+type EmailOrderItem = {
+  nameSnapshot: string;
+  quantity: number;
+  unitPrice: unknown;
+  subtotal: unknown;
+  product?: {
+    images?: { url?: string | null }[];
+  } | null;
+};
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -51,4 +61,30 @@ export function emailProductRowsHtml(rows: EmailProductRow[], options?: { totalH
     .join("");
 
   return `${body}${options?.totalHtml || ""}`;
+}
+
+function money(value: unknown) {
+  return `$${Number(value || 0).toLocaleString("es-AR")}`;
+}
+
+export function emailOrderItemsHtml(items: EmailOrderItem[], baseUrl: string, options?: { total?: unknown }) {
+  return emailProductRowsHtml(
+    items.map((item) => ({
+      name: item.nameSnapshot,
+      imageUrl: absoluteImageUrl(baseUrl, item.product?.images?.[0]?.url),
+      details: [`Cantidad: ${item.quantity}`, `Unitario: ${money(item.unitPrice)}`],
+      amount: money(item.subtotal),
+    })),
+    options?.total === undefined
+      ? undefined
+      : { totalHtml: `<div style="padding-top:12px;text-align:right;font-weight:800;color:#111;">Total: ${money(options.total)}</div>` }
+  );
+}
+
+export function emailOrderItemsText(items: EmailOrderItem[], options?: { total?: unknown }) {
+  const body = items
+    .map((item) => `${item.nameSnapshot} x${item.quantity} (${money(item.subtotal)})`)
+    .join("; ");
+  if (options?.total === undefined) return body;
+  return `${body}. Total: ${money(options.total)}`;
 }

@@ -20,6 +20,7 @@ function RegisterForm() {
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [birthDate, setBirthDate] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -51,7 +52,7 @@ function RegisterForm() {
             const r = await fetch("/api/register", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ name, email, password }),
+              body: JSON.stringify({ name, email, password, birthDate }),
             });
 
             const data = await r.json().catch(() => ({}));
@@ -76,7 +77,7 @@ function RegisterForm() {
               return;
             }
 
-            router.replace("/");
+            router.replace(next);
             router.refresh();
           }}
         >
@@ -100,6 +101,18 @@ function RegisterForm() {
               autoComplete="email"
               required
             />
+          </div>
+
+          <div>
+            <label className="text-sm text-zinc-300">Fecha de nacimiento (opcional)</label>
+            <input
+              type="date"
+              className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
+              value={birthDate}
+              onChange={(e) => setBirthDate(e.target.value)}
+              autoComplete="bday"
+            />
+            <p className="mt-2 text-xs text-zinc-500">La usamos para enviarte beneficios de cumpleaños.</p>
           </div>
 
           <div>

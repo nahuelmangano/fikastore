@@ -68,7 +68,9 @@ export async function ensureDefaultEmailTemplates() {
       if (
         (template.key === "cart-abandoned" && !existing.html.includes("cartItemsHtml")) ||
         (template.key === "back-in-stock" && !existing.html.includes("productHtml")) ||
-        (template.key === "order-shipped" && !existing.html.includes("Entregado"))
+        (template.key === "order-shipped" && !existing.html.includes("Entregado")) ||
+        (template.key === "birthday-coupon" && (!existing.html.includes("Ir a la tienda") || /Ã|Â/.test(existing.html) || /Ã|Â/.test(existing.text))) ||
+        (["payment-rejected", "payment-pending", "payment-pending-reminder"].includes(template.key) && !existing.html.includes("productsHtml"))
       ) {
         await prisma.emailTemplate.update({
           where: { key: template.key },
