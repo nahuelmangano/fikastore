@@ -71,7 +71,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
   }
 
-  const cutoff = new Date(Date.now() - 10 * 60 * 1000);
+  const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000);
   const baseUrl = publicBaseUrl(req);
 
   const [carts, payments] = await Promise.all([
