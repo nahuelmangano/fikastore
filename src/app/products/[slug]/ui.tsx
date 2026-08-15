@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { addToCart } from "@/lib/cart";
 import SiteHeader from "@/components/SiteHeader";
 import { sanitizeRichText } from "@/lib/richText";
+import { trackMetaAddToCart, trackMetaViewContent } from "@/lib/metaPixelEvents";
 
 function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
@@ -88,6 +89,7 @@ export default function ProductDetailClient({
   const [quoteRows, setQuoteRows] = useState<Array<{ label: string; amount: number }>>([]);
   const [stockAlertLoading, setStockAlertLoading] = useState(false);
   const [stockAlertMessage, setStockAlertMessage] = useState<string | null>(null);
+  const lastTrackedViewContentId = useRef<string | null>(null);
 
   const price = Number(selected.price);
   const promo = Number(promoPercents[selected.id] ?? promoPercent ?? 0);
@@ -110,6 +112,16 @@ export default function ProductDetailClient({
     attributeNames.length > 0 &&
     variantAttributeEntries.every((entry) => attributeNames.every((name) => entry.attrs.has(name)));
   const selectedAttrs = variantAttributes(selected.name);
+
+  useEffect(() => {
+    if (lastTrackedViewContentId.current === selected.id) return;
+    lastTrackedViewContentId.current = selected.id;
+    trackMetaViewContent({
+      id: selected.id,
+      name: selected.name,
+      price: finalPrice,
+    });
+  }, [finalPrice, selected.id, selected.name]);
 
   function selectVariant(variant: ProductVariant) {
     setSelectedId(variant.id);
@@ -422,6 +434,12 @@ export default function ProductDetailClient({
                       },
                       qty
                     );
+                    trackMetaAddToCart({
+                      id: selected.id,
+                      name: selected.name,
+                      price: finalPrice,
+                      quantity: qty,
+                    });
                     window.dispatchEvent(new Event("cart:open"));
                   }}
                   className="mt-4 w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white"

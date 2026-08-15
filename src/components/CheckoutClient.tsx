@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CartItem, clearCart, clearPromoCode, readCart, readPromoCode } from "@/lib/cart";
 import { validateArgentinaPostalCodeProvince } from "@/lib/argentinaPostalCode";
+import { trackMetaInitiateCheckout } from "@/lib/metaPixelEvents";
 
 type Shipping = {
   name: string;
@@ -136,6 +137,7 @@ export default function CheckoutClient() {
   const [promoCode, setPromoCode] = useState("");
   const [pricing, setPricing] = useState<PricingData | null>(null);
   const [pricingError, setPricingError] = useState<string | null>(null);
+  const checkoutTracked = useRef(false);
 
   useEffect(() => {
     const sync = () => {
@@ -153,6 +155,16 @@ export default function CheckoutClient() {
       window.removeEventListener("storage", onChange);
     };
   }, []);
+
+  useEffect(() => {
+    if (checkoutTracked.current || items.length === 0) return;
+    checkoutTracked.current = true;
+    trackMetaInitiateCheckout(items.map((item) => ({
+      id: item.productId,
+      price: item.price,
+      quantity: item.quantity,
+    })));
+  }, [items]);
 
   const summaryItems = orderId ? orderItems : items;
   const subtotalFallback = useMemo(

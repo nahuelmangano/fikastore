@@ -3,6 +3,7 @@ import { flattenCategories } from "@/lib/categories";
 import { auth } from "@/auth";
 import {
   getAnnouncementText,
+  getAnalyticsSettings,
   getFaviconUrl,
   getHomeCategoryTiles,
   getMercadoPagoSettings,
@@ -24,6 +25,7 @@ export default async function SettingsPage() {
     faviconUrl,
     temporaryShutdown,
     mercadoPagoSettings,
+    analyticsSettings,
     informationSections,
     categories,
   ] = await Promise.all([
@@ -34,6 +36,7 @@ export default async function SettingsPage() {
     getFaviconUrl(),
     getTemporaryShutdownSettings(),
     getMercadoPagoSettings(),
+    getAnalyticsSettings(),
     getInformationSections(),
     prisma.category.findMany({
       orderBy: { name: "asc" },
@@ -50,6 +53,7 @@ export default async function SettingsPage() {
       faviconUrl={faviconUrl}
       temporaryShutdown={temporaryShutdown}
       mercadoPagoSettings={mercadoPagoSettings}
+      analyticsSettings={analyticsSettings}
       currentUserRole={currentUserRole}
       informationSections={informationSections}
       categories={flattenCategories(categories)}

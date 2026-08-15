@@ -12,6 +12,8 @@ const MAILING_SETTINGS_KEY = "mailing_settings";
 const MAILING_SMTP_SETTINGS_KEY = "mailing_smtp_settings";
 const EMAIL_JOB_SETTINGS_KEY = "email_job_settings";
 const MERCADOPAGO_SETTINGS_KEY = "mercadopago_settings";
+const GOOGLE_ANALYTICS_MEASUREMENT_ID_KEY = "google_analytics_measurement_id";
+const META_PIXEL_ID_KEY = "meta_pixel_id";
 const ENCRYPTED_VALUE_PREFIX = "enc:v1:";
 
 export const DEFAULT_ANNOUNCEMENT_TEXT =
@@ -79,6 +81,11 @@ export type MercadoPagoSettings = {
   source: "oauth" | "manual" | "env" | "none";
   connectedUserId?: string;
   expiresAt?: string;
+};
+
+export type AnalyticsSettings = {
+  googleAnalyticsMeasurementId: string;
+  metaPixelId: string;
 };
 
 type StoredMailingSettings = Pick<
@@ -290,6 +297,98 @@ export async function setFaviconUrl(value: string) {
       isSecret: false,
     },
   });
+}
+
+export function normalizeGoogleAnalyticsMeasurementId(value: string) {
+  return value.trim().toUpperCase();
+}
+
+export function isValidGoogleAnalyticsMeasurementId(value: string) {
+  return /^G-[A-Z0-9]{4,32}$/.test(normalizeGoogleAnalyticsMeasurementId(value));
+}
+
+export function normalizeMetaPixelId(value: string) {
+  return value.trim().replace(/\D/g, "");
+}
+
+export function isValidMetaPixelId(value: string) {
+  return /^\d{5,30}$/.test(normalizeMetaPixelId(value));
+}
+
+export async function getAnalyticsSettings(): Promise<AnalyticsSettings> {
+  const [googleAnalyticsRow, metaPixelRow] = await Promise.all([
+    prisma.shippingProviderSetting.findUnique({
+      where: {
+        provider_key: {
+          provider: STOREFRONT_SETTINGS_PROVIDER,
+          key: GOOGLE_ANALYTICS_MEASUREMENT_ID_KEY,
+        },
+      },
+      select: { value: true },
+    }),
+    prisma.shippingProviderSetting.findUnique({
+      where: {
+        provider_key: {
+          provider: STOREFRONT_SETTINGS_PROVIDER,
+          key: META_PIXEL_ID_KEY,
+        },
+      },
+      select: { value: true },
+    }),
+  ]);
+
+  const googleAnalyticsMeasurementId = normalizeGoogleAnalyticsMeasurementId(googleAnalyticsRow?.value || "");
+  const metaPixelId = normalizeMetaPixelId(metaPixelRow?.value || "");
+  return {
+    googleAnalyticsMeasurementId: isValidGoogleAnalyticsMeasurementId(googleAnalyticsMeasurementId)
+      ? googleAnalyticsMeasurementId
+      : "",
+    metaPixelId: isValidMetaPixelId(metaPixelId) ? metaPixelId : "",
+  };
+}
+
+export async function setAnalyticsSettings(settings: AnalyticsSettings) {
+  const googleAnalyticsMeasurementId = normalizeGoogleAnalyticsMeasurementId(settings.googleAnalyticsMeasurementId);
+  const metaPixelId = normalizeMetaPixelId(settings.metaPixelId);
+
+  return Promise.all([
+    prisma.shippingProviderSetting.upsert({
+      where: {
+        provider_key: {
+          provider: STOREFRONT_SETTINGS_PROVIDER,
+          key: GOOGLE_ANALYTICS_MEASUREMENT_ID_KEY,
+        },
+      },
+      create: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: GOOGLE_ANALYTICS_MEASUREMENT_ID_KEY,
+        value: googleAnalyticsMeasurementId,
+        isSecret: false,
+      },
+      update: {
+        value: googleAnalyticsMeasurementId,
+        isSecret: false,
+      },
+    }),
+    prisma.shippingProviderSetting.upsert({
+      where: {
+        provider_key: {
+          provider: STOREFRONT_SETTINGS_PROVIDER,
+          key: META_PIXEL_ID_KEY,
+        },
+      },
+      create: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: META_PIXEL_ID_KEY,
+        value: metaPixelId,
+        isSecret: false,
+      },
+      update: {
+        value: metaPixelId,
+        isSecret: false,
+      },
+    }),
+  ]);
 }
 
 export async function getHomeCategoryTiles() {

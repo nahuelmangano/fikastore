@@ -25,6 +25,7 @@ export default function PaySuccessPage({
       subtitle="Si el pedido todavía figura como pendiente, en unos segundos debería actualizarse cuando llegue el webhook."
       orderId={orderId}
       hint="Tip: esta pantalla refresca el estado automáticamente unos segundos."
+      trackPurchase
     />
   );
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
+  BarChart3,
   CheckCircle2,
   CreditCard,
   Eye,
@@ -61,11 +62,16 @@ type MercadoPagoSettings = {
   expiresAt?: string;
 };
 
+type AnalyticsSettings = {
+  googleAnalyticsMeasurementId: string;
+  metaPixelId: string;
+};
+
 type BrowserCryptoWithUuid = Crypto & {
   randomUUID?: () => string;
 };
 
-type SettingsTab = "appearance" | "home" | "content" | "pages" | "categories" | "payments";
+type SettingsTab = "appearance" | "home" | "content" | "pages" | "categories" | "payments" | "analytics";
 
 const tabs: { key: SettingsTab; label: string; icon: LucideIcon }[] = [
   { key: "appearance", label: "Apariencia", icon: Paintbrush },
@@ -74,6 +80,7 @@ const tabs: { key: SettingsTab; label: string; icon: LucideIcon }[] = [
   { key: "pages", label: "Páginas", icon: FileText },
   { key: "categories", label: "Categorías", icon: LayoutGrid },
   { key: "payments", label: "Medios de pago", icon: CreditCard },
+  { key: "analytics", label: "Analíticas", icon: BarChart3 },
 ];
 
 function createClientId() {
@@ -110,6 +117,7 @@ export default function AdminSettingsPage({
   faviconUrl,
   temporaryShutdown,
   mercadoPagoSettings,
+  analyticsSettings,
   currentUserRole,
   informationSections,
   categories,
@@ -121,6 +129,7 @@ export default function AdminSettingsPage({
   faviconUrl: string;
   temporaryShutdown: TemporaryShutdownSettings;
   mercadoPagoSettings: MercadoPagoSettings;
+  analyticsSettings: AnalyticsSettings;
   currentUserRole: string;
   informationSections: InformationSection[];
   categories: CategoryOption[];
@@ -134,6 +143,8 @@ export default function AdminSettingsPage({
   const [shutdownMessage, setShutdownMessage] = useState(temporaryShutdown.message);
   const [mpAccessToken, setMpAccessToken] = useState("");
   const [mpSettings, setMpSettings] = useState(mercadoPagoSettings);
+  const [gaMeasurementId, setGaMeasurementId] = useState(analyticsSettings.googleAnalyticsMeasurementId);
+  const [metaPixelId, setMetaPixelId] = useState(analyticsSettings.metaPixelId);
   const [tiles, setTiles] = useState<HomeCategoryTile[]>(homeCategoryTiles);
   const [sections, setSections] = useState<InformationSection[]>(informationSections);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
@@ -144,6 +155,7 @@ export default function AdminSettingsPage({
   const [faviconLoading, setFaviconLoading] = useState(false);
   const [shutdownLoading, setShutdownLoading] = useState(false);
   const [mpLoading, setMpLoading] = useState(false);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [logoLoading, setLogoLoading] = useState(false);
   const [tilesLoading, setTilesLoading] = useState(false);
   const [sectionsLoading, setSectionsLoading] = useState(false);
@@ -151,6 +163,7 @@ export default function AdminSettingsPage({
   const [browserMsg, setBrowserMsg] = useState<string | null>(null);
   const [shutdownMsg, setShutdownMsg] = useState<string | null>(null);
   const [mpMsg, setMpMsg] = useState<string | null>(null);
+  const [analyticsMsg, setAnalyticsMsg] = useState<string | null>(null);
   const [tileMsg, setTileMsg] = useState<string | null>(null);
   const [sectionsMsg, setSectionsMsg] = useState<string | null>(null);
   const informationContentRef = useRef<HTMLDivElement | null>(null);
@@ -295,6 +308,29 @@ export default function AdminSettingsPage({
     setMpSettings(data.settings);
     setMpAccessToken("");
     setMpMsg("MercadoPago desconectado.");
+  }
+
+  async function saveAnalyticsSettings() {
+    setAnalyticsMsg(null);
+    setAnalyticsLoading(true);
+
+    const res = await fetch("/api/admin/settings/analytics", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ googleAnalyticsMeasurementId: gaMeasurementId, metaPixelId }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    setAnalyticsLoading(false);
+
+    if (!res.ok) {
+      setAnalyticsMsg(String(data?.error || "No se pudo guardar analíticas."));
+      return;
+    }
+
+    setGaMeasurementId(data.settings?.googleAnalyticsMeasurementId || "");
+    setMetaPixelId(data.settings?.metaPixelId || "");
+    setAnalyticsMsg("Configuración de analíticas guardada.");
   }
 
   async function save() {
@@ -844,6 +880,108 @@ export default function AdminSettingsPage({
                     <div className="mt-1 text-sm text-[#8F6A49]">Automática antes del vencimiento.</div>
                   </div>
                 ) : null}
+              </div>
+            </SectionCard>
+          </div>
+        ) : null}
+
+        {activeTab === "analytics" ? (
+          <div className="mt-8 xl:mt-6 grid gap-6 xl:gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+            <SectionCard title="Google Analytics" description="Conectá la tienda con la propiedad GA4 del dueño de esta tienda." icon={BarChart3}>
+              <div className="rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-5 xl:p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <StatusBadge active={Boolean(gaMeasurementId.trim())} />
+                      <span className="text-sm font-semibold text-[#5F3B18]">
+                        {gaMeasurementId.trim() ? "Analytics configurado" : "Analytics sin configurar"}
+                      </span>
+                    </div>
+                    <p className="mt-3 max-w-xl text-sm leading-6 text-[#8F6A49]">
+                      Pegá el Measurement ID de GA4. La tienda cargará el script público solo cuando este campo tenga un ID válido.
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-[#E5D7C8] bg-white/70 px-3 py-1 text-xs font-semibold text-[#8B5A2B]">
+                    GA4
+                  </span>
+                </div>
+
+                <label className="mt-5 block">
+                  <FieldLabel label="Measurement ID" help="Lo encontrás en Google Analytics > Admin > Data streams. Tiene formato G-XXXXXXXXXX." />
+                  <input
+                    value={gaMeasurementId}
+                    onChange={(e) => setGaMeasurementId(e.target.value.toUpperCase())}
+                    placeholder="G-XXXXXXXXXX"
+                    autoComplete="off"
+                    className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
+                  />
+                </label>
+
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <PrimaryButton onClick={saveAnalyticsSettings} loading={analyticsLoading} label="Guardar Analytics" />
+                  {gaMeasurementId.trim() ? (
+                    <SecondaryButton onClick={() => setGaMeasurementId("")} label="Limpiar ID" />
+                  ) : null}
+                </div>
+
+                {analyticsMsg ? <Notice>{analyticsMsg}</Notice> : null}
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Meta Pixel" description="Conectá la tienda con el pixel usado por Meta Ads." icon={BarChart3}>
+              <div className="rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-5 xl:p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <StatusBadge active={Boolean(metaPixelId.trim())} />
+                      <span className="text-sm font-semibold text-[#5F3B18]">
+                        {metaPixelId.trim() ? "Meta Pixel configurado" : "Meta Pixel sin configurar"}
+                      </span>
+                    </div>
+                    <p className="mt-3 max-w-xl text-sm leading-6 text-[#8F6A49]">
+                      Pegá solo el Pixel ID numérico. La tienda enviará el evento base PageView en las páginas públicas.
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-[#E5D7C8] bg-white/70 px-3 py-1 text-xs font-semibold text-[#8B5A2B]">
+                    Meta Ads
+                  </span>
+                </div>
+
+                <label className="mt-5 block">
+                  <FieldLabel label="Pixel ID" help="Lo encontrás en Meta Events Manager. Es un número, no el código completo del script." />
+                  <input
+                    value={metaPixelId}
+                    onChange={(e) => setMetaPixelId(e.target.value.replace(/\D/g, ""))}
+                    placeholder="123456789012345"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
+                  />
+                </label>
+
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <PrimaryButton onClick={saveAnalyticsSettings} loading={analyticsLoading} label="Guardar Pixel" />
+                  {metaPixelId.trim() ? (
+                    <SecondaryButton onClick={() => setMetaPixelId("")} label="Limpiar ID" />
+                  ) : null}
+                </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Uso por tienda" description="Cada tienda debe usar sus propias cuentas de medición." icon={Store}>
+              <div className="grid gap-3">
+                <div className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
+                  <div className="text-sm font-semibold text-[#5F3B18]">Dónde se carga</div>
+                  <div className="mt-1 text-sm text-[#8F6A49]">En la tienda pública. El admin no carga Analytics ni Meta Pixel.</div>
+                </div>
+                <div className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
+                  <div className="text-sm font-semibold text-[#5F3B18]">Google Analytics</div>
+                  <div className="mt-1 text-sm text-[#8F6A49]">{gaMeasurementId.trim() || "Sin Measurement ID"}</div>
+                </div>
+                <div className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
+                  <div className="text-sm font-semibold text-[#5F3B18]">Meta Pixel</div>
+                  <div className="mt-1 text-sm text-[#8F6A49]">{metaPixelId.trim() || "Sin Pixel ID"}</div>
+                </div>
               </div>
             </SectionCard>
           </div>

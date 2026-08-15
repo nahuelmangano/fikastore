@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await auth();
-  const userId = (session?.user as any)?.id as string | undefined;
+  const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) {
     return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
   }
@@ -39,6 +39,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       total: Number(order.total),
       createdAt: order.createdAt,
       items: order.items.map((it) => ({
+        productId: it.productId,
         name: it.nameSnapshot,
         quantity: it.quantity,
         unitPrice: Number(it.unitPrice),

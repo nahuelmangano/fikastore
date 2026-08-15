@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { trackMetaPurchase } from "@/lib/metaPixelEvents";
 
 type OrderResp =
   | { ok: true; order: OrderDetails }
@@ -11,6 +12,7 @@ type OrderDetails = {
   status?: string | null;
   total: number | string;
   items: Array<{
+    productId?: string;
     name: string;
     quantity: number;
     unitPrice: number | string;
@@ -40,14 +42,17 @@ export default function PayResultClient({
   subtitle,
   orderId,
   hint,
+  trackPurchase = false,
 }: {
   title: string;
   subtitle: string;
   orderId: string;
   hint?: string;
+  trackPurchase?: boolean;
 }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<OrderResp | null>(null);
+  const purchaseTrackedRef = useRef(false);
 
   const ok = data?.ok === true;
 
@@ -85,6 +90,32 @@ export default function PayResultClient({
     // preferimos order.status, pero mostramos payment.status también
     return order.status || order.payment?.status || "unknown";
   }, [order]);
+
+  useEffect(() => {
+    if (!trackPurchase || !order || purchaseTrackedRef.current) return;
+
+    const storageKey = `fikastore_meta_purchase_tracked_${orderId}`;
+    if (typeof window !== "undefined" && window.localStorage.getItem(storageKey)) {
+      purchaseTrackedRef.current = true;
+      return;
+    }
+
+    purchaseTrackedRef.current = true;
+    trackMetaPurchase({
+      id: orderId,
+      total: Number(order.total),
+      items: order.items.map((item) => ({
+        id: item.productId,
+        name: item.name,
+        quantity: item.quantity,
+        unitPrice: Number(item.unitPrice),
+      })),
+    });
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(storageKey, "1");
+    }
+  }, [order, orderId, trackPurchase]);
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">

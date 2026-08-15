@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { addToCart } from "@/lib/cart";
+import { trackMetaAddToCart } from "@/lib/metaPixelEvents";
 
 type Props = {
   product: {
@@ -34,6 +35,12 @@ export default function AddToCartButton({ product }: Props) {
           },
           1
         );
+        trackMetaAddToCart({
+          id: product.id,
+          name: product.name,
+          price: product.price,
+          quantity: 1,
+        });
         window.dispatchEvent(new Event("cart:open"));
         setAdded(true);
         setTimeout(() => setAdded(false), 1200);

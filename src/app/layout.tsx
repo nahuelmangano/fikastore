@@ -6,7 +6,9 @@ import CartSync from "@/components/CartSync";
 import AnnouncementBar from "@/components/AnnouncementBar";
 import StoreNav from "@/components/StoreNav";
 import StorefrontOnly from "@/components/StorefrontOnly";
-import { getAnnouncementText, getFaviconUrl, getSiteTitle } from "@/lib/storeSettings";
+import GoogleAnalytics from "@/components/GoogleAnalytics";
+import MetaPixel from "@/components/MetaPixel";
+import { getAnalyticsSettings, getAnnouncementText, getFaviconUrl, getSiteTitle } from "@/lib/storeSettings";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -39,7 +41,10 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const announcementText = await getAnnouncementText();
+  const [announcementText, analyticsSettings] = await Promise.all([
+    getAnnouncementText(),
+    getAnalyticsSettings(),
+  ]);
 
   return (
     <html lang="en">
@@ -48,6 +53,8 @@ export default async function RootLayout({
       >
         <AuthSessionProvider>
           <StorefrontOnly>
+            <GoogleAnalytics measurementId={analyticsSettings.googleAnalyticsMeasurementId} />
+            <MetaPixel pixelId={analyticsSettings.metaPixelId} />
             <AnnouncementBar text={announcementText} />
             <StoreNav />
           </StorefrontOnly>
