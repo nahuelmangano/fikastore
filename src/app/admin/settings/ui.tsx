@@ -1016,7 +1016,7 @@ export default function AdminSettingsPage({
                         <textarea
                           value={method.instructions}
                           onChange={(e) => patchManualMethod(method.key, { instructions: e.target.value })}
-                          rows={2}
+                          rows={method.key === "transfer" ? 7 : 2}
                           maxLength={500}
                           className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm leading-6 text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
                         />

@@ -8,6 +8,7 @@ import { Banknote, Clock3, CreditCard, Handshake, Landmark, Mail, type LucideIco
 import { CartItem, clearCart, clearPromoCode, readCart, readPromoCode } from "@/lib/cart";
 import { validateArgentinaPostalCodeProvince } from "@/lib/argentinaPostalCode";
 import { trackMetaInitiateCheckout } from "@/lib/metaPixelEvents";
+import { transferInstructionsWithBankDetails } from "@/lib/manualPaymentInstructions";
 
 type Shipping = {
   name: string;
@@ -1159,7 +1160,8 @@ function ManualPaymentConfirmation({
 }) {
   const title = paymentMethod === "transfer" ? "Un paso más." : "Pedido creado.";
   const paymentLabel = manualPaymentMethod?.label || paymentLabelFor(paymentMethod, "Pago manual");
-  const instructions = manualPaymentMethod?.instructions || "La tienda te contactará para coordinar el pago.";
+  const baseInstructions = manualPaymentMethod?.instructions || "La tienda te contactará para coordinar el pago.";
+  const instructions = paymentMethod === "transfer" ? transferInstructionsWithBankDetails(baseInstructions) : baseInstructions;
 
   return (
     <div className="mt-4 space-y-4">

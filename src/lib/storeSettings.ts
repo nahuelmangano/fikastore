@@ -120,7 +120,17 @@ const DEFAULT_MANUAL_PAYMENT_METHODS: ManualPaymentMethodSettings[] = [
     key: "transfer",
     label: "Transferencia",
     enabled: true,
-    instructions: "Realizá la transferencia y envianos el comprobante por WhatsApp.",
+    instructions: [
+      "CA $ 5025-566703/8",
+      "CBU: 0140033503502556670388",
+      "Alias CBU: FIKAPIJAMAS",
+      "Integrante: CINTIA YANINA,NIZ",
+      "CUIL/CUIT: 27-37175129-2",
+      "Tipo: Caja de Ahorro",
+      "Banco de la Provincia de Buenos Aires",
+      "",
+      "Recordá enviar el comprobante por mail, indicando el número de pedido, para poder confirmar tu compra.",
+    ].join("\n"),
   },
 ];
 

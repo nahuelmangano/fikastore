@@ -29,6 +29,27 @@ function samplePayload(req: Request) {
     rejectionReason: "Fondos insuficientes",
     retryPaymentUrl: `${baseUrl}/pay/pending?orderId=test-order`,
     paymentInstructions: "Completá el pago desde el enlace.",
+    paymentDetailsHtml: `
+      <div style="margin:16px 0;">
+        <p style="margin:0 0 8px;color:#111;font-weight:700;">Datos para transferencia</p>
+        <div style="border:1px solid #ddd;padding:14px 16px;color:#444;font-size:13px;line-height:1.6;">
+          <div>CBU: 0000000000000000000000</div>
+          <div>Alias: FIKAPIJAMAS</div>
+          <div>Enviá el comprobante por WhatsApp.</div>
+        </div>
+      </div>
+    `,
+    shippingMethod: "Acordar envío",
+    shippingInstructions: "Comunicate con nosotros para coordinar el envío.",
+    shippingDetailsHtml: `
+      <div style="margin:16px 0;">
+        <p style="margin:0 0 8px;color:#111;font-weight:700;">Envío</p>
+        <div style="border:1px solid #ddd;padding:14px 16px;color:#444;font-size:13px;line-height:1.6;">
+          <div>Método de envío: Acordar envío</div>
+          <div>Comunicate con nosotros para coordinar el envío.</div>
+        </div>
+      </div>
+    `,
     paymentDueDate: "No informada",
     paymentUrl: `${baseUrl}/pay/pending?orderId=test-order`,
     reminderNumber: "1",

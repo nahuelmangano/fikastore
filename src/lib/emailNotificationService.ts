@@ -70,7 +70,8 @@ export async function ensureDefaultEmailTemplates() {
         (template.key === "back-in-stock" && !existing.html.includes("productHtml")) ||
         (template.key === "order-shipped" && !existing.html.includes("Entregado")) ||
         (template.key === "birthday-coupon" && (!existing.html.includes("Ir a la tienda") || /Ã|Â/.test(existing.html) || /Ã|Â/.test(existing.text))) ||
-        (["payment-rejected", "payment-pending", "payment-pending-reminder"].includes(template.key) && !existing.html.includes("productsHtml"))
+        (["payment-rejected", "payment-pending", "payment-pending-reminder"].includes(template.key) && !existing.html.includes("productsHtml")) ||
+        (template.key === "payment-pending" && !existing.html.includes("paymentDetailsHtml"))
       ) {
         await prisma.emailTemplate.update({
           where: { key: template.key },

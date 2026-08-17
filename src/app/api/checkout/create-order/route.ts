@@ -9,6 +9,7 @@ import { publicBaseUrl } from "@/lib/publicUrl";
 import { queueAndSendEmailNotification, scheduleEmailJob } from "@/lib/emailNotificationService";
 import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows";
 import { getShippingCarriers } from "@/lib/shippingCarriers";
+import { transferInstructionsWithBankDetails } from "@/lib/manualPaymentInstructions";
 
 export const runtime = "nodejs";
 
@@ -42,6 +43,44 @@ type Body = {
 
 function bad(msg: string, status = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status });
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function textLines(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function emailInfoBox(title: string, lines: string[]) {
+  const cleanLines = lines.map((line) => line.trim()).filter(Boolean);
+  if (cleanLines.length === 0) return "";
+
+  return `
+    <div style="margin:16px 0;">
+      <p style="margin:0 0 8px;color:#111;font-weight:700;">${escapeHtml(title)}</p>
+      <div style="border:1px solid #ddd;padding:14px 16px;color:#444;font-size:13px;line-height:1.6;">
+        ${cleanLines.map((line) => `<div>${escapeHtml(line)}</div>`).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function emailShippingLabel(method: string, carrierName?: string | null, deliveryType?: string | null) {
+  if (method === "epick") return "E-pick";
+  if (method === "andreani") return "Andreani";
+  if (method === "correo") return deliveryType === "S" ? "Correo Argentino - Sucursal" : "Correo Argentino - Domicilio";
+  if (method === "pickup") return "Retiro en comercio";
+  return carrierName || "Acordar envío";
 }
 
 export async function POST(req: Request) {
@@ -252,6 +291,37 @@ export async function POST(req: Request) {
     if (createdOrder?.user.email) {
       const payment = createdOrder.payments[0];
       const baseUrl = publicBaseUrl(req);
+      const paymentLabel = paymentMethod === "mercadopago" ? "Mercado Pago" : manualPaymentMethod?.label || "Pago manual";
+      const basePaymentInstructions =
+        paymentMethod === "mercadopago"
+          ? "Podés completar el pago desde el enlace de tu pedido."
+          : manualPaymentMethod?.instructions || "La tienda te contactará para coordinar el pago.";
+      const paymentInstructions = paymentMethod === "transfer"
+        ? transferInstructionsWithBankDetails(basePaymentInstructions)
+        : basePaymentInstructions;
+      const shippingLabel = emailShippingLabel(shippingMethod, selectedCarrier.name, createdOrder.shippingDeliveryType);
+      const shippingAddressLines =
+        createdOrder.shippingMethod === "pickup"
+          ? ["Retiro en comercio.", "Te vamos a contactar cuando el pedido esté listo para retirar."]
+          : createdOrder.shippingMethod === "correo" && createdOrder.shippingDeliveryType === "S"
+            ? [
+                createdOrder.shippingBranchName ? `Sucursal: ${createdOrder.shippingBranchName}` : "Retiro en sucursal de Correo Argentino.",
+                createdOrder.shippingAddressLine,
+                [createdOrder.shippingCity, createdOrder.shippingProvince].filter(Boolean).join(", "),
+                createdOrder.shippingZip ? `CP ${createdOrder.shippingZip}` : "",
+              ]
+            : [
+                `Destinatario: ${createdOrder.shippingName}`,
+                createdOrder.shippingPhone ? `Teléfono: ${createdOrder.shippingPhone}` : "",
+                createdOrder.shippingAddressLine,
+                [createdOrder.shippingCity, createdOrder.shippingProvince].filter(Boolean).join(", "),
+                createdOrder.shippingZip ? `CP ${createdOrder.shippingZip}` : "",
+              ];
+      const shippingInstructions = [
+        `Método de envío: ${shippingLabel}`,
+        ...(selectedCarrier.description ? textLines(selectedCarrier.description) : []),
+        ...shippingAddressLines,
+      ];
 
       queueAndSendEmailNotification({
         templateKey: "payment-pending",
@@ -266,11 +336,15 @@ export async function POST(req: Request) {
           productsHtml: emailOrderItemsHtml(createdOrder.items, baseUrl, { total: createdOrder.total }),
           productsText: emailOrderItemsText(createdOrder.items, { total: createdOrder.total }),
           paymentAmount: `$${Number(createdOrder.total).toLocaleString("es-AR")}`,
-          paymentMethod: paymentMethod === "mercadopago" ? "Mercado Pago" : manualPaymentMethod?.label || "Pago manual",
-          paymentInstructions:
+          paymentMethod: paymentLabel,
+          paymentInstructions,
+          paymentDetailsHtml:
             paymentMethod === "mercadopago"
-              ? "Podés completar el pago desde el enlace de tu pedido."
-              : manualPaymentMethod?.instructions || "La tienda te contactará para coordinar el pago.",
+              ? ""
+              : emailInfoBox(paymentMethod === "transfer" ? "Datos para transferencia" : paymentLabel, textLines(paymentInstructions)),
+          shippingMethod: shippingLabel,
+          shippingInstructions: shippingInstructions.join(". "),
+          shippingDetailsHtml: emailInfoBox("Envío", shippingInstructions),
           paymentDueDate: "No informada",
           paymentUrl: `${baseUrl}/pay/pending?orderId=${createdOrder.id}`,
           storeName: "FikaStore",

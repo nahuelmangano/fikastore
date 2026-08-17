@@ -80,18 +80,20 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefault[] = [
     category: "Pagos",
     subject: "{{storeName}} · Tu pago está pendiente",
     enabled: true,
-    variables: ["customerName", "orderNumber", "productsHtml", "productsText", "paymentAmount", "paymentMethod", "paymentInstructions", "paymentDueDate", "paymentUrl", "storeName", "storeUrl"],
+    variables: ["customerName", "orderNumber", "productsHtml", "productsText", "paymentAmount", "paymentMethod", "paymentInstructions", "paymentDetailsHtml", "shippingMethod", "shippingInstructions", "shippingDetailsHtml", "paymentDueDate", "paymentUrl", "storeName", "storeUrl"],
     html: layout(
       "Tu pago está pendiente",
       `<p style="margin:0 0 18px;color:#444;">Hola {{customerName}}, creamos tu pedido {{orderNumber}} y el pago está pendiente.</p>
+       {{{paymentDetailsHtml}}}
+       {{{shippingDetailsHtml}}}
        <div style="border-top:1px solid #ddd;border-bottom:1px solid #ddd;padding:14px 0;margin:14px 0;">{{{productsHtml}}}</div>
        <p style="margin:0 0 8px;color:#444;">Importe total: <strong>{{paymentAmount}}</strong></p>
        <p style="margin:0 0 8px;color:#444;">Medio de pago: <strong>{{paymentMethod}}</strong></p>
-       <p style="margin:0 0 8px;color:#444;">{{paymentInstructions}}</p>
+       <p style="margin:0 0 8px;color:#444;">Método de envío: <strong>{{shippingMethod}}</strong></p>
        <p style="margin:0;color:#444;">Fecha límite: {{paymentDueDate}}</p>
        <p style="margin:18px 0 0;"><a href="{{paymentUrl}}" style="display:inline-block;background:#111;color:#fff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:700;">Completar pago</a></p>`
     ),
-    text: "Hola {{customerName}}, tu pedido {{orderNumber}} está pendiente. Productos: {{productsText}}. Total: {{paymentAmount}}. Medio: {{paymentMethod}}. {{paymentInstructions}} Fecha límite: {{paymentDueDate}}. Completar: {{paymentUrl}}",
+    text: "Hola {{customerName}}, tu pedido {{orderNumber}} está pendiente. Pago: {{paymentMethod}}. {{paymentInstructions}} Envío: {{shippingMethod}}. {{shippingInstructions}} Productos: {{productsText}}. Total: {{paymentAmount}}. Fecha límite: {{paymentDueDate}}. Completar: {{paymentUrl}}",
   },
   {
     key: "payment-pending-reminder",
