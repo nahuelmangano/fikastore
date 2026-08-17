@@ -3,11 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { Prisma } from "@prisma/client";
 import { normalizePromoCode, priceCartItems } from "@/lib/promotions";
-import { getEmailJobSettings, getTemporaryShutdownSettings } from "@/lib/storeSettings";
+import { getCheckoutPaymentSettings, getEmailJobSettings, getTemporaryShutdownSettings } from "@/lib/storeSettings";
 import { validateArgentinaPostalCodeProvince } from "@/lib/argentinaPostalCode";
 import { publicBaseUrl } from "@/lib/publicUrl";
 import { queueAndSendEmailNotification, scheduleEmailJob } from "@/lib/emailNotificationService";
 import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows";
+import { getShippingCarriers } from "@/lib/shippingCarriers";
 
 export const runtime = "nodejs";
 
@@ -34,7 +35,9 @@ type Body = {
     zip?: string;
   };
   shippingAmount?: number;
+  paymentMethod?: string;
   promoCode?: string | null;
+  notes?: string | null;
 };
 
 function bad(msg: string, status = 400) {
@@ -57,8 +60,10 @@ export async function POST(req: Request) {
   const items = Array.isArray(body.items) ? body.items : [];
   const shipping = body.shipping;
   const shippingMethod = String(body.shippingMethod || "").trim().toLowerCase();
+  const paymentMethod = String(body.paymentMethod || "mercadopago").trim().toLowerCase();
   const shippingDeliveryType = String(body.shippingDeliveryType || "").trim().toUpperCase();
   const shippingBranch = body.shippingBranch;
+  const notes = String(body.notes || "").replace(/\s+/g, " ").trim().slice(0, 1000);
 
   if (items.length === 0) return bad("El carrito esta vacio.");
   if (!shipping?.name?.trim() || !shipping?.phone?.trim()) {
@@ -107,9 +112,24 @@ export async function POST(req: Request) {
   }
 
   const promoCode = normalizePromoCode(body.promoCode ?? null);
+  const checkoutCarriers = await getShippingCarriers({ visibleToMerchantOnly: true });
+  const selectedCarrier = checkoutCarriers.find((carrier) => carrier.key === shippingMethod && carrier.enabled);
+  if (!selectedCarrier) return bad("Seleccioná un método de envío válido.");
+
   const rawShippingAmount = Number(body.shippingAmount);
-  const shippingAmount =
-    Number.isFinite(rawShippingAmount) && rawShippingAmount >= 0 ? rawShippingAmount : 0;
+  const shippingAmount = selectedCarrier.custom
+    ? selectedCarrier.flatRate
+    : Number.isFinite(rawShippingAmount) && rawShippingAmount >= 0
+      ? rawShippingAmount
+      : 0;
+  const paymentSettings = await getCheckoutPaymentSettings();
+  const manualPaymentMethod = paymentSettings.manualMethods.find((method) => method.key === paymentMethod && method.enabled);
+  const validPaymentMethod =
+    (paymentMethod === "mercadopago" && paymentSettings.mercadopagoEnabled) || Boolean(manualPaymentMethod);
+
+  if (!validPaymentMethod) {
+    return bad("Seleccioná un medio de pago válido.");
+  }
 
   const normalized = items
     .map((it) => ({
@@ -189,16 +209,17 @@ export async function POST(req: Request) {
           shippingBranchCode: isCorreoBranch ? String(shippingBranch?.code || "").trim() : null,
           shippingBranchName: isCorreoBranch ? String(shippingBranch?.name || "").trim() : null,
           shippingAmount: new Prisma.Decimal(shippingAmount || 0),
+          notes: notes ? `Nota del cliente: ${notes}` : null,
           items: { create: orderItemsData },
           payments: {
             create: {
-              provider: "mercadopago",
+              provider: paymentMethod,
               status: "pending",
               pendingAt: new Date(),
             },
           },
         },
-        select: { id: true },
+        select: { id: true, orderNumber: true },
       });
 
       for (const it of merged) {
@@ -208,7 +229,7 @@ export async function POST(req: Request) {
         });
       }
 
-      return { orderId: order.id };
+      return { orderId: order.id, orderNumber: order.orderNumber };
     });
 
     const createdOrder = await prisma.order.findUnique({
@@ -245,8 +266,11 @@ export async function POST(req: Request) {
           productsHtml: emailOrderItemsHtml(createdOrder.items, baseUrl, { total: createdOrder.total }),
           productsText: emailOrderItemsText(createdOrder.items, { total: createdOrder.total }),
           paymentAmount: `$${Number(createdOrder.total).toLocaleString("es-AR")}`,
-          paymentMethod: "Mercado Pago",
-          paymentInstructions: "Podés completar el pago desde el enlace de tu pedido.",
+          paymentMethod: paymentMethod === "mercadopago" ? "Mercado Pago" : manualPaymentMethod?.label || "Pago manual",
+          paymentInstructions:
+            paymentMethod === "mercadopago"
+              ? "Podés completar el pago desde el enlace de tu pedido."
+              : manualPaymentMethod?.instructions || "La tienda te contactará para coordinar el pago.",
           paymentDueDate: "No informada",
           paymentUrl: `${baseUrl}/pay/pending?orderId=${createdOrder.id}`,
           storeName: "FikaStore",
@@ -278,7 +302,7 @@ export async function POST(req: Request) {
         .catch((error) => console.error("payment reminder scheduling failed", error instanceof Error ? error.message : error));
     }
 
-    return NextResponse.json({ ok: true, orderId: result.orderId });
+    return NextResponse.json({ ok: true, orderId: result.orderId, orderNumber: result.orderNumber });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "No se pudo crear el pedido.";
     return bad(msg, 400);

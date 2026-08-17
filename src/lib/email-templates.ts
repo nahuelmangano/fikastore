@@ -136,8 +136,8 @@ export function orderPaidTemplate(input: {
         const name = escapeHtml(split.baseName);
         const variant = escapeHtml(it.variantName || split.variantName || "");
         const image = it.imageUrl
-          ? `<img src="${escapeHtml(it.imageUrl)}" alt="" width="76" height="96" style="display:block;width:76px;height:96px;object-fit:cover;border-radius:4px;border:1px solid #eee;">`
-          : `<div style="width:76px;height:96px;border-radius:4px;border:1px solid #eee;background:#f6f6f6;"></div>`;
+          ? `<img src="${escapeHtml(it.imageUrl)}" alt="" width="76" height="96" style="display:block;width:76px;max-width:76px;height:96px;max-height:96px;object-fit:cover;border-radius:4px;border:1px solid #eee;">`
+          : `<div style="width:76px;max-width:76px;height:96px;border-radius:4px;border:1px solid #eee;background:#f6f6f6;"></div>`;
         return `
           <tr>
             <td style="padding:14px 0;border-bottom:1px solid #eee;width:92px;vertical-align:top;">${image}</td>
@@ -370,8 +370,8 @@ export function stockBackInStockTemplate(input: {
   const productName = escapeHtml(input.productName);
   const productUrl = escapeHtml(input.productUrl);
   const image = input.imageUrl
-    ? `<img src="${escapeHtml(input.imageUrl)}" alt="" width="120" height="150" style="display:block;width:120px;height:150px;object-fit:cover;border-radius:4px;border:1px solid #eee;">`
-    : `<div style="width:120px;height:150px;border-radius:4px;border:1px solid #eee;background:#f6f6f6;"></div>`;
+    ? `<img src="${escapeHtml(input.imageUrl)}" alt="" width="120" height="150" style="display:block;width:120px;max-width:120px;height:150px;max-height:150px;object-fit:cover;border-radius:4px;border:1px solid #eee;">`
+    : `<div style="width:120px;max-width:120px;height:150px;border-radius:4px;border:1px solid #eee;background:#f6f6f6;"></div>`;
 
   return `
   <div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;color:#111;background:#fff;">

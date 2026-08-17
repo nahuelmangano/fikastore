@@ -82,6 +82,13 @@ export default function AdminOrderDetail({ order }: { order: any }) {
             </div>
           </div>
 
+          {order.notes ? (
+            <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
+              <div className="text-sm font-semibold">Notas</div>
+              <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-300">{order.notes}</p>
+            </div>
+          ) : null}
+
           <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
             <div className="text-sm font-semibold">Items</div>
             <div className="mt-3 space-y-3">

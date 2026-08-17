@@ -6,11 +6,13 @@ import {
   getAnalyticsSettings,
   getFaviconUrl,
   getHomeCategoryTiles,
+  getManualPaymentSettings,
   getMercadoPagoSettings,
   getSiteTitle,
   getStoreLogoUrl,
   getTemporaryShutdownSettings,
 } from "@/lib/storeSettings";
+import { getCustomDomainSettings } from "@/lib/customDomain";
 import { getInformationSections } from "@/lib/informationSections";
 import AdminSettingsPage from "./ui";
 
@@ -25,7 +27,9 @@ export default async function SettingsPage() {
     faviconUrl,
     temporaryShutdown,
     mercadoPagoSettings,
+    manualPaymentMethods,
     analyticsSettings,
+    customDomainSettings,
     informationSections,
     categories,
   ] = await Promise.all([
@@ -36,7 +40,9 @@ export default async function SettingsPage() {
     getFaviconUrl(),
     getTemporaryShutdownSettings(),
     getMercadoPagoSettings(),
+    getManualPaymentSettings(),
     getAnalyticsSettings(),
+    getCustomDomainSettings(),
     getInformationSections(),
     prisma.category.findMany({
       orderBy: { name: "asc" },
@@ -53,7 +59,9 @@ export default async function SettingsPage() {
       faviconUrl={faviconUrl}
       temporaryShutdown={temporaryShutdown}
       mercadoPagoSettings={mercadoPagoSettings}
+      manualPaymentMethods={manualPaymentMethods}
       analyticsSettings={analyticsSettings}
+      customDomainSettings={customDomainSettings}
       currentUserRole={currentUserRole}
       informationSections={informationSections}
       categories={flattenCategories(categories)}

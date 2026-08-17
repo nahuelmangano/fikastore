@@ -9,6 +9,7 @@ import {
   CreditCard,
   Eye,
   FileText,
+  Globe,
   GripVertical,
   Home,
   ImageIcon,
@@ -17,6 +18,7 @@ import {
   Monitor,
   Paintbrush,
   Plus,
+  RefreshCw,
   Save,
   Settings,
   Store,
@@ -62,16 +64,38 @@ type MercadoPagoSettings = {
   expiresAt?: string;
 };
 
+type ManualPaymentMethodKey = "agreement" | "cash" | "transfer";
+
+type ManualPaymentMethodSettings = {
+  key: ManualPaymentMethodKey;
+  label: string;
+  enabled: boolean;
+  instructions: string;
+};
+
 type AnalyticsSettings = {
   googleAnalyticsMeasurementId: string;
   metaPixelId: string;
+};
+
+type DomainStatus = "NOT_CONFIGURED" | "PENDING" | "VERIFIED" | "ACTIVE" | "ERROR";
+
+type CustomDomainSettings = {
+  customDomain: string;
+  domainStatus: DomainStatus;
+  domainVerifiedAt: string | null;
+  domainActivatedAt: string | null;
+  errorMessage: string | null;
+  dnsTarget: string;
+  serverIps: string[];
+  supportsARecord: boolean;
 };
 
 type BrowserCryptoWithUuid = Crypto & {
   randomUUID?: () => string;
 };
 
-type SettingsTab = "appearance" | "home" | "content" | "pages" | "categories" | "payments" | "analytics";
+type SettingsTab = "appearance" | "home" | "content" | "pages" | "categories" | "payments" | "domain" | "analytics";
 
 const tabs: { key: SettingsTab; label: string; icon: LucideIcon }[] = [
   { key: "appearance", label: "Apariencia", icon: Paintbrush },
@@ -80,6 +104,7 @@ const tabs: { key: SettingsTab; label: string; icon: LucideIcon }[] = [
   { key: "pages", label: "Páginas", icon: FileText },
   { key: "categories", label: "Categorías", icon: LayoutGrid },
   { key: "payments", label: "Medios de pago", icon: CreditCard },
+  { key: "domain", label: "Dominio", icon: Globe },
   { key: "analytics", label: "Analíticas", icon: BarChart3 },
 ];
 
@@ -117,7 +142,9 @@ export default function AdminSettingsPage({
   faviconUrl,
   temporaryShutdown,
   mercadoPagoSettings,
+  manualPaymentMethods,
   analyticsSettings,
+  customDomainSettings,
   currentUserRole,
   informationSections,
   categories,
@@ -129,7 +156,9 @@ export default function AdminSettingsPage({
   faviconUrl: string;
   temporaryShutdown: TemporaryShutdownSettings;
   mercadoPagoSettings: MercadoPagoSettings;
+  manualPaymentMethods: ManualPaymentMethodSettings[];
   analyticsSettings: AnalyticsSettings;
+  customDomainSettings: CustomDomainSettings;
   currentUserRole: string;
   informationSections: InformationSection[];
   categories: CategoryOption[];
@@ -143,8 +172,11 @@ export default function AdminSettingsPage({
   const [shutdownMessage, setShutdownMessage] = useState(temporaryShutdown.message);
   const [mpAccessToken, setMpAccessToken] = useState("");
   const [mpSettings, setMpSettings] = useState(mercadoPagoSettings);
+  const [manualMethods, setManualMethods] = useState(manualPaymentMethods);
   const [gaMeasurementId, setGaMeasurementId] = useState(analyticsSettings.googleAnalyticsMeasurementId);
   const [metaPixelId, setMetaPixelId] = useState(analyticsSettings.metaPixelId);
+  const [domainSettings, setDomainSettings] = useState(customDomainSettings);
+  const [customDomain, setCustomDomain] = useState(customDomainSettings.customDomain);
   const [tiles, setTiles] = useState<HomeCategoryTile[]>(homeCategoryTiles);
   const [sections, setSections] = useState<InformationSection[]>(informationSections);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
@@ -155,7 +187,10 @@ export default function AdminSettingsPage({
   const [faviconLoading, setFaviconLoading] = useState(false);
   const [shutdownLoading, setShutdownLoading] = useState(false);
   const [mpLoading, setMpLoading] = useState(false);
+  const [manualPaymentsLoading, setManualPaymentsLoading] = useState(false);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [domainLoading, setDomainLoading] = useState(false);
+  const [domainVerifyLoading, setDomainVerifyLoading] = useState(false);
   const [logoLoading, setLogoLoading] = useState(false);
   const [tilesLoading, setTilesLoading] = useState(false);
   const [sectionsLoading, setSectionsLoading] = useState(false);
@@ -163,7 +198,9 @@ export default function AdminSettingsPage({
   const [browserMsg, setBrowserMsg] = useState<string | null>(null);
   const [shutdownMsg, setShutdownMsg] = useState<string | null>(null);
   const [mpMsg, setMpMsg] = useState<string | null>(null);
+  const [manualPaymentsMsg, setManualPaymentsMsg] = useState<string | null>(null);
   const [analyticsMsg, setAnalyticsMsg] = useState<string | null>(null);
+  const [domainMsg, setDomainMsg] = useState<string | null>(null);
   const [tileMsg, setTileMsg] = useState<string | null>(null);
   const [sectionsMsg, setSectionsMsg] = useState<string | null>(null);
   const informationContentRef = useRef<HTMLDivElement | null>(null);
@@ -310,6 +347,31 @@ export default function AdminSettingsPage({
     setMpMsg("MercadoPago desconectado.");
   }
 
+  function patchManualMethod(key: ManualPaymentMethodKey, patch: Partial<ManualPaymentMethodSettings>) {
+    setManualMethods((prev) => prev.map((method) => (method.key === key ? { ...method, ...patch } : method)));
+  }
+
+  async function saveManualPaymentMethods() {
+    setManualPaymentsMsg(null);
+    setManualPaymentsLoading(true);
+
+    const res = await fetch("/api/admin/settings/payment-methods", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ methods: manualMethods }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setManualPaymentsLoading(false);
+
+    if (!res.ok) {
+      setManualPaymentsMsg(String(data?.error || "No se pudieron guardar los medios de pago manuales."));
+      return;
+    }
+
+    setManualMethods(data.methods || []);
+    setManualPaymentsMsg("Medios de pago manuales guardados.");
+  }
+
   async function saveAnalyticsSettings() {
     setAnalyticsMsg(null);
     setAnalyticsLoading(true);
@@ -331,6 +393,64 @@ export default function AdminSettingsPage({
     setGaMeasurementId(data.settings?.googleAnalyticsMeasurementId || "");
     setMetaPixelId(data.settings?.metaPixelId || "");
     setAnalyticsMsg("Configuración de analíticas guardada.");
+  }
+
+  async function saveCustomDomainSettings() {
+    setDomainMsg(null);
+
+    if (
+      domainSettings.domainStatus === "ACTIVE" &&
+      domainSettings.customDomain &&
+      customDomain.trim() !== domainSettings.customDomain
+    ) {
+      const confirmed = window.confirm(
+        "Este dominio está activo. Si lo reemplazás, el nuevo dominio quedará pendiente hasta verificar DNS y activar HTTPS en el servidor.",
+      );
+      if (!confirmed) return;
+    }
+
+    setDomainLoading(true);
+    const res = await fetch("/api/admin/settings/domain", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customDomain }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    setDomainLoading(false);
+
+    if (!res.ok) {
+      setDomainMsg(String(data?.error || "No se pudo guardar el dominio."));
+      return;
+    }
+
+    setDomainSettings(data.settings);
+    setCustomDomain(data.settings?.customDomain || "");
+    setDomainMsg("Dominio guardado. Ahora verificá la configuración DNS.");
+  }
+
+  async function verifyCustomDomainSettings() {
+    setDomainMsg(null);
+    setDomainVerifyLoading(true);
+
+    const res = await fetch("/api/admin/settings/domain", { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    setDomainVerifyLoading(false);
+
+    if (!res.ok) {
+      setDomainMsg(String(data?.error || "No se pudo verificar DNS."));
+      return;
+    }
+
+    setDomainSettings(data.settings);
+    setCustomDomain(data.settings?.customDomain || "");
+    setDomainMsg(
+      data.settings?.domainStatus === "VERIFIED"
+        ? "DNS configurado correctamente. Falta activar HTTPS en el servidor."
+        : data.settings?.domainStatus === "ERROR"
+          ? "La verificación encontró un problema. Revisá el detalle del estado."
+          : "Todavía no vemos la configuración DNS correcta. Puede demorar unos minutos en propagarse.",
+    );
   }
 
   async function save() {
@@ -848,14 +968,84 @@ export default function AdminSettingsPage({
 
                 {mpMsg ? <Notice>{mpMsg}</Notice> : null}
               </div>
+
+              <div className="mt-5 rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-5 xl:p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-[#5F3B18]">Pagos manuales</h3>
+                    <p className="mt-2 max-w-xl text-sm leading-6 text-[#8F6A49]">
+                      Activá opciones para que el cliente cree el pedido sin redirección online.
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-[#E5D7C8] bg-white/70 px-3 py-1 text-xs font-semibold text-[#8B5A2B]">
+                    {manualMethods.filter((method) => method.enabled).length} activos
+                  </span>
+                </div>
+
+                <div className="mt-5 grid gap-4">
+                  {manualMethods.map((method) => (
+                    <div key={method.key} className="rounded-2xl border border-[#E5D7C8] bg-white/70 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-[#5F3B18]">{method.label}</div>
+                          <div className="mt-1 text-xs text-[#8F6A49]">
+                            {method.key === "agreement"
+                              ? "El cliente coordina el pago con la tienda."
+                              : method.key === "cash"
+                                ? "Pago en efectivo."
+                                : "Pago por transferencia bancaria."}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={method.enabled}
+                          onClick={() => patchManualMethod(method.key, { enabled: !method.enabled })}
+                          className={[
+                            "rounded-2xl px-4 py-2 text-sm font-semibold transition duration-150",
+                            method.enabled
+                              ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200"
+                              : "bg-[#F2ECE5] text-[#8B5A2B] ring-1 ring-[#E5D7C8]",
+                          ].join(" ")}
+                        >
+                          {method.enabled ? "Activo" : "Inactivo"}
+                        </button>
+                      </div>
+                      <label className="mt-4 block">
+                        <FieldLabel label="Instrucciones para el cliente" />
+                        <textarea
+                          value={method.instructions}
+                          onChange={(e) => patchManualMethod(method.key, { instructions: e.target.value })}
+                          rows={2}
+                          maxLength={500}
+                          className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm leading-6 text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
+                        />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <PrimaryButton onClick={saveManualPaymentMethods} loading={manualPaymentsLoading} label="Guardar pagos manuales" />
+                </div>
+                {manualPaymentsMsg ? <Notice>{manualPaymentsMsg}</Notice> : null}
+              </div>
             </SectionCard>
 
             <SectionCard title="Checkout" description="Estado operativo del cobro online." icon={CreditCard}>
               <div className="grid gap-3">
                 <div className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
-                  <div className="text-sm font-semibold text-[#5F3B18]">Proveedor</div>
-                  <div className="mt-1 text-sm text-[#8F6A49]">MercadoPago</div>
+                  <div className="text-sm font-semibold text-[#5F3B18]">MercadoPago</div>
+                  <div className="mt-1 text-sm text-[#8F6A49]">
+                    {mpSettings.accessTokenConfigured ? "Activo para checkout" : "Sin credencial activa"}
+                  </div>
                 </div>
+                {manualMethods.map((method) => (
+                  <div key={method.key} className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
+                    <div className="text-sm font-semibold text-[#5F3B18]">{method.label}</div>
+                    <div className="mt-1 text-sm text-[#8F6A49]">{method.enabled ? "Activo para checkout" : "Inactivo"}</div>
+                  </div>
+                ))}
                 <div className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
                   <div className="text-sm font-semibold text-[#5F3B18]">Credencial activa</div>
                   <div className="mt-1 text-sm text-[#8F6A49]">
@@ -883,6 +1073,19 @@ export default function AdminSettingsPage({
               </div>
             </SectionCard>
           </div>
+        ) : null}
+
+        {activeTab === "domain" ? (
+          <DomainSettingsSection
+            settings={domainSettings}
+            customDomain={customDomain}
+            loading={domainLoading}
+            verifyLoading={domainVerifyLoading}
+            message={domainMsg}
+            onChange={setCustomDomain}
+            onSave={saveCustomDomainSettings}
+            onVerify={verifyCustomDomainSettings}
+          />
         ) : null}
 
         {activeTab === "analytics" ? (
@@ -1021,6 +1224,207 @@ export default function AdminSettingsPage({
         ) : null}
       </div>
     </main>
+  );
+}
+
+function domainStatusInfo(status: DomainStatus) {
+  const map: Record<DomainStatus, { title: string; description: string; className: string }> = {
+    NOT_CONFIGURED: {
+      title: "Sin configurar",
+      description: "Todavía no cargaste un dominio personalizado.",
+      className: "border-zinc-200 bg-zinc-50 text-zinc-800",
+    },
+    PENDING: {
+      title: "Esperando configuración DNS",
+      description: "Configurá los registros DNS y ejecutá la verificación.",
+      className: "border-amber-200 bg-amber-50 text-amber-900",
+    },
+    VERIFIED: {
+      title: "DNS configurado correctamente",
+      description: "Falta activar HTTPS en el servidor para dejar el dominio conectado.",
+      className: "border-emerald-200 bg-emerald-50 text-emerald-900",
+    },
+    ACTIVE: {
+      title: "Dominio conectado",
+      description: "HTTPS activo y dominio listo para uso público.",
+      className: "border-emerald-200 bg-emerald-50 text-emerald-900",
+    },
+    ERROR: {
+      title: "Error",
+      description: "La verificación encontró un problema anómalo.",
+      className: "border-red-200 bg-red-50 text-red-800",
+    },
+  };
+
+  return map[status];
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return null;
+
+  try {
+    return new Intl.DateTimeFormat("es-AR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(new Date(value));
+  } catch {
+    return null;
+  }
+}
+
+function DomainSettingsSection({
+  settings,
+  customDomain,
+  loading,
+  verifyLoading,
+  message,
+  onChange,
+  onSave,
+  onVerify,
+}: {
+  settings: CustomDomainSettings;
+  customDomain: string;
+  loading: boolean;
+  verifyLoading: boolean;
+  message: string | null;
+  onChange: (value: string) => void;
+  onSave: () => void;
+  onVerify: () => void;
+}) {
+  const status = domainStatusInfo(settings.domainStatus);
+  const verifiedAt = formatDateTime(settings.domainVerifiedAt);
+  const activatedAt = formatDateTime(settings.domainActivatedAt);
+  const rootRecordTarget = settings.serverIps.length > 0 ? settings.serverIps.join(" / ") : "IP_DE_LA_VPS";
+
+  return (
+    <div className="mt-8 xl:mt-6 grid gap-6 xl:gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+      <SectionCard title="Dominio personalizado" description="Conectá un dominio propio a esta tienda." icon={Globe}>
+        <div className="rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-5 xl:p-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className={["inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold", status.className].join(" ")}>
+                {settings.domainStatus === "ACTIVE" || settings.domainStatus === "VERIFIED" ? (
+                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                ) : (
+                  <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                {status.title}
+              </div>
+              <p className="mt-3 max-w-xl text-sm leading-6 text-[#8F6A49]">{status.description}</p>
+              {settings.errorMessage ? (
+                <p className="mt-2 max-w-xl text-sm leading-6 text-red-700">{settings.errorMessage}</p>
+              ) : null}
+            </div>
+            {settings.customDomain ? (
+              <span className="rounded-full border border-[#E5D7C8] bg-white/70 px-3 py-1 text-xs font-semibold text-[#8B5A2B]">
+                {settings.customDomain}
+              </span>
+            ) : null}
+          </div>
+
+          <label className="mt-5 block">
+            <FieldLabel
+              label="Dominio"
+              help="Ingresá solo el dominio. Si pegás https://www.tudominio.com.ar/ se guardará como tudominio.com.ar."
+            />
+            <input
+              value={customDomain}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder="luzdemarfil.com.ar"
+              autoComplete="off"
+              className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
+            />
+          </label>
+
+          {settings.domainStatus === "ACTIVE" && customDomain.trim() !== settings.customDomain ? (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 xl:py-2.5 text-sm leading-6 text-amber-900">
+              Estás por reemplazar un dominio activo. El nuevo dominio quedará pendiente hasta verificar DNS y activar HTTPS manualmente.
+            </div>
+          ) : null}
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <PrimaryButton onClick={onSave} loading={loading} label={settings.customDomain ? "Guardar cambio" : "Guardar dominio"} />
+            <button
+              type="button"
+              onClick={onVerify}
+              disabled={verifyLoading || !settings.customDomain}
+              className="inline-flex items-center gap-2 rounded-2xl border border-[#E5D7C8] px-4 py-2 text-sm font-semibold text-[#8B5A2B] transition duration-150 hover:bg-[#F2ECE5] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+              {verifyLoading ? "Verificando..." : "Verificar DNS"}
+            </button>
+          </div>
+
+          {message ? <Notice>{message}</Notice> : null}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Instrucciones DNS" description="Configurá estos registros en el proveedor donde administrás tu dominio." icon={LinkIcon}>
+        <div className="grid gap-4">
+          <div className="rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-5 xl:p-4">
+            <h3 className="text-sm font-semibold text-[#5F3B18]">Para www</h3>
+            <p className="mt-2 text-sm leading-6 text-[#8F6A49]">Creá un registro CNAME para que www apunte al hostname central de la plataforma.</p>
+            <DnsRecordTable
+              rows={[
+                ["Tipo", "CNAME"],
+                ["Host/Nombre", "www"],
+                ["Destino", settings.dnsTarget],
+              ]}
+            />
+          </div>
+
+          <div className="rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-5 xl:p-4">
+            <h3 className="text-sm font-semibold text-[#5F3B18]">Para el dominio raíz</h3>
+            <p className="mt-2 text-sm leading-6 text-[#8F6A49]">
+              Si tu proveedor soporta ALIAS o ANAME, usalo contra el hostname central. Si no, configurá un registro A hacia la IP pública de la VPS.
+            </p>
+            <DnsRecordTable
+              rows={[
+                ["Tipo", "ALIAS / ANAME"],
+                ["Host/Nombre", "@"],
+                ["Destino", settings.dnsTarget],
+              ]}
+            />
+            <div className="mt-3">
+              <DnsRecordTable
+                rows={[
+                  ["Tipo", "A"],
+                  ["Host/Nombre", "@"],
+                  ["Destino", rootRecordTarget],
+                ]}
+              />
+            </div>
+            {!settings.supportsARecord ? (
+              <p className="mt-3 text-xs leading-5 text-[#A37A55]">
+                Falta configurar CUSTOM_DOMAIN_SERVER_IP para mostrar y verificar automáticamente el registro A.
+              </p>
+            ) : null}
+          </div>
+
+          <div className="rounded-3xl border border-[#E5D7C8] bg-white/70 p-5 xl:p-4">
+            <h3 className="text-sm font-semibold text-[#5F3B18]">Estado técnico</h3>
+            <div className="mt-3 grid gap-3 text-sm text-[#8F6A49]">
+              <div>Verificado: {verifiedAt || "Todavía no"}</div>
+              <div>Activado: {activatedAt || "Todavía no"}</div>
+              <div>HTTPS: {settings.domainStatus === "ACTIVE" ? "Activo" : "Pendiente de configuración manual en VPS"}</div>
+            </div>
+          </div>
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+function DnsRecordTable({ rows }: { rows: [string, string][] }) {
+  return (
+    <div className="mt-4 overflow-hidden rounded-2xl border border-[#E5D7C8] bg-white/70">
+      {rows.map(([label, value]) => (
+        <div key={label} className="grid grid-cols-[120px_1fr] border-b border-[#E5D7C8] last:border-b-0">
+          <div className="bg-[#F2ECE5] px-3 py-2 text-xs font-semibold uppercase text-[#8B5A2B]">{label}</div>
+          <div className="break-all px-3 py-2 text-sm font-medium text-[#5F3B18]">{value}</div>
+        </div>
+      ))}
+    </div>
   );
 }
 

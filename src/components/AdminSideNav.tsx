@@ -12,6 +12,7 @@ import {
   LogOut,
   Mail,
   Package,
+  RefreshCw,
   Settings,
   ShoppingBag,
   Store,
@@ -66,6 +67,7 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
       items: [
         { href: "/admin/orders", label: "Pedidos", icon: Package },
         { href: "/admin/paqueteria", label: "Paquetería", icon: Truck },
+        { href: "/admin/arrepentimientos", label: "Arrepentimientos", icon: RefreshCw },
       ],
     },
     {

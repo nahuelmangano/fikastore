@@ -21,7 +21,7 @@ export async function PATCH(req: Request) {
   if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
-  const rawTiles = Array.isArray(body.tiles) ? body.tiles.slice(0, 6) : [];
+  const rawTiles = Array.isArray(body.tiles) ? body.tiles : [];
 
   const categories = await prisma.category.findMany({
     where: { id: { in: rawTiles.map((tile: unknown) => String((tile as { categoryId?: unknown })?.categoryId || "")) } },

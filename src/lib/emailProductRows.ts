@@ -37,25 +37,27 @@ export function emailProductRowsHtml(rows: EmailProductRow[], options?: { totalH
   const body = rows
     .map((row) => {
       const image = row.imageUrl
-        ? `<img src="${escapeHtml(row.imageUrl)}" alt="" width="76" height="96" style="display:block;width:76px;height:96px;object-fit:cover;border-radius:4px;border:1px solid #eee;">`
-        : `<div style="width:76px;height:96px;border-radius:4px;border:1px solid #eee;background:#f6f6f6;"></div>`;
+        ? `<img src="${escapeHtml(row.imageUrl)}" alt="" width="76" height="96" style="display:block;width:76px;max-width:76px;height:96px;max-height:96px;object-fit:cover;border-radius:4px;border:1px solid #eee;">`
+        : `<div style="width:76px;max-width:76px;height:96px;border-radius:4px;border:1px solid #eee;background:#f6f6f6;"></div>`;
       const details = (row.details || [])
         .filter((detail) => detail.trim())
         .map((detail) => `<div style="margin-top:5px;font-size:12px;color:#777;">${escapeHtml(detail)}</div>`)
         .join("");
 
       return `
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid #eee;">
-          <div style="display:flex;gap:12px;min-width:0;">
-            ${image}
-            <div style="min-width:0;">
-              <div style="font-size:14px;font-weight:700;color:#111;">${escapeHtml(row.name)}</div>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-bottom:1px solid #eee;border-collapse:collapse;">
+          <tr>
+            <td width="88" valign="top" style="width:88px;padding:14px 12px 14px 0;">
+              ${image}
+            </td>
+            <td valign="top" style="padding:14px 12px 14px 0;">
+              <div style="font-size:14px;line-height:18px;font-weight:700;color:#111;">${escapeHtml(row.name)}</div>
               ${details}
               ${row.linkHtml || ""}
-            </div>
-          </div>
-          ${row.amount ? `<div style="font-size:14px;font-weight:700;color:#111;white-space:nowrap;">${escapeHtml(row.amount)}</div>` : ""}
-        </div>
+            </td>
+            ${row.amount ? `<td width="92" valign="top" align="right" style="width:92px;padding:14px 0;font-size:14px;line-height:18px;font-weight:700;color:#111;white-space:nowrap;">${escapeHtml(row.amount)}</td>` : ""}
+          </tr>
+        </table>
       `;
     })
     .join("");

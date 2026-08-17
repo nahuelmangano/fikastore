@@ -14,17 +14,18 @@ export default async function AdminCarrierConfigPage({
 }) {
   const resolved = await Promise.resolve(params);
   const key = String(resolved?.key || "").trim();
-  const carriers = await getShippingCarriers();
-  const carrier = carriers.find((c) => c.key === key);
-  if (!carrier) return notFound();
   const session = await auth();
   const role = (session?.user as { role?: string } | undefined)?.role;
+  const isAdmin = isAdminRole(role);
+  const carriers = await getShippingCarriers({ visibleToMerchantOnly: !isAdmin });
+  const carrier = carriers.find((c) => c.key === key);
+  if (!carrier) return notFound();
 
   return (
     <AdminCarrierConfig
       providerKey={carrier.key as ShippingCarrierKey}
       providerName={carrier.name}
-      canCreateTestShipments={isAdminRole(role)}
+      canCreateTestShipments={isAdmin}
     />
   );
 }

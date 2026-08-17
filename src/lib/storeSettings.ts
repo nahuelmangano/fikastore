@@ -12,6 +12,7 @@ const MAILING_SETTINGS_KEY = "mailing_settings";
 const MAILING_SMTP_SETTINGS_KEY = "mailing_smtp_settings";
 const EMAIL_JOB_SETTINGS_KEY = "email_job_settings";
 const MERCADOPAGO_SETTINGS_KEY = "mercadopago_settings";
+const MANUAL_PAYMENT_SETTINGS_KEY = "manual_payment_settings";
 const GOOGLE_ANALYTICS_MEASUREMENT_ID_KEY = "google_analytics_measurement_id";
 const META_PIXEL_ID_KEY = "meta_pixel_id";
 const ENCRYPTED_VALUE_PREFIX = "enc:v1:";
@@ -83,10 +84,45 @@ export type MercadoPagoSettings = {
   expiresAt?: string;
 };
 
+export type ManualPaymentMethodKey = "agreement" | "cash" | "transfer";
+
+export type ManualPaymentMethodSettings = {
+  key: ManualPaymentMethodKey;
+  label: string;
+  enabled: boolean;
+  instructions: string;
+};
+
+export type CheckoutPaymentSettings = {
+  mercadopagoEnabled: boolean;
+  manualMethods: ManualPaymentMethodSettings[];
+};
+
 export type AnalyticsSettings = {
   googleAnalyticsMeasurementId: string;
   metaPixelId: string;
 };
+
+const DEFAULT_MANUAL_PAYMENT_METHODS: ManualPaymentMethodSettings[] = [
+  {
+    key: "agreement",
+    label: "Acordar con la tienda",
+    enabled: true,
+    instructions: "Nos vamos a contactar para coordinar el pago.",
+  },
+  {
+    key: "cash",
+    label: "Efectivo",
+    enabled: true,
+    instructions: "Pagás en efectivo al retirar o según lo acordado con la tienda.",
+  },
+  {
+    key: "transfer",
+    label: "Transferencia",
+    enabled: true,
+    instructions: "Realizá la transferencia y envianos el comprobante por WhatsApp.",
+  },
+];
 
 type StoredMailingSettings = Pick<
   MailingSettings,
@@ -427,7 +463,7 @@ export async function getHomeCategoryTiles() {
 }
 
 export async function setHomeCategoryTiles(tiles: HomeCategoryTile[]) {
-  const value = JSON.stringify(tiles.slice(0, 6));
+  const value = JSON.stringify(tiles);
 
   return prisma.shippingProviderSetting.upsert({
     where: {
@@ -853,6 +889,83 @@ export async function getMercadoPagoSettings(): Promise<MercadoPagoSettings> {
   }
 
   return { accessTokenConfigured: false, source: "none" };
+}
+
+function normalizeManualPaymentMethods(input: unknown): ManualPaymentMethodSettings[] {
+  const byKey = new Map<ManualPaymentMethodKey, ManualPaymentMethodSettings>(
+    DEFAULT_MANUAL_PAYMENT_METHODS.map((method) => [method.key, method]),
+  );
+  const raw = Array.isArray(input) ? input : [];
+
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const method = item as Partial<ManualPaymentMethodSettings>;
+    if (method.key !== "agreement" && method.key !== "cash" && method.key !== "transfer") continue;
+    const current = byKey.get(method.key);
+    if (!current) continue;
+    byKey.set(method.key, {
+      ...current,
+      enabled: method.enabled === true,
+      instructions: String(method.instructions || "").trim().slice(0, 500) || current.instructions,
+    });
+  }
+
+  return DEFAULT_MANUAL_PAYMENT_METHODS.map((method) => byKey.get(method.key) || method);
+}
+
+export async function getManualPaymentSettings(): Promise<ManualPaymentMethodSettings[]> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: MANUAL_PAYMENT_SETTINGS_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return DEFAULT_MANUAL_PAYMENT_METHODS;
+
+  try {
+    return normalizeManualPaymentMethods(JSON.parse(row.value));
+  } catch {
+    return DEFAULT_MANUAL_PAYMENT_METHODS;
+  }
+}
+
+export async function setManualPaymentSettings(methods: unknown) {
+  const value = JSON.stringify(normalizeManualPaymentMethods(methods));
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: MANUAL_PAYMENT_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: MANUAL_PAYMENT_SETTINGS_KEY,
+      value,
+      isSecret: false,
+    },
+    update: {
+      value,
+      isSecret: false,
+    },
+  });
+}
+
+export async function getCheckoutPaymentSettings(): Promise<CheckoutPaymentSettings> {
+  const [mercadoPagoSettings, manualMethods] = await Promise.all([
+    getMercadoPagoSettings(),
+    getManualPaymentSettings(),
+  ]);
+
+  return {
+    mercadopagoEnabled: mercadoPagoSettings.accessTokenConfigured,
+    manualMethods,
+  };
 }
 
 export async function setMercadoPagoSettings(settings: { accessToken?: string }) {

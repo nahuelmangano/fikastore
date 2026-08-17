@@ -5,6 +5,7 @@ import AuthSessionProvider from "@/components/SessionProvider";
 import CartSync from "@/components/CartSync";
 import AnnouncementBar from "@/components/AnnouncementBar";
 import StoreNav from "@/components/StoreNav";
+import StoreFooter from "@/components/StoreFooter";
 import StorefrontOnly from "@/components/StorefrontOnly";
 import GoogleAnalytics from "@/components/GoogleAnalytics";
 import MetaPixel from "@/components/MetaPixel";
@@ -60,6 +61,9 @@ export default async function RootLayout({
           </StorefrontOnly>
           <CartSync />
           {children}
+          <StorefrontOnly>
+            <StoreFooter />
+          </StorefrontOnly>
         </AuthSessionProvider>
       </body>
     </html>

@@ -166,6 +166,7 @@ model Order {
   emailNotifications  EmailNotification[]
   scheduledEmailJobs  ScheduledEmailJob[]
   returnRequests      ReturnRequest[]
+  regretRequests      RegretRequest[]
   refunds             Refund[]
   reviewTokens        ProductReviewToken[]
 
@@ -230,23 +231,39 @@ model ShippingCarrier {
   key       String   @unique
   name      String
   enabled   Boolean  @default(true)
+  visibleToMerchant Boolean @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([enabled])
+  @@index([visibleToMerchant])
 }
 
 model ShippingProviderSetting {
   id        String   @id @default(cuid())
   provider  String
   key       String
-  value     String
+  value     String   @db.NVarChar(max)
   isSecret  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([provider, key])
   @@index([provider])
+}
+
+model StoreCustomDomain {
+  id                String       @id @default(cuid())
+  storeKey          String       @default("default") @unique
+  customDomain      String?      @unique @db.NVarChar(255)
+  domainStatus      String       @default("NOT_CONFIGURED")
+  domainVerifiedAt  DateTime?
+  domainActivatedAt DateTime?
+  errorMessage      String?      @db.NVarChar(max)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([domainStatus])
 }
 
 model OrderItem {
@@ -440,6 +457,27 @@ model ReturnItem {
 
   @@index([returnRequestId])
   @@index([productId])
+}
+
+model RegretRequest {
+  id          String   @id @default(cuid())
+  orderId     String?
+  orderNumber Int?
+  name        String
+  email       String
+  phone       String
+  comments    String   @db.NVarChar(max)
+  status      String   @default("PENDING") // PENDING|IN_REVIEW|RESOLVED|REJECTED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  order       Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([orderId])
+  @@index([orderNumber])
+  @@index([email])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model Refund {

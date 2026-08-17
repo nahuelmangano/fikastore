@@ -20,7 +20,7 @@ function canUseAutoReturn(site: string) {
 
 export async function POST(req: Request) {
   const session = await auth();
-  const userId = (session?.user as any)?.id as string | undefined;
+  const userId = (session?.user as { id?: string } | undefined)?.id;
 
   if (!userId) {
     return NextResponse.json(
@@ -50,6 +50,14 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { ok: false, error: "Orden no encontrada." },
       { status: 404 }
+    );
+  }
+
+  const latestPayment = order.payments[0];
+  if (latestPayment?.provider && latestPayment.provider !== "mercadopago") {
+    return NextResponse.json(
+      { ok: false, error: "Este pedido fue creado con otro medio de pago." },
+      { status: 409 },
     );
   }
 

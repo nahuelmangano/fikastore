@@ -3,12 +3,14 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { MailingSettings } from "@/lib/storeSettings";
+import { sanitizeRichText, stripRichText } from "@/lib/richText";
 
 type AdminMailingPageProps = {
   initialSettings: MailingSettings;
   canSaveSmtpSecrets: boolean;
   canManageSmtp: boolean;
   canManageAutomaticEmails: boolean;
+  canManageAutomaticEmailAdminActions: boolean;
 };
 
 type AutomaticEmailTemplate = {
@@ -46,6 +48,7 @@ export default function AdminMailingPage({
   canSaveSmtpSecrets,
   canManageSmtp,
   canManageAutomaticEmails,
+  canManageAutomaticEmailAdminActions,
 }: AdminMailingPageProps) {
   const [settings, setSettings] = useState(initialSettings);
   const [smtpPass, setSmtpPass] = useState("");
@@ -62,6 +65,7 @@ export default function AdminMailingPage({
   const [automaticMsg, setAutomaticMsg] = useState("");
   const [msg, setMsg] = useState("");
   const previewRef = useRef<HTMLElement | null>(null);
+  const templateHtmlRef = useRef<HTMLDivElement | null>(null);
   const shouldScrollToPreviewRef = useRef(false);
   const automaticTemplateRows = automaticTemplates;
 
@@ -169,9 +173,36 @@ export default function AdminMailingPage({
   }
 
   function selectAutomaticTemplate(template: AutomaticEmailTemplate) {
+    const html = sanitizeRichText(template.html);
     setSelectedTemplateKey(template.key);
-    setTemplateDraft({ subject: template.subject, html: template.html, text: template.text });
+    setTemplateDraft({ subject: template.subject, html, text: template.text || stripRichText(html) });
     setAutomaticMsg("");
+    requestAnimationFrame(() => {
+      if (templateHtmlRef.current) templateHtmlRef.current.innerHTML = html;
+    });
+  }
+
+  function syncTemplateHtmlFromEditor() {
+    const html = sanitizeRichText(templateHtmlRef.current?.innerHTML ?? "");
+    setTemplateDraft((current) => current ? { ...current, html, text: stripRichText(html) } : current);
+  }
+
+  function formatTemplateContent(command: string, value?: string) {
+    templateHtmlRef.current?.focus();
+    document.execCommand(command, false, value);
+    syncTemplateHtmlFromEditor();
+  }
+
+  function addTemplateLink() {
+    const url = window.prompt("URL del enlace");
+    if (!url?.trim()) return;
+    formatTemplateContent("createLink", url.trim());
+  }
+
+  function insertTemplateVariable(variable: string) {
+    templateHtmlRef.current?.focus();
+    document.execCommand("insertText", false, `{{${variable}}}`);
+    syncTemplateHtmlFromEditor();
   }
 
   async function updateAutomaticTemplate(key: string, patch: Partial<AutomaticEmailTemplate>) {
@@ -225,7 +256,7 @@ export default function AdminMailingPage({
   }
 
   async function saveJobSettings() {
-    if (!canManageAutomaticEmails) return;
+    if (!canManageAutomaticEmailAdminActions) return;
     if (!jobSettings) return;
     setAutomaticMsg("");
     const res = await fetch("/api/admin/mailing/automatic", {
@@ -281,12 +312,12 @@ export default function AdminMailingPage({
               <h2 className="text-base font-semibold">Emails automaticos</h2>
               <p className="mt-1 text-sm text-zinc-400">
                 {canManageAutomaticEmails
-                  ? "Activa o desactiva cada email automatico por separado."
+                  ? "Edita el asunto y el contenido que reciben los clientes."
                   : "Emails automaticos gestionados por el administrador."}
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {canManageAutomaticEmails ? (
+              {canManageAutomaticEmailAdminActions ? (
                 <button
                   type="button"
                   onClick={() => automaticAction("retry-failed")}
@@ -310,7 +341,7 @@ export default function AdminMailingPage({
                   <select
                     value={jobSettings.paymentRemindersEnabled ? "on" : "off"}
                     onChange={(e) => setJobSettings((current) => current ? { ...current, paymentRemindersEnabled: e.target.value === "on" } : current)}
-                    disabled={!canManageAutomaticEmails}
+                    disabled={!canManageAutomaticEmailAdminActions}
                     className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
                   >
                     <option value="on">Habilitado</option>
@@ -322,20 +353,20 @@ export default function AdminMailingPage({
                   value={jobSettings.paymentReminderHours.join(",")}
                   onChange={(value) => setJobSettings((current) => current ? { ...current, paymentReminderHours: value.split(",").map((item) => Number(item.trim())).filter((item) => Number.isFinite(item)) } : current)}
                   placeholder="24,48"
-                  disabled={!canManageAutomaticEmails}
+                  disabled={!canManageAutomaticEmailAdminActions}
                 />
                 <TextInput
                   label="Maximo recordatorios"
                   value={String(jobSettings.maxPaymentReminders)}
                   onChange={(value) => setJobSettings((current) => current ? { ...current, maxPaymentReminders: Number(value) } : current)}
-                  disabled={!canManageAutomaticEmails}
+                  disabled={!canManageAutomaticEmailAdminActions}
                 />
                 <label className="text-sm font-medium text-zinc-200">
                   Opiniones activas
                   <select
                     value={jobSettings.reviewRequestEnabled ? "on" : "off"}
                     onChange={(e) => setJobSettings((current) => current ? { ...current, reviewRequestEnabled: e.target.value === "on" } : current)}
-                    disabled={!canManageAutomaticEmails}
+                    disabled={!canManageAutomaticEmailAdminActions}
                     className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
                   >
                     <option value="on">Habilitado</option>
@@ -346,25 +377,25 @@ export default function AdminMailingPage({
                   label="Dias para opinion"
                   value={String(jobSettings.reviewRequestDelayDays)}
                   onChange={(value) => setJobSettings((current) => current ? { ...current, reviewRequestDelayDays: Number(value) } : current)}
-                  disabled={!canManageAutomaticEmails}
+                  disabled={!canManageAutomaticEmailAdminActions}
                 />
                 <label className="text-sm font-medium text-zinc-200">
                   Cumpleanos activos
                   <select
                     value={jobSettings.birthdayCouponEnabled ? "on" : "off"}
                     onChange={(e) => setJobSettings((current) => current ? { ...current, birthdayCouponEnabled: e.target.value === "on" } : current)}
-                    disabled={!canManageAutomaticEmails}
+                    disabled={!canManageAutomaticEmailAdminActions}
                     className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
                   >
                     <option value="on">Habilitado</option>
                     <option value="off">Deshabilitado</option>
                   </select>
                 </label>
-                <TextInput label="Offset cumpleanos" value={String(jobSettings.birthdayCouponOffsetDays)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponOffsetDays: Number(value) } : current)} disabled={!canManageAutomaticEmails} />
-                <TextInput label="Descuento cumpleanos" value={String(jobSettings.birthdayCouponDiscountValue)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponDiscountValue: Number(value) } : current)} disabled={!canManageAutomaticEmails} />
-                <TextInput label="Duracion cupon dias" value={String(jobSettings.birthdayCouponDurationDays)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponDurationDays: Number(value) } : current)} disabled={!canManageAutomaticEmails} />
+                <TextInput label="Offset cumpleanos" value={String(jobSettings.birthdayCouponOffsetDays)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponOffsetDays: Number(value) } : current)} disabled={!canManageAutomaticEmailAdminActions} />
+                <TextInput label="Descuento cumpleanos" value={String(jobSettings.birthdayCouponDiscountValue)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponDiscountValue: Number(value) } : current)} disabled={!canManageAutomaticEmailAdminActions} />
+                <TextInput label="Duracion cupon dias" value={String(jobSettings.birthdayCouponDurationDays)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponDurationDays: Number(value) } : current)} disabled={!canManageAutomaticEmailAdminActions} />
               </div>
-              {canManageAutomaticEmails ? (
+              {canManageAutomaticEmailAdminActions ? (
                 <button type="button" onClick={saveJobSettings} className="mt-4 rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white">
                   Guardar procesos
                 </button>
@@ -436,12 +467,12 @@ export default function AdminMailingPage({
                               Editar
                             </button>
                           ) : null}
-                          {canManageAutomaticEmails ? (
+                          {canManageAutomaticEmailAdminActions ? (
                             <button type="button" onClick={() => automaticAction("test", template.key)} disabled={anyBusy} className={actionButtonClass}>
                               {isBusy("test") ? "Enviando..." : "Prueba"}
                             </button>
                           ) : null}
-                          {canManageAutomaticEmails ? (
+                          {canManageAutomaticEmailAdminActions ? (
                             <button type="button" onClick={() => automaticAction("restore", template.key)} disabled={anyBusy} className={actionButtonClass}>
                               {isBusy("restore") ? "Restaurando..." : "Restaurar"}
                             </button>
@@ -465,16 +496,42 @@ export default function AdminMailingPage({
               <div className="mt-4 grid gap-4">
                 <TextInput label="Asunto" value={templateDraft.subject} onChange={(value) => setTemplateDraft((current) => current ? { ...current, subject: value } : current)} />
                 <label className="block text-sm font-medium text-zinc-200">
-                  HTML
-                  <textarea value={templateDraft.html} onChange={(e) => setTemplateDraft((current) => current ? { ...current, html: e.target.value } : current)} rows={8} className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500" />
+                  Contenido del email
+                  <div className="mt-2 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950">
+                    <div className="flex flex-wrap gap-2 border-b border-zinc-800 p-2">
+                      <EditorButton onClick={() => formatTemplateContent("bold")}>Negrita</EditorButton>
+                      <EditorButton onClick={() => formatTemplateContent("italic")}>Itálica</EditorButton>
+                      <EditorButton onClick={() => formatTemplateContent("underline")}>Subrayar</EditorButton>
+                      <EditorButton onClick={() => formatTemplateContent("formatBlock", "h2")}>Título</EditorButton>
+                      <EditorButton onClick={() => formatTemplateContent("insertUnorderedList")}>Lista</EditorButton>
+                      <EditorButton onClick={addTemplateLink}>Link</EditorButton>
+                    </div>
+                    <div
+                      key={selectedTemplateKey}
+                      ref={templateHtmlRef}
+                      contentEditable
+                      suppressContentEditableWarning
+                      onInput={syncTemplateHtmlFromEditor}
+                      onBlur={syncTemplateHtmlFromEditor}
+                      className="min-h-56 w-full bg-zinc-950 px-4 py-3 text-sm leading-6 text-zinc-100 outline-none [&_a]:text-sky-300 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:text-lg [&_h2]:font-semibold [&_li]:ml-5 [&_li]:list-disc [&_p]:my-2"
+                    />
+                  </div>
                 </label>
-                <label className="block text-sm font-medium text-zinc-200">
-                  Texto plano
-                  <textarea value={templateDraft.text} onChange={(e) => setTemplateDraft((current) => current ? { ...current, text: e.target.value } : current)} rows={4} className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500" />
-                </label>
-                <p className="text-xs text-zinc-500">
-                  Variables: {(automaticTemplates.find((item) => item.key === selectedTemplateKey)?.variables || []).map((variable) => `{{${variable}}}`).join(" ")}
-                </p>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Variables disponibles</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(automaticTemplates.find((item) => item.key === selectedTemplateKey)?.variables || []).map((variable) => (
+                      <button
+                        key={variable}
+                        type="button"
+                        onClick={() => insertTemplateVariable(variable)}
+                        className="rounded-full border border-zinc-700 px-3 py-1 text-xs font-semibold text-zinc-200 hover:bg-zinc-900"
+                      >
+                        {`{{${variable}}}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => updateAutomaticTemplate(selectedTemplateKey, templateDraft)}
@@ -573,6 +630,19 @@ function TextInput({
         className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
       />
     </label>
+  );
+}
+
+function EditorButton({ children, onClick }: { children: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={onClick}
+      className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-100 hover:bg-zinc-900"
+    >
+      {children}
+    </button>
   );
 }
 

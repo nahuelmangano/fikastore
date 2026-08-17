@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { isStaffRole } from "@/lib/roles";
+import { isAdminRole, isStaffRole } from "@/lib/roles";
+import { getShippingCarriers } from "@/lib/shippingCarriers";
 import { getProviderFields, invalidateProviderConfig, listProviderConfig } from "@/lib/shippingProviderConfig";
 import type { ShippingCarrierKey } from "@/lib/shippingCarriers";
 
@@ -13,6 +14,12 @@ function isValidProvider(k: string): k is ShippingCarrierKey {
 
 function deny() {
   return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
+}
+
+async function canAccessProvider(key: ShippingCarrierKey, role: string | undefined | null) {
+  const isAdmin = isAdminRole(role);
+  const carriers = await getShippingCarriers({ visibleToMerchantOnly: !isAdmin });
+  return Boolean(carriers.find((carrier) => carrier.key === key));
 }
 
 export async function GET(
@@ -27,6 +34,9 @@ export async function GET(
   const key = String(resolved?.key || "").trim();
   if (!isValidProvider(key)) {
     return NextResponse.json({ ok: false, error: "Proveedor inválido." }, { status: 400 });
+  }
+  if (!(await canAccessProvider(key, role))) {
+    return NextResponse.json({ ok: false, error: "Proveedor no disponible." }, { status: 404 });
   }
 
   const fields = await listProviderConfig(key);
@@ -45,6 +55,9 @@ export async function PATCH(
   const key = String(resolved?.key || "").trim();
   if (!isValidProvider(key)) {
     return NextResponse.json({ ok: false, error: "Proveedor inválido." }, { status: 400 });
+  }
+  if (!(await canAccessProvider(key, role))) {
+    return NextResponse.json({ ok: false, error: "Proveedor no disponible." }, { status: 404 });
   }
 
   const body = (await req.json().catch(() => null)) as { values?: Record<string, string> } | null;
