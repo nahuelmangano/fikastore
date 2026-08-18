@@ -1,8 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import {
+  Banknote,
+  CheckCircle2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  CreditCard,
+  Handshake,
+  Landmark,
+  Tag,
+  X,
+} from "lucide-react";
 import { addToCart } from "@/lib/cart";
 import SiteHeader from "@/components/SiteHeader";
 import { sanitizeRichText } from "@/lib/richText";
@@ -10,6 +22,10 @@ import { trackMetaAddToCart, trackMetaViewContent } from "@/lib/metaPixelEvents"
 
 function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
+}
+
+function moneyWithCents(n: number) {
+  return `$${n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function splitProductName(name: string) {
@@ -63,16 +79,45 @@ type ShippingRate = {
   price?: unknown;
 };
 
+type PaymentMethodKey = "mercadopago" | "agreement" | "cash" | "transfer";
+
+type PaymentSettings = {
+  mercadopagoEnabled: boolean;
+  financingDisplay: {
+    goCuotas: boolean;
+    mercadopago: boolean;
+    manualMethods: Record<"agreement" | "cash" | "transfer", boolean>;
+  };
+  manualMethods: Array<{
+    key: "agreement" | "cash" | "transfer";
+    label: string;
+    enabled: boolean;
+    instructions: string;
+  }>;
+};
+
 export default function ProductDetailClient({
   product,
   variants = [product],
   promoPercent = 0,
   promoPercents = {},
+  promoPercentsByPaymentMethod = {},
+  paymentSettings = {
+    mercadopagoEnabled: false,
+    financingDisplay: {
+      goCuotas: true,
+      mercadopago: true,
+      manualMethods: { agreement: true, cash: true, transfer: true },
+    },
+    manualMethods: [],
+  },
 }: {
   product: ProductVariant;
   variants?: ProductVariant[];
   promoPercent?: number;
   promoPercents?: Record<string, number>;
+  promoPercentsByPaymentMethod?: Partial<Record<PaymentMethodKey, Record<string, number>>>;
+  paymentSettings?: PaymentSettings;
 }) {
   const [selectedId, setSelectedId] = useState<string>(product.id);
   const selected = variants.find((variant) => variant.id === selectedId) ?? product;
@@ -89,11 +134,17 @@ export default function ProductDetailClient({
   const [quoteRows, setQuoteRows] = useState<Array<{ label: string; amount: number }>>([]);
   const [stockAlertLoading, setStockAlertLoading] = useState(false);
   const [stockAlertMessage, setStockAlertMessage] = useState<string | null>(null);
+  const [financingOpen, setFinancingOpen] = useState(false);
   const lastTrackedViewContentId = useRef<string | null>(null);
 
   const price = Number(selected.price);
-  const promo = Number(promoPercents[selected.id] ?? promoPercent ?? 0);
+  const cashTransferPromo = Math.max(
+    Number(promoPercentsByPaymentMethod.cash?.[selected.id] ?? 0),
+    Number(promoPercentsByPaymentMethod.transfer?.[selected.id] ?? 0)
+  );
+  const promo = cashTransferPromo || Number(promoPercents[selected.id] ?? promoPercent ?? 0);
   const finalPrice = promo > 0 ? Math.round(price * (1 - promo / 100) * 100) / 100 : price;
+  const installmentAmount = Math.round((finalPrice / 3) * 100) / 100;
   const stock = Number(selected.stock);
   const activeIndex = Math.max(0, galleryImages.indexOf(active));
   const activeImage = galleryImages[activeIndex] ?? galleryImages[0] ?? fallback;
@@ -129,6 +180,16 @@ export default function ProductDetailClient({
     setLightboxOpen(false);
     setQty(1);
     setStockAlertMessage(null);
+    setFinancingOpen(false);
+  }
+
+  function finalPriceForPaymentMethod(method: PaymentMethodKey) {
+    const methodPromo = Number(promoPercentsByPaymentMethod[method]?.[selected.id] ?? 0);
+    return methodPromo > 0 ? Math.round(price * (1 - methodPromo / 100) * 100) / 100 : price;
+  }
+
+  function promoForPaymentMethod(method: PaymentMethodKey) {
+    return Number(promoPercentsByPaymentMethod[method]?.[selected.id] ?? 0);
   }
 
   const showImageAt = useCallback((index: number) => {
@@ -318,19 +379,64 @@ export default function ProductDetailClient({
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
             <h1 className="text-2xl font-semibold">{baseName}</h1>
 
-            <div className="mt-3 flex flex-wrap items-center gap-3">
+            <div className="mt-4">
               {promo > 0 ? (
                 <div>
-                  <div className="text-sm text-zinc-500 line-through">{money(price)}</div>
-                  <div className="text-2xl font-semibold">
-                    {money(finalPrice)}{" "}
-                    <span className="text-sm text-zinc-400">({promo}% OFF)</span>
+                  <div className="text-3xl font-bold tracking-normal text-zinc-100 sm:text-[2.15rem]">
+                    {money(price)}
+                  </div>
+                  <div className="mt-3 flex items-center gap-2 text-sm font-semibold text-orange-300 sm:text-[15px]">
+                    <Tag className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>{promo}% OFF con transferencia o efectivo</span>
                   </div>
                 </div>
               ) : (
-                <div className="text-2xl font-semibold">{money(price)}</div>
+                <div className="text-3xl font-bold tracking-normal text-zinc-100 sm:text-[2.15rem]">{money(price)}</div>
               )}
             </div>
+
+            {(promo > 0 || finalPrice > 0) && (
+              <div className="mt-5 overflow-hidden rounded-2xl border border-orange-200 bg-white text-[#351204] shadow-sm">
+                {promo > 0 && (
+                  <div className="flex items-center gap-3 border-b border-orange-100 px-4 py-4">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-orange-50 text-[#9A4F16]">
+                      <Tag className="h-5 w-5" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-[#351204]">
+                        Pagando con transferencia o efectivo
+                      </div>
+                      <div className="mt-1 text-base text-[#351204]">
+                        Precio final: <span className="font-bold">{money(finalPrice)}</span>
+                      </div>
+                    </div>
+                    <div className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-emerald-100 px-2.5 py-1.5 text-xs font-semibold text-emerald-700">
+                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                      {promo}% OFF
+                    </div>
+                  </div>
+                )}
+
+                {finalPrice > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setFinancingOpen(true)}
+                    className="flex w-full items-center gap-3 px-4 py-4 text-left transition hover:bg-orange-50/70"
+                  >
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-orange-50 text-[#70471F]">
+                      <CreditCard className="h-5 w-5" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0 flex-1 text-base leading-6 text-[#351204]">
+                      <div>3 cuotas sin interés</div>
+                      <div>
+                        de <span className="font-bold">{money(installmentAmount)}</span>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-5 w-5 shrink-0 text-[#351204]" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+            )}
 
             {variants.length > 1 && (
               <div className="mt-6">
@@ -577,6 +683,165 @@ export default function ProductDetailClient({
           </div>
         </div>
       )}
+
+      {financingOpen && (
+        <PaymentFinancingModal
+          price={price}
+          paymentSettings={paymentSettings}
+          finalPriceForPaymentMethod={finalPriceForPaymentMethod}
+          promoForPaymentMethod={promoForPaymentMethod}
+          onClose={() => setFinancingOpen(false)}
+        />
+      )}
     </main>
+  );
+}
+
+function PaymentFinancingModal({
+  price,
+  paymentSettings,
+  finalPriceForPaymentMethod,
+  promoForPaymentMethod,
+  onClose,
+}: {
+  price: number;
+  paymentSettings: PaymentSettings;
+  finalPriceForPaymentMethod: (method: PaymentMethodKey) => number;
+  promoForPaymentMethod: (method: PaymentMethodKey) => number;
+  onClose: () => void;
+}) {
+  const enabledManualMethods = paymentSettings.manualMethods.filter((method) =>
+    method.enabled && paymentSettings.financingDisplay.manualMethods[method.key]
+  );
+  const hasVisibleFinancingOptions =
+    paymentSettings.financingDisplay.goCuotas ||
+    (paymentSettings.mercadopagoEnabled && paymentSettings.financingDisplay.mercadopago) ||
+    enabledManualMethods.length > 0;
+
+  const manualMeta: Record<"cash" | "transfer" | "agreement", { icon: typeof Banknote; label: string }> = {
+    cash: { icon: Banknote, label: "Efectivo" },
+    transfer: { icon: Landmark, label: "Transferencia" },
+    agreement: { icon: Handshake, label: "Acordar" },
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/60 px-4 py-4 text-[#351204] sm:py-8">
+      <button
+        type="button"
+        className="absolute inset-0"
+        aria-label="Cerrar métodos de pago"
+        onClick={onClose}
+      />
+
+      <section className="relative mx-auto max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto bg-white shadow-2xl sm:max-h-[calc(100vh-4rem)]">
+        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-200 bg-white px-5 py-4 sm:px-6">
+          <h2 className="text-lg font-normal text-zinc-800">Métodos de pago y financiación</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-2 text-zinc-700 transition hover:bg-zinc-100"
+            aria-label="Cerrar"
+          >
+            <X className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </header>
+
+        <div className="space-y-3 bg-white px-4 py-4 sm:px-7">
+          {paymentSettings.financingDisplay.goCuotas ? (
+            <FinancingCard
+              leading={
+                <div className="flex items-center gap-2 text-sm font-bold text-pink-500">
+                  <span className="rounded border-2 border-pink-500 px-1 text-xs leading-5">GO</span>
+                  <span>Cuotas con DÉBITO</span>
+                </div>
+              }
+              badge="Hasta 3 cuotas sin interés"
+              collapsible
+            />
+          ) : null}
+
+          {paymentSettings.mercadopagoEnabled && paymentSettings.financingDisplay.mercadopago ? (
+            <FinancingCard
+              leading={
+                <div className="flex items-center gap-2 text-sm font-bold text-sky-700">
+                  <span className="flex h-7 w-9 items-center justify-center rounded-full bg-sky-100 text-xs">mp</span>
+                  <span>mercado pago</span>
+                </div>
+              }
+              badge="Hasta 3 cuotas sin interés"
+              collapsible
+            />
+          ) : null}
+
+          {enabledManualMethods.map((method) => {
+            const meta = manualMeta[method.key];
+            const Icon = meta.icon;
+            const methodPromo = promoForPaymentMethod(method.key);
+            const total = finalPriceForPaymentMethod(method.key);
+
+            return (
+              <FinancingCard
+                key={method.key}
+                leading={
+                  <div className="flex items-center gap-3">
+                    <Icon className="h-6 w-6 text-green-600" aria-hidden="true" />
+                    <span className="text-sm font-semibold text-zinc-700">{meta.label}</span>
+                  </div>
+                }
+                badge={methodPromo > 0 ? `${methodPromo}% OFF` : undefined}
+                detail={
+                  <>
+                    Total en 1 pago: <span className="font-bold">{moneyWithCents(total)}</span>
+                  </>
+                }
+              />
+            );
+          })}
+
+          {!hasVisibleFinancingOptions ? (
+            <FinancingCard
+              leading={
+                <div className="flex items-center gap-3">
+                  <CreditCard className="h-6 w-6 text-green-600" aria-hidden="true" />
+                  <span className="text-sm font-semibold text-zinc-700">Precio de lista</span>
+                </div>
+              }
+              detail={
+                <>
+                  Total en 1 pago: <span className="font-bold">{moneyWithCents(price)}</span>
+                </>
+              }
+            />
+          ) : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function FinancingCard({
+  leading,
+  badge,
+  detail,
+  collapsible = false,
+}: {
+  leading: ReactNode;
+  detail?: ReactNode;
+  badge?: string;
+  collapsible?: boolean;
+}) {
+  return (
+    <div className="rounded-md bg-white px-5 py-4 shadow-[0_2px_12px_rgba(0,0,0,0.1)]">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">{leading}</div>
+        {badge ? (
+          <span className="shrink-0 rounded-full bg-green-600 px-3 py-1.5 text-[11px] font-medium text-white">
+            {badge}
+          </span>
+        ) : null}
+        {collapsible ? <ChevronDown className="h-4 w-4 shrink-0 text-black" aria-hidden="true" /> : null}
+      </div>
+      {detail ? <div className="mt-5 text-xs text-black sm:text-sm">{detail}</div> : null}
+    </div>
   );
 }

@@ -61,8 +61,14 @@ function samplePayload(req: Request) {
         details: ["Cantidad: 1"],
         linkHtml: "<a href=\"#\" style=\"display:inline-block;margin-top:8px;color:#111;\">Dejar opinión</a>",
       },
-    ]),
-    productsText: "Producto de prueba x1 ($24.900)",
+    ], {
+      totalHtml: [
+        "<div style=\"padding-top:12px;text-align:right;color:#555;\">Subtotal: $24.900</div>",
+        "<div style=\"padding-top:6px;text-align:right;color:#555;\">Envío: $3.500</div>",
+        "<div style=\"padding-top:10px;text-align:right;font-weight:800;color:#111;\">Total: $28.400</div>",
+      ].join(""),
+    }),
+    productsText: "Producto de prueba x1 ($24.900). Subtotal: $24.900. Envío: $3.500. Total: $28.400",
     couponCode: "CUMPLE-CLIENTE-A8X4K2",
     discount: "15%",
     expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toLocaleDateString("es-AR"),

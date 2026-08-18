@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import { orderStatusLabel, paymentStatusLabel } from "@/lib/orderLabels";
 
 function formatMoney(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
@@ -10,7 +11,7 @@ function formatMoney(n: number) {
 
 export default async function OrdersPage() {
   const session = await getServerSession(authOptions);
-  const userId = (session?.user as any)?.id;
+  const userId = (session?.user as { id?: string } | undefined)?.id;
 
   if (!userId) redirect("/login?next=/account/orders");
 
@@ -57,8 +58,7 @@ export default async function OrdersPage() {
                     <div>
                       <div className="text-sm text-zinc-400">
                         Pedido{" "}
-                        <span className="font-mono text-zinc-300">#{o.orderNumber}</span>{" "}
-                        <span className="text-zinc-500">({o.id.slice(0, 10)}…)</span>
+                        <span className="font-mono text-zinc-300">#{o.orderNumber}</span>
                       </div>
                       <div className="mt-1 text-lg font-semibold">
                         {formatMoney(Number(o.total))}
@@ -69,9 +69,9 @@ export default async function OrdersPage() {
                     </div>
 
                     <div className="text-right">
-                      <Badge label={`Orden: ${o.status}`} />
+                      <Badge label={`Orden: ${orderStatusLabel(o.status)}`} />
                       <div className="mt-2 text-xs text-zinc-400">
-                        Pago: {lastPayment?.status ?? "—"}
+                        Pago: {paymentStatusLabel(lastPayment?.status)}
                       </div>
                     </div>
                   </div>

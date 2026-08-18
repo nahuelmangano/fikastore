@@ -305,6 +305,7 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
         },
       },
     });
+    const rejectedItemsSubtotal = rejectedOrder?.items.reduce((acc, item) => acc + Number(item.subtotal), 0) ?? 0;
     await queueAndSendEmailNotification({
       templateKey: "payment-rejected",
       to: emailTo,
@@ -314,8 +315,8 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
       payload: {
         customerName: emailName || emailTo,
         orderNumber: orderNumber ? `#${orderNumber}` : orderId,
-        productsHtml: rejectedOrder ? emailOrderItemsHtml(rejectedOrder.items, baseUrl, { total: rejectedOrder.total }) : "",
-        productsText: rejectedOrder ? emailOrderItemsText(rejectedOrder.items, { total: rejectedOrder.total }) : "",
+        productsHtml: rejectedOrder ? emailOrderItemsHtml(rejectedOrder.items, baseUrl, { subtotal: rejectedItemsSubtotal, shipping: rejectedOrder.shippingAmount, total: rejectedOrder.total }) : "",
+        productsText: rejectedOrder ? emailOrderItemsText(rejectedOrder.items, { subtotal: rejectedItemsSubtotal, shipping: rejectedOrder.shippingAmount, total: rejectedOrder.total }) : "",
         paymentAmount: `$${orderTotal.toLocaleString("es-AR")}`,
         paymentMethod: payment.payment_method_id ? String(payment.payment_method_id) : "Mercado Pago",
         paymentStatus: mpStatus,

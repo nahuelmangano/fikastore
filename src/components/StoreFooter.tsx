@@ -42,10 +42,6 @@ export default async function StoreFooter() {
                   <Image src={logo.url} alt={logo.label} width={40} height={20} unoptimized className="max-h-5 w-auto object-contain" />
                 </span>
               ))}
-              <span className="inline-flex h-7 w-12 items-center justify-center bg-green-100 text-xs font-bold text-green-800">$</span>
-              <span className="inline-flex h-7 w-12 items-center justify-center bg-zinc-100 text-zinc-500">
-                <LandmarkIcon />
-              </span>
             </div>
           </section>
 
@@ -73,10 +69,10 @@ export default async function StoreFooter() {
 
           <section>
             <h2 className="text-base font-normal uppercase">Contacto</h2>
-            <div className="mt-3 space-y-1.5 text-sm">
-              <a href={`mailto:${email}`} className="flex items-center gap-2 hover:text-zinc-600"><Mail className="h-4 w-4" /> {email}</a>
-              <a href={`tel:${phone}`} className="flex items-center gap-2 hover:text-zinc-600"><Phone className="h-4 w-4" /> {phone}</a>
-              <div className="flex items-center gap-2"><MapPin className="h-4 w-4" /> {location}</div>
+            <div className="mt-3 space-y-1.5 text-sm text-[var(--foreground)]">
+              <a href={`mailto:${email}`} className="flex items-center gap-2 text-inherit hover:text-zinc-600"><Mail className="h-4 w-4" /> {email}</a>
+              <a href={`tel:${phone}`} className="flex items-center gap-2 text-inherit hover:text-zinc-600"><Phone className="h-4 w-4" /> {phone}</a>
+              <div className="flex items-center gap-2 text-inherit"><MapPin className="h-4 w-4" /> {location}</div>
               <RegretButtonModal />
             </div>
           </section>
@@ -102,14 +98,6 @@ export default async function StoreFooter() {
         </div>
       </div>
     </footer>
-  );
-}
-
-function LandmarkIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
-      <path fill="currentColor" d="M12 3 3 8v2h18V8l-9-5ZM5 11v7H3v2h18v-2h-2v-7h-2v7h-3v-7h-2v7H9v-7H7v7H5v-7Z" />
-    </svg>
   );
 }
 

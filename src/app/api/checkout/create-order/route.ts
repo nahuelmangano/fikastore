@@ -211,7 +211,7 @@ export async function POST(req: Request) {
       }
 
       let total = new Prisma.Decimal(0);
-      const priced = await priceCartItems(merged, promoCode);
+      const priced = await priceCartItems(merged, promoCode, paymentMethod);
       const pricedById = new Map(priced.items.map((it) => [it.productId, it]));
 
       const orderItemsData = merged.map((it) => {
@@ -291,6 +291,7 @@ export async function POST(req: Request) {
     if (createdOrder?.user.email) {
       const payment = createdOrder.payments[0];
       const baseUrl = publicBaseUrl(req);
+      const itemsSubtotal = createdOrder.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
       const paymentLabel = paymentMethod === "mercadopago" ? "Mercado Pago" : manualPaymentMethod?.label || "Pago manual";
       const basePaymentInstructions =
         paymentMethod === "mercadopago"
@@ -333,8 +334,8 @@ export async function POST(req: Request) {
         payload: {
           customerName: createdOrder.user.name || createdOrder.user.email,
           orderNumber: `#${createdOrder.orderNumber}`,
-          productsHtml: emailOrderItemsHtml(createdOrder.items, baseUrl, { total: createdOrder.total }),
-          productsText: emailOrderItemsText(createdOrder.items, { total: createdOrder.total }),
+          productsHtml: emailOrderItemsHtml(createdOrder.items, baseUrl, { subtotal: itemsSubtotal, shipping: createdOrder.shippingAmount, total: createdOrder.total }),
+          productsText: emailOrderItemsText(createdOrder.items, { subtotal: itemsSubtotal, shipping: createdOrder.shippingAmount, total: createdOrder.total }),
           paymentAmount: `$${Number(createdOrder.total).toLocaleString("es-AR")}`,
           paymentMethod: paymentLabel,
           paymentInstructions,

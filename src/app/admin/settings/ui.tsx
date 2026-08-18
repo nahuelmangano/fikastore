@@ -22,6 +22,8 @@ import {
   Save,
   Settings,
   Store,
+  Tag,
+  Truck,
   Trash2,
   Upload,
   XCircle,
@@ -42,6 +44,19 @@ type HomeCategoryTile = {
   categorySlug: string;
   title: string;
   imageUrl: string;
+};
+
+type HomeBannerSlide = {
+  id: string;
+  imageUrl: string;
+  title: string;
+  subtitle: string;
+  href: string;
+};
+
+type HomeBannerSettings = {
+  enabled: boolean;
+  slides: HomeBannerSlide[];
 };
 
 type InformationSection = {
@@ -71,6 +86,12 @@ type ManualPaymentMethodSettings = {
   label: string;
   enabled: boolean;
   instructions: string;
+};
+
+type PaymentFinancingDisplaySettings = {
+  goCuotas: boolean;
+  mercadopago: boolean;
+  manualMethods: Record<ManualPaymentMethodKey, boolean>;
 };
 
 type AnalyticsSettings = {
@@ -108,6 +129,68 @@ const tabs: { key: SettingsTab; label: string; icon: LucideIcon }[] = [
   { key: "analytics", label: "Analíticas", icon: BarChart3 },
 ];
 
+const ANNOUNCEMENT_ICONS: LucideIcon[] = [CreditCard, Tag, Truck];
+
+function normalizeAnnouncementBenefit(text: string, index: number) {
+  const clean = text.trim();
+  const upper = clean.toUpperCase();
+
+  if (upper.includes("CUOTA")) {
+    return {
+      title: "3 CUOTAS SIN INTERÉS",
+      subtitle: upper.includes("$50") ? "desde $50.000" : clean.replace(/3\s*cuotas\s*sin\s*inter[eé]s/i, "").trim(),
+      Icon: ANNOUNCEMENT_ICONS[index] || CreditCard,
+    };
+  }
+
+  if (upper.includes("15%") || upper.includes("OFF")) {
+    return {
+      title: "15% OFF",
+      subtitle: "transferencia o efectivo",
+      Icon: ANNOUNCEMENT_ICONS[index] || Tag,
+    };
+  }
+
+  if (upper.includes("ENV")) {
+    return {
+      title: "ENVÍO GRATIS",
+      subtitle: upper.includes("SUCURSAL") ? "a sucursal desde $43.000" : clean.replace(/env[ií]os?\s*gratis/i, "").trim(),
+      Icon: ANNOUNCEMENT_ICONS[index] || Truck,
+    };
+  }
+
+  const [title, ...rest] = clean.split(/\s+-\s+|\s{2,}/);
+  return {
+    title: title || `Beneficio ${index + 1}`,
+    subtitle: rest.join(" ").trim(),
+    Icon: ANNOUNCEMENT_ICONS[index] || Tag,
+  };
+}
+
+function getAnnouncementBenefits(text: string) {
+  const clean = text.trim() || "3 CUOTAS SIN INTERÉS desde $50.000 | 15% OFF transferencia o efectivo | ENVÍO GRATIS a sucursal desde $43.000";
+  return clean
+    .split("|")
+    .map((part, index) => normalizeAnnouncementBenefit(part, index))
+    .slice(0, 3);
+}
+
+function getAnnouncementParts(text: string) {
+  const defaults = [
+    "3 CUOTAS SIN INTERÉS desde $50.000",
+    "15% OFF transferencia o efectivo",
+    "ENVÍO GRATIS a sucursal desde $43.000",
+  ];
+  const parts = text.split("|").map((part) => part.trim());
+  return defaults.map((fallback, index) => parts[index] || fallback);
+}
+
+function patchAnnouncementPart(text: string, index: number, value: string) {
+  const parts = getAnnouncementParts(text);
+  parts[index] = value;
+  return parts.map((part) => part.trim()).filter(Boolean).join(" | ");
+}
+
 function createClientId() {
   const browserCrypto = globalThis.crypto as BrowserCryptoWithUuid | undefined;
 
@@ -137,12 +220,14 @@ function slugify(value: string) {
 export default function AdminSettingsPage({
   announcementText,
   logoUrl,
+  homeBannerSettings,
   homeCategoryTiles,
   siteTitle,
   faviconUrl,
   temporaryShutdown,
   mercadoPagoSettings,
   manualPaymentMethods,
+  paymentFinancingDisplaySettings,
   analyticsSettings,
   customDomainSettings,
   currentUserRole,
@@ -151,12 +236,14 @@ export default function AdminSettingsPage({
 }: {
   announcementText: string;
   logoUrl: string;
+  homeBannerSettings: HomeBannerSettings;
   homeCategoryTiles: HomeCategoryTile[];
   siteTitle: string;
   faviconUrl: string;
   temporaryShutdown: TemporaryShutdownSettings;
   mercadoPagoSettings: MercadoPagoSettings;
   manualPaymentMethods: ManualPaymentMethodSettings[];
+  paymentFinancingDisplaySettings: PaymentFinancingDisplaySettings;
   analyticsSettings: AnalyticsSettings;
   customDomainSettings: CustomDomainSettings;
   currentUserRole: string;
@@ -173,10 +260,12 @@ export default function AdminSettingsPage({
   const [mpAccessToken, setMpAccessToken] = useState("");
   const [mpSettings, setMpSettings] = useState(mercadoPagoSettings);
   const [manualMethods, setManualMethods] = useState(manualPaymentMethods);
+  const [financingDisplay, setFinancingDisplay] = useState(paymentFinancingDisplaySettings);
   const [gaMeasurementId, setGaMeasurementId] = useState(analyticsSettings.googleAnalyticsMeasurementId);
   const [metaPixelId, setMetaPixelId] = useState(analyticsSettings.metaPixelId);
   const [domainSettings, setDomainSettings] = useState(customDomainSettings);
   const [customDomain, setCustomDomain] = useState(customDomainSettings.customDomain);
+  const [homeBanner, setHomeBanner] = useState<HomeBannerSettings>(homeBannerSettings);
   const [tiles, setTiles] = useState<HomeCategoryTile[]>(homeCategoryTiles);
   const [sections, setSections] = useState<InformationSection[]>(informationSections);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
@@ -192,6 +281,7 @@ export default function AdminSettingsPage({
   const [domainLoading, setDomainLoading] = useState(false);
   const [domainVerifyLoading, setDomainVerifyLoading] = useState(false);
   const [logoLoading, setLogoLoading] = useState(false);
+  const [homeBannerLoading, setHomeBannerLoading] = useState(false);
   const [tilesLoading, setTilesLoading] = useState(false);
   const [sectionsLoading, setSectionsLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -201,6 +291,7 @@ export default function AdminSettingsPage({
   const [manualPaymentsMsg, setManualPaymentsMsg] = useState<string | null>(null);
   const [analyticsMsg, setAnalyticsMsg] = useState<string | null>(null);
   const [domainMsg, setDomainMsg] = useState<string | null>(null);
+  const [homeBannerMsg, setHomeBannerMsg] = useState<string | null>(null);
   const [tileMsg, setTileMsg] = useState<string | null>(null);
   const [sectionsMsg, setSectionsMsg] = useState<string | null>(null);
   const informationContentRef = useRef<HTMLDivElement | null>(null);
@@ -351,6 +442,13 @@ export default function AdminSettingsPage({
     setManualMethods((prev) => prev.map((method) => (method.key === key ? { ...method, ...patch } : method)));
   }
 
+  function patchFinancingManualMethod(key: ManualPaymentMethodKey, visible: boolean) {
+    setFinancingDisplay((prev) => ({
+      ...prev,
+      manualMethods: { ...prev.manualMethods, [key]: visible },
+    }));
+  }
+
   async function saveManualPaymentMethods() {
     setManualPaymentsMsg(null);
     setManualPaymentsLoading(true);
@@ -358,7 +456,7 @@ export default function AdminSettingsPage({
     const res = await fetch("/api/admin/settings/payment-methods", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ methods: manualMethods }),
+      body: JSON.stringify({ methods: manualMethods, financingDisplay }),
     });
     const data = await res.json().catch(() => ({}));
     setManualPaymentsLoading(false);
@@ -369,7 +467,8 @@ export default function AdminSettingsPage({
     }
 
     setManualMethods(data.methods || []);
-    setManualPaymentsMsg("Medios de pago manuales guardados.");
+    if (data.financingDisplay) setFinancingDisplay(data.financingDisplay);
+    setManualPaymentsMsg("Medios de pago guardados.");
   }
 
   async function saveAnalyticsSettings() {
@@ -497,6 +596,91 @@ export default function AdminSettingsPage({
 
     setLogo(data.logoUrl);
     setMsg("Logo actualizado.");
+  }
+
+  function addHomeBannerSlide() {
+    setHomeBannerMsg(null);
+    setHomeBanner((prev) => ({
+      ...prev,
+      slides: [
+        ...prev.slides,
+        {
+          id: createClientId(),
+          imageUrl: "",
+          title: "",
+          subtitle: "",
+          href: "",
+        },
+      ],
+    }));
+  }
+
+  function patchHomeBannerSlide(id: string, patch: Partial<HomeBannerSlide>) {
+    setHomeBanner((prev) => ({
+      ...prev,
+      slides: prev.slides.map((slide) => (slide.id === id ? { ...slide, ...patch } : slide)),
+    }));
+  }
+
+  function removeHomeBannerSlide(id: string) {
+    setHomeBannerMsg(null);
+    setHomeBanner((prev) => ({
+      ...prev,
+      slides: prev.slides.filter((slide) => slide.id !== id),
+    }));
+  }
+
+  async function uploadHomeBannerImage(id: string, file: File) {
+    setHomeBannerMsg(null);
+    setHomeBannerLoading(true);
+
+    const fd = new FormData();
+    fd.append("file", file);
+
+    const res = await fetch("/api/admin/settings/home-categories/image", {
+      method: "POST",
+      body: fd,
+    });
+
+    const data = await res.json().catch(() => ({}));
+    setHomeBannerLoading(false);
+
+    if (!res.ok) {
+      setHomeBannerMsg(String(data?.error || "No se pudo subir la imagen."));
+      return;
+    }
+
+    patchHomeBannerSlide(id, { imageUrl: data.imageUrl });
+    setHomeBannerMsg("Imagen cargada. Ahora guarda el banner.");
+  }
+
+  async function saveHomeBanner() {
+    setHomeBannerMsg(null);
+
+    const missingImage = homeBanner.slides.find((slide) => !slide.imageUrl.trim());
+    if (missingImage) {
+      setHomeBannerMsg("Falta subir una imagen en uno de los banners.");
+      return;
+    }
+
+    setHomeBannerLoading(true);
+
+    const res = await fetch("/api/admin/settings/home-banner", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(homeBanner),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    setHomeBannerLoading(false);
+
+    if (!res.ok) {
+      setHomeBannerMsg(String(data?.error || "No se pudo guardar el banner."));
+      return;
+    }
+
+    setHomeBanner(data.settings || { enabled: false, slides: [] });
+    setHomeBannerMsg("Banner guardado.");
   }
 
   function addTile() {
@@ -785,7 +969,18 @@ export default function AdminSettingsPage({
         ) : null}
 
         {activeTab === "home" ? (
-          <div className="mt-8 xl:mt-6">
+          <div className="mt-8 xl:mt-6 space-y-6 xl:space-y-4">
+            <HomeBannerSection
+              settings={homeBanner}
+              loading={homeBannerLoading}
+              message={homeBannerMsg}
+              setEnabled={(enabled) => setHomeBanner((prev) => ({ ...prev, enabled }))}
+              addSlide={addHomeBannerSlide}
+              patchSlide={patchHomeBannerSlide}
+              removeSlide={removeHomeBannerSlide}
+              uploadSlideImage={uploadHomeBannerImage}
+              save={saveHomeBanner}
+            />
             <HomeTilesSection
               tiles={tiles}
               categories={categories}
@@ -806,15 +1001,23 @@ export default function AdminSettingsPage({
               <SectionCard title="Contenido de inicio" description="Mensajes y estados visibles en la tienda." icon={Monitor}>
                 <div className="rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-5 xl:p-4">
                   <FieldLabel label="Banner superior" help="Utilizalo para promociones importantes o avisos de la tienda." />
-                  <textarea
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    rows={4}
-                    maxLength={500}
-                    className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm leading-6 text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
-                  />
-                  <div className="mt-3 rounded-2xl bg-[#8B5A2B] px-4 py-3 xl:py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-white sm:text-sm">
-                    {text.trim() || "Vista previa del mensaje superior"}
+                  <div className="mt-3 grid gap-3">
+                    {getAnnouncementParts(text).map((part, index) => (
+                      <label key={index} className="block">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[#A37A55]">
+                          {index === 0 ? "Beneficio 1" : index === 1 ? "Beneficio 2" : "Beneficio 3"}
+                        </span>
+                        <input
+                          value={part}
+                          onChange={(e) => setText(patchAnnouncementPart(text, index, e.target.value))}
+                          maxLength={160}
+                          className="mt-1 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm leading-6 text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <div className="mt-3 overflow-hidden rounded-2xl border border-[#E5D7C8]">
+                    <AnnouncementPreview text={text} />
                   </div>
                   <div className="mt-4 flex flex-wrap items-center gap-3">
                     <PrimaryButton onClick={save} loading={loading} label="Guardar banner" />
@@ -1029,6 +1232,52 @@ export default function AdminSettingsPage({
                   <PrimaryButton onClick={saveManualPaymentMethods} loading={manualPaymentsLoading} label="Guardar pagos manuales" />
                 </div>
                 {manualPaymentsMsg ? <Notice>{manualPaymentsMsg}</Notice> : null}
+              </div>
+
+              <div className="mt-5 rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-5 xl:p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-[#5F3B18]">Modal de financiación</h3>
+                    <p className="mt-2 max-w-xl text-sm leading-6 text-[#8F6A49]">
+                      Elegí qué opciones aparecen cuando el cliente abre “Métodos de pago y financiación” en un producto.
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-[#E5D7C8] bg-white/70 px-3 py-1 text-xs font-semibold text-[#8B5A2B]">
+                    {[
+                      financingDisplay.goCuotas,
+                      financingDisplay.mercadopago,
+                      ...manualMethods.map((method) => financingDisplay.manualMethods[method.key]),
+                    ].filter(Boolean).length} visibles
+                  </span>
+                </div>
+
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  <FinancingDisplayToggle
+                    label="GO Cuotas con débito"
+                    description="Muestra la opción de hasta 3 cuotas sin interés."
+                    checked={financingDisplay.goCuotas}
+                    onChange={(visible) => setFinancingDisplay((prev) => ({ ...prev, goCuotas: visible }))}
+                  />
+                  <FinancingDisplayToggle
+                    label="MercadoPago"
+                    description={mpSettings.accessTokenConfigured ? "Muestra MercadoPago en financiación." : "Podés ocultarlo mientras no haya credencial activa."}
+                    checked={financingDisplay.mercadopago}
+                    onChange={(visible) => setFinancingDisplay((prev) => ({ ...prev, mercadopago: visible }))}
+                  />
+                  {manualMethods.map((method) => (
+                    <FinancingDisplayToggle
+                      key={method.key}
+                      label={method.key === "agreement" ? "Acordar" : method.label}
+                      description={method.enabled ? "Visible si también está activo para checkout." : "Está oculto en tienda porque el checkout lo tiene inactivo."}
+                      checked={financingDisplay.manualMethods[method.key]}
+                      onChange={(visible) => patchFinancingManualMethod(method.key, visible)}
+                    />
+                  ))}
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <PrimaryButton onClick={saveManualPaymentMethods} loading={manualPaymentsLoading} label="Guardar visibilidad" />
+                </div>
               </div>
             </SectionCard>
 
@@ -1606,9 +1855,7 @@ function StorePreview({
       </div>
 
       <div className="overflow-hidden rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5]">
-        <div className="bg-[#8B5A2B] px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-white">
-          {text.trim() || "Mensaje superior"}
-        </div>
+        <AnnouncementPreview text={text} compact />
         <div className="flex items-center justify-between gap-4 border-b border-[#E5D7C8] bg-white px-5 py-4 xl:py-2.5">
           <div className="flex h-14 w-28 items-center justify-center rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] p-2">
             {logo ? (
@@ -1642,6 +1889,207 @@ function StorePreview({
         </div>
       </div>
     </aside>
+  );
+}
+
+function AnnouncementPreview({ text, compact = false }: { text: string; compact?: boolean }) {
+  const benefits = getAnnouncementBenefits(text);
+  const mobileBenefits = [...benefits].sort((a, b) => {
+    const rank = (title: string) => {
+      if (title.includes("15%")) return 0;
+      if (title.includes("CUOTAS")) return 1;
+      return 2;
+    };
+    return rank(a.title) - rank(b.title);
+  });
+  const mobile = mobileBenefits[0] ?? benefits[0];
+
+  return (
+    <div className="bg-[#070707] text-white">
+      {mobile ? (
+        <div className={["flex items-center justify-center gap-2 px-3 sm:hidden", compact ? "py-2" : "py-3"].join(" ")}>
+          <mobile.Icon className="h-4 w-4 shrink-0 text-[#B9824A]" aria-hidden="true" />
+          <div className="text-left leading-tight">
+            <div className="text-[11px] font-bold uppercase tracking-wide">{mobile.title}</div>
+            {mobile.subtitle ? <div className="mt-0.5 text-[10px] font-medium text-white">{mobile.subtitle}</div> : null}
+          </div>
+        </div>
+      ) : null}
+
+      <div className={["hidden grid-cols-3 divide-x divide-white/20 px-3 sm:grid", compact ? "py-2" : "py-3"].join(" ")}>
+        {benefits.map(({ title, subtitle, Icon }) => (
+          <div key={title} className="flex min-w-0 items-center justify-center gap-2 px-2">
+            <Icon className="h-4 w-4 shrink-0 text-[#B9824A]" aria-hidden="true" />
+            <div className="min-w-0 text-left leading-tight">
+              <div className="truncate text-[11px] font-bold uppercase tracking-wide">{title}</div>
+              {subtitle ? <div className="mt-0.5 truncate text-[10px] font-medium text-white">{subtitle}</div> : null}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HomeBannerSection({
+  settings,
+  loading,
+  message,
+  setEnabled,
+  addSlide,
+  patchSlide,
+  removeSlide,
+  uploadSlideImage,
+  save,
+}: {
+  settings: HomeBannerSettings;
+  loading: boolean;
+  message: string | null;
+  setEnabled: (enabled: boolean) => void;
+  addSlide: () => void;
+  patchSlide: (id: string, patch: Partial<HomeBannerSlide>) => void;
+  removeSlide: (id: string) => void;
+  uploadSlideImage: (id: string, file: File) => void;
+  save: () => void;
+}) {
+  return (
+    <SectionCard title="Banner de inicio" description="Configurá imágenes rotativas con texto superpuesto para la home." icon={ImageIcon}>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <StatusBadge active={settings.enabled} />
+            <span className="text-sm font-semibold text-[#5F3B18]">{settings.enabled ? "Banner visible" : "Banner oculto"}</span>
+          </div>
+          <p className="mt-2 text-sm leading-6 text-[#8F6A49]">El banner aparece arriba de las categorías destacadas cuando está activo.</p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={settings.enabled}
+          onClick={() => setEnabled(!settings.enabled)}
+          className={[
+            "rounded-2xl px-5 py-3 xl:py-2.5 text-sm font-semibold transition duration-150",
+            settings.enabled
+              ? "bg-[#8B5A2B] text-white hover:bg-[#70471F]"
+              : "border border-[#E5D7C8] text-[#8B5A2B] hover:bg-[#F2ECE5]",
+          ].join(" ")}
+        >
+          {settings.enabled ? "Ocultar banner" : "Mostrar banner"}
+        </button>
+      </div>
+
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-[#5F3B18]">Imágenes del banner</h3>
+          <p className="mt-1 text-sm text-[#8F6A49]">Cada slide puede tener título, subtítulo y enlace opcional.</p>
+        </div>
+        <button
+          type="button"
+          onClick={addSlide}
+          className="inline-flex items-center gap-2 rounded-2xl border border-[#E5D7C8] px-4 py-2 text-sm font-semibold text-[#8B5A2B] transition duration-150 hover:bg-[#F2ECE5]"
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          Agregar
+        </button>
+      </div>
+
+      {settings.slides.length === 0 ? (
+        <EmptyState icon={ImageIcon} title="No hay imágenes en el banner." description="Agregá una imagen para crear el carrusel de inicio." />
+      ) : (
+        <div className="grid gap-5 xl:gap-4">
+          {settings.slides.map((slide) => (
+            <div key={slide.id} className="rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
+              <div className="grid gap-5 xl:gap-4 lg:grid-cols-[320px_1fr]">
+                <div className="overflow-hidden rounded-3xl border border-[#E5D7C8] bg-white">
+                  <div className="relative aspect-[16/7] min-h-[150px]">
+                    {slide.imageUrl ? (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={slide.imageUrl} alt={slide.title || "Banner"} className="h-full w-full object-cover" />
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/30 px-4 text-center text-white">
+                          <div className="text-lg font-bold uppercase tracking-[0.16em]">{slide.title || "Título"}</div>
+                          {slide.subtitle ? <div className="mt-2 text-xs font-medium uppercase tracking-[0.18em]">{slide.subtitle}</div> : null}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex h-full flex-col items-center justify-center px-4 text-center">
+                        <ImageIcon className="h-7 w-7 text-[#B18B68]" aria-hidden="true" />
+                        <div className="mt-3 text-sm font-semibold text-[#5F3B18]">Todavía no cargaste imagen.</div>
+                        <div className="mt-1 text-sm text-[#8F6A49]">Subí una imagen para este slide.</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid content-start gap-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="block">
+                      <FieldLabel label="Título" help="Texto principal sobre la imagen." />
+                      <input
+                        value={slide.title}
+                        maxLength={90}
+                        onChange={(e) => patchSlide(slide.id, { title: e.target.value })}
+                        className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <FieldLabel label="Subtítulo" help="Texto secundario opcional." />
+                      <input
+                        value={slide.subtitle}
+                        maxLength={120}
+                        onChange={(e) => patchSlide(slide.id, { subtitle: e.target.value })}
+                        className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="block">
+                    <FieldLabel label="Enlace opcional" help="Ejemplo: /products?category=pijamas" />
+                    <input
+                      value={slide.href}
+                      maxLength={240}
+                      onChange={(e) => patchSlide(slide.id, { href: e.target.value })}
+                      className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
+                    />
+                  </label>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="cursor-pointer rounded-2xl bg-[#8B5A2B] px-4 py-2 text-sm font-semibold text-white transition duration-150 hover:bg-[#70471F]">
+                      {slide.imageUrl ? "Cambiar imagen" : "Subir imagen"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) uploadSlideImage(slide.id, file);
+                          e.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => removeSlide(slide.id)}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition duration-150 hover:bg-red-100"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      Eliminar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <PrimaryButton onClick={save} loading={loading} label="Guardar banner de inicio" />
+        {message ? <span className="text-sm text-[#70471F]">{message}</span> : null}
+      </div>
+    </SectionCard>
   );
 }
 
@@ -2063,6 +2511,43 @@ function ToolbarButton({
     >
       {label}
     </button>
+  );
+}
+
+function FinancingDisplayToggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-[#E5D7C8] bg-white/70 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-[#5F3B18]">{label}</div>
+          <div className="mt-1 text-xs leading-5 text-[#8F6A49]">{description}</div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={checked}
+          onClick={() => onChange(!checked)}
+          className={[
+            "shrink-0 rounded-2xl px-4 py-2 text-sm font-semibold transition duration-150",
+            checked
+              ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200"
+              : "bg-[#F2ECE5] text-[#8B5A2B] ring-1 ring-[#E5D7C8]",
+          ].join(" ")}
+        >
+          {checked ? "Visible" : "Oculto"}
+        </button>
+      </div>
+    </div>
   );
 }
 

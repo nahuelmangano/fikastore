@@ -262,6 +262,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
         body: JSON.stringify({
           items: summaryItems.map((it) => ({ productId: it.productId, quantity: it.quantity })),
           promoCode,
+          paymentMethod,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -277,7 +278,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
     return () => {
       cancelled = true;
     };
-  }, [summaryItems, promoCode]);
+  }, [summaryItems, promoCode, paymentMethod]);
 
   const pricingById = useMemo(() => {
     const map = new Map<string, PricingItem>();

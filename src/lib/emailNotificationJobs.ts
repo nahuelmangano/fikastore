@@ -81,6 +81,7 @@ async function processPaymentReminder(payload: Record<string, unknown>, req: Req
   }
 
   const baseUrl = publicBaseUrl(req);
+  const itemsSubtotal = payment.order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
   await queueAndSendEmailNotification({
     templateKey: "payment-pending-reminder",
     to: payment.order.user.email,
@@ -91,8 +92,8 @@ async function processPaymentReminder(payload: Record<string, unknown>, req: Req
     payload: {
       customerName: payment.order.user.name || payment.order.user.email,
       orderNumber: payment.order.orderNumber ? `#${payment.order.orderNumber}` : payment.order.id,
-      productsHtml: emailOrderItemsHtml(payment.order.items, baseUrl, { total: payment.order.total }),
-      productsText: emailOrderItemsText(payment.order.items, { total: payment.order.total }),
+      productsHtml: emailOrderItemsHtml(payment.order.items, baseUrl, { subtotal: itemsSubtotal, shipping: payment.order.shippingAmount, total: payment.order.total }),
+      productsText: emailOrderItemsText(payment.order.items, { subtotal: itemsSubtotal, shipping: payment.order.shippingAmount, total: payment.order.total }),
       paymentAmount: money(Number(payment.order.total)),
       reminderNumber: String(reminderNumber),
       paymentUrl: `${baseUrl}/pay/pending?orderId=${payment.order.id}`,

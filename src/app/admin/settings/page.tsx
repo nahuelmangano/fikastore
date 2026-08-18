@@ -5,9 +5,11 @@ import {
   getAnnouncementText,
   getAnalyticsSettings,
   getFaviconUrl,
+  getHomeBannerSettings,
   getHomeCategoryTiles,
   getManualPaymentSettings,
   getMercadoPagoSettings,
+  getPaymentFinancingDisplaySettings,
   getSiteTitle,
   getStoreLogoUrl,
   getTemporaryShutdownSettings,
@@ -22,12 +24,14 @@ export default async function SettingsPage() {
   const [
     announcementText,
     logoUrl,
+    homeBannerSettings,
     homeCategoryTiles,
     siteTitle,
     faviconUrl,
     temporaryShutdown,
     mercadoPagoSettings,
     manualPaymentMethods,
+    paymentFinancingDisplaySettings,
     analyticsSettings,
     customDomainSettings,
     informationSections,
@@ -35,12 +39,14 @@ export default async function SettingsPage() {
   ] = await Promise.all([
     getAnnouncementText(),
     getStoreLogoUrl(),
+    getHomeBannerSettings(),
     getHomeCategoryTiles(),
     getSiteTitle(),
     getFaviconUrl(),
     getTemporaryShutdownSettings(),
     getMercadoPagoSettings(),
     getManualPaymentSettings(),
+    getPaymentFinancingDisplaySettings(),
     getAnalyticsSettings(),
     getCustomDomainSettings(),
     getInformationSections(),
@@ -54,12 +60,14 @@ export default async function SettingsPage() {
     <AdminSettingsPage
       announcementText={announcementText}
       logoUrl={logoUrl}
+      homeBannerSettings={homeBannerSettings}
       homeCategoryTiles={homeCategoryTiles}
       siteTitle={siteTitle}
       faviconUrl={faviconUrl}
       temporaryShutdown={temporaryShutdown}
       mercadoPagoSettings={mercadoPagoSettings}
       manualPaymentMethods={manualPaymentMethods}
+      paymentFinancingDisplaySettings={paymentFinancingDisplaySettings}
       analyticsSettings={analyticsSettings}
       customDomainSettings={customDomainSettings}
       currentUserRole={currentUserRole}

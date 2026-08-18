@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isStaffRole } from "@/lib/roles";
-import { normalizePromoCode, type PromotionType } from "@/lib/promotions";
+import {
+  normalizePromoCode,
+  parsePromotionPaymentMethods,
+  type PromotionPaymentMethod,
+  type PromotionType,
+} from "@/lib/promotions";
 
 export const runtime = "nodejs";
 
@@ -11,15 +16,30 @@ type CreateBody = {
   type?: PromotionType;
   percent?: number;
   code?: string;
+  paymentMethods?: string[];
   productIds?: string[];
   startsAt?: string | null;
   endsAt?: string | null;
 };
 
+const allowedPaymentMethods = new Set<PromotionPaymentMethod>(["mercadopago", "agreement", "cash", "transfer"]);
+
 function parseDate(v: string | null | undefined) {
   if (!v) return null;
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function normalizePaymentMethods(value: unknown) {
+  if (!Array.isArray(value)) return null;
+  const methods = [
+    ...new Set(
+      value
+        .map((method) => String(method || "").trim())
+        .filter((method): method is PromotionPaymentMethod => allowedPaymentMethods.has(method as PromotionPaymentMethod))
+    ),
+  ];
+  return methods.length > 0 ? methods : null;
 }
 
 export async function GET() {
@@ -48,6 +68,7 @@ export async function GET() {
       type: p.type,
       percent: p.percent,
       code: p.code,
+      paymentMethods: parsePromotionPaymentMethods(p.paymentMethods),
       isActive: p.isActive,
       startsAt: p.startsAt,
       endsAt: p.endsAt,
@@ -69,6 +90,7 @@ export async function POST(req: Request) {
   const type = String(body?.type || "").trim().toLowerCase() as PromotionType;
   const percent = Math.floor(Number(body?.percent));
   const code = normalizePromoCode(body?.code ?? null);
+  const paymentMethods = normalizePaymentMethods(body?.paymentMethods);
   const startsAt = parseDate(body?.startsAt);
   const endsAt = parseDate(body?.endsAt);
   const rawIds = Array.isArray(body?.productIds) ? body?.productIds : [];
@@ -107,6 +129,7 @@ export async function POST(req: Request) {
       type,
       percent,
       code: code || null,
+      paymentMethods: paymentMethods ? JSON.stringify(paymentMethods) : null,
       startsAt,
       endsAt,
       products:
@@ -131,6 +154,7 @@ export async function POST(req: Request) {
       type: promotion.type,
       percent: promotion.percent,
       code: promotion.code,
+      paymentMethods: parsePromotionPaymentMethods(promotion.paymentMethods),
       isActive: promotion.isActive,
       startsAt: promotion.startsAt,
       endsAt: promotion.endsAt,

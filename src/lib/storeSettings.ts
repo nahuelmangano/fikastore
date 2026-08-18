@@ -5,6 +5,7 @@ const STOREFRONT_SETTINGS_PROVIDER = "storefront";
 const ANNOUNCEMENT_TEXT_KEY = "announcement_text";
 const LOGO_URL_KEY = "logo_url";
 const HOME_CATEGORY_TILES_KEY = "home_category_tiles";
+const HOME_BANNER_SETTINGS_KEY = "home_banner_settings";
 const SITE_TITLE_KEY = "site_title";
 const FAVICON_URL_KEY = "favicon_url";
 const TEMPORARY_SHUTDOWN_KEY = "temporary_shutdown";
@@ -13,6 +14,7 @@ const MAILING_SMTP_SETTINGS_KEY = "mailing_smtp_settings";
 const EMAIL_JOB_SETTINGS_KEY = "email_job_settings";
 const MERCADOPAGO_SETTINGS_KEY = "mercadopago_settings";
 const MANUAL_PAYMENT_SETTINGS_KEY = "manual_payment_settings";
+const PAYMENT_FINANCING_DISPLAY_SETTINGS_KEY = "payment_financing_display_settings";
 const GOOGLE_ANALYTICS_MEASUREMENT_ID_KEY = "google_analytics_measurement_id";
 const META_PIXEL_ID_KEY = "meta_pixel_id";
 const ENCRYPTED_VALUE_PREFIX = "enc:v1:";
@@ -29,6 +31,19 @@ export type HomeCategoryTile = {
   categorySlug: string;
   title: string;
   imageUrl: string;
+};
+
+export type HomeBannerSlide = {
+  id: string;
+  imageUrl: string;
+  title: string;
+  subtitle: string;
+  href: string;
+};
+
+export type HomeBannerSettings = {
+  enabled: boolean;
+  slides: HomeBannerSlide[];
 };
 
 export type TemporaryShutdownSettings = {
@@ -96,6 +111,13 @@ export type ManualPaymentMethodSettings = {
 export type CheckoutPaymentSettings = {
   mercadopagoEnabled: boolean;
   manualMethods: ManualPaymentMethodSettings[];
+  financingDisplay: PaymentFinancingDisplaySettings;
+};
+
+export type PaymentFinancingDisplaySettings = {
+  goCuotas: boolean;
+  mercadopago: boolean;
+  manualMethods: Record<ManualPaymentMethodKey, boolean>;
 };
 
 export type AnalyticsSettings = {
@@ -133,6 +155,16 @@ const DEFAULT_MANUAL_PAYMENT_METHODS: ManualPaymentMethodSettings[] = [
     ].join("\n"),
   },
 ];
+
+const DEFAULT_PAYMENT_FINANCING_DISPLAY_SETTINGS: PaymentFinancingDisplaySettings = {
+  goCuotas: true,
+  mercadopago: true,
+  manualMethods: {
+    agreement: true,
+    cash: true,
+    transfer: true,
+  },
+};
 
 type StoredMailingSettings = Pick<
   MailingSettings,
@@ -485,6 +517,75 @@ export async function setHomeCategoryTiles(tiles: HomeCategoryTile[]) {
     create: {
       provider: STOREFRONT_SETTINGS_PROVIDER,
       key: HOME_CATEGORY_TILES_KEY,
+      value,
+      isSecret: false,
+    },
+    update: {
+      value,
+      isSecret: false,
+    },
+  });
+}
+
+export async function getHomeBannerSettings(): Promise<HomeBannerSettings> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: HOME_BANNER_SETTINGS_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return { enabled: false, slides: [] };
+
+  try {
+    const parsed = JSON.parse(row.value) as Partial<HomeBannerSettings>;
+    const rawSlides = Array.isArray(parsed.slides) ? parsed.slides : [];
+    const slides = rawSlides
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const slide = item as Partial<HomeBannerSlide>;
+        const id = String(slide.id || "").trim();
+        const imageUrl = String(slide.imageUrl || "").trim();
+        const title = String(slide.title || "").trim();
+        const subtitle = String(slide.subtitle || "").trim();
+        const href = String(slide.href || "").trim();
+        if (!id || !imageUrl) return null;
+        return { id, imageUrl, title, subtitle, href };
+      })
+      .filter((item): item is HomeBannerSlide => Boolean(item));
+
+    return { enabled: parsed.enabled === true, slides };
+  } catch {
+    return { enabled: false, slides: [] };
+  }
+}
+
+export async function setHomeBannerSettings(settings: HomeBannerSettings) {
+  const normalized: HomeBannerSettings = {
+    enabled: settings.enabled === true,
+    slides: settings.slides.map((slide) => ({
+      id: slide.id,
+      imageUrl: slide.imageUrl.trim(),
+      title: slide.title.trim().slice(0, 90),
+      subtitle: slide.subtitle.trim().slice(0, 120),
+      href: slide.href.trim().slice(0, 240),
+    })),
+  };
+  const value = JSON.stringify(normalized);
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: HOME_BANNER_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: HOME_BANNER_SETTINGS_KEY,
       value,
       isSecret: false,
     },
@@ -966,15 +1067,79 @@ export async function setManualPaymentSettings(methods: unknown) {
   });
 }
 
+function normalizePaymentFinancingDisplaySettings(input: unknown): PaymentFinancingDisplaySettings {
+  if (!input || typeof input !== "object") return DEFAULT_PAYMENT_FINANCING_DISPLAY_SETTINGS;
+  const value = input as Partial<PaymentFinancingDisplaySettings>;
+  const manualMethods: Partial<Record<ManualPaymentMethodKey, boolean>> =
+    value.manualMethods && typeof value.manualMethods === "object"
+    ? value.manualMethods
+    : {};
+
+  return {
+    goCuotas: value.goCuotas !== false,
+    mercadopago: value.mercadopago !== false,
+    manualMethods: {
+      agreement: manualMethods.agreement !== false,
+      cash: manualMethods.cash !== false,
+      transfer: manualMethods.transfer !== false,
+    },
+  };
+}
+
+export async function getPaymentFinancingDisplaySettings(): Promise<PaymentFinancingDisplaySettings> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: PAYMENT_FINANCING_DISPLAY_SETTINGS_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return DEFAULT_PAYMENT_FINANCING_DISPLAY_SETTINGS;
+
+  try {
+    return normalizePaymentFinancingDisplaySettings(JSON.parse(row.value));
+  } catch {
+    return DEFAULT_PAYMENT_FINANCING_DISPLAY_SETTINGS;
+  }
+}
+
+export async function setPaymentFinancingDisplaySettings(settings: unknown) {
+  const value = JSON.stringify(normalizePaymentFinancingDisplaySettings(settings));
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: PAYMENT_FINANCING_DISPLAY_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: PAYMENT_FINANCING_DISPLAY_SETTINGS_KEY,
+      value,
+      isSecret: false,
+    },
+    update: {
+      value,
+      isSecret: false,
+    },
+  });
+}
+
 export async function getCheckoutPaymentSettings(): Promise<CheckoutPaymentSettings> {
-  const [mercadoPagoSettings, manualMethods] = await Promise.all([
+  const [mercadoPagoSettings, manualMethods, financingDisplay] = await Promise.all([
     getMercadoPagoSettings(),
     getManualPaymentSettings(),
+    getPaymentFinancingDisplaySettings(),
   ]);
 
   return {
     mercadopagoEnabled: mercadoPagoSettings.accessTokenConfigured,
     manualMethods,
+    financingDisplay,
   };
 }
 

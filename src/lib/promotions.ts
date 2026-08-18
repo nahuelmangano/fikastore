@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 
 export type PromotionType = "global" | "product" | "code";
+export type PromotionPaymentMethod = "mercadopago" | "agreement" | "cash" | "transfer";
 
 export type PricingInputItem = {
   productId: string;
@@ -61,7 +62,26 @@ function activeWindowWhere(now: Date) {
   };
 }
 
-export async function getAutomaticDiscountsForProducts(productIds: string[]) {
+const PAYMENT_METHODS = new Set<PromotionPaymentMethod>(["mercadopago", "agreement", "cash", "transfer"]);
+
+export function parsePromotionPaymentMethods(value: string | null | undefined): PromotionPaymentMethod[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((method): method is PromotionPaymentMethod => PAYMENT_METHODS.has(method));
+  } catch {
+    return [];
+  }
+}
+
+function promotionMatchesPaymentMethod(value: string | null | undefined, paymentMethod?: string | null) {
+  const methods = parsePromotionPaymentMethods(value);
+  if (methods.length === 0 || !paymentMethod) return true;
+  return methods.includes(paymentMethod as PromotionPaymentMethod);
+}
+
+export async function getAutomaticDiscountsForProducts(productIds: string[], paymentMethod?: string | null) {
   const ids = [...new Set(productIds.map((id) => id.trim()).filter(Boolean))];
   const map = new Map<string, number>();
   if (ids.length === 0) return map;
@@ -80,14 +100,17 @@ export async function getAutomaticDiscountsForProducts(productIds: string[]) {
       },
     },
   });
+  const matchingPromos = promos.filter((promo) =>
+    promotionMatchesPaymentMethod(promo.paymentMethods, paymentMethod)
+  );
 
-  const globalMax = promos
+  const globalMax = matchingPromos
     .filter((p) => p.type === "global")
     .reduce((acc, p) => Math.max(acc, p.percent), 0);
 
   for (const id of ids) map.set(id, globalMax);
 
-  for (const promo of promos) {
+  for (const promo of matchingPromos) {
     if (promo.type !== "product") continue;
     for (const pp of promo.products) {
       map.set(pp.productId, Math.max(map.get(pp.productId) ?? 0, promo.percent));
@@ -97,7 +120,7 @@ export async function getAutomaticDiscountsForProducts(productIds: string[]) {
   return map;
 }
 
-async function getCodeDiscountPercent(code: string | null) {
+async function getCodeDiscountPercent(code: string | null, paymentMethod?: string | null) {
   if (!code) return { percent: 0, valid: false, applied: null, message: null as string | null };
 
   const now = new Date();
@@ -108,7 +131,7 @@ async function getCodeDiscountPercent(code: string | null) {
       code,
       ...activeWindowWhere(now),
     },
-    select: { code: true, percent: true },
+    select: { code: true, percent: true, paymentMethods: true },
   });
 
   if (!promo) {
@@ -117,6 +140,15 @@ async function getCodeDiscountPercent(code: string | null) {
       valid: false,
       applied: null,
       message: "Código inválido o vencido.",
+    };
+  }
+
+  if (!promotionMatchesPaymentMethod(promo.paymentMethods, paymentMethod)) {
+    return {
+      percent: 0,
+      valid: false,
+      applied: null,
+      message: "El código no aplica para el método de pago seleccionado.",
     };
   }
 
@@ -130,7 +162,8 @@ async function getCodeDiscountPercent(code: string | null) {
 
 export async function priceCartItems(
   inputItems: PricingInputItem[],
-  promoCode?: string | null
+  promoCode?: string | null,
+  paymentMethod?: string | null
 ): Promise<PricingResult> {
   const normalizedItems = inputItems
     .map((it) => ({
@@ -165,9 +198,9 @@ export async function priceCartItems(
   });
   const byId = new Map(products.map((p) => [p.id, p]));
 
-  const autoMap = await getAutomaticDiscountsForProducts(merged.map((m) => m.productId));
+  const autoMap = await getAutomaticDiscountsForProducts(merged.map((m) => m.productId), paymentMethod);
   const normalizedCode = normalizePromoCode(promoCode);
-  const codeInfo = await getCodeDiscountPercent(normalizedCode);
+  const codeInfo = await getCodeDiscountPercent(normalizedCode, paymentMethod);
 
   const items: PricedItem[] = [];
 

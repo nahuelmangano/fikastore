@@ -69,7 +69,17 @@ function money(value: unknown) {
   return `$${Number(value || 0).toLocaleString("es-AR")}`;
 }
 
-export function emailOrderItemsHtml(items: EmailOrderItem[], baseUrl: string, options?: { total?: unknown }) {
+function emailTotalsHtml(options: { subtotal?: unknown; shipping?: unknown; total?: unknown }) {
+  const rows = [
+    options.subtotal === undefined ? "" : `<div style="padding-top:12px;text-align:right;color:#555;">Subtotal: ${money(options.subtotal)}</div>`,
+    options.shipping === undefined ? "" : `<div style="padding-top:6px;text-align:right;color:#555;">Envío: ${Number(options.shipping || 0) > 0 ? money(options.shipping) : "Gratis"}</div>`,
+    options.total === undefined ? "" : `<div style="padding-top:10px;text-align:right;font-weight:800;color:#111;">Total: ${money(options.total)}</div>`,
+  ].filter(Boolean);
+
+  return rows.join("");
+}
+
+export function emailOrderItemsHtml(items: EmailOrderItem[], baseUrl: string, options?: { total?: unknown; subtotal?: unknown; shipping?: unknown }) {
   return emailProductRowsHtml(
     items.map((item) => ({
       name: item.nameSnapshot,
@@ -79,14 +89,19 @@ export function emailOrderItemsHtml(items: EmailOrderItem[], baseUrl: string, op
     })),
     options?.total === undefined
       ? undefined
-      : { totalHtml: `<div style="padding-top:12px;text-align:right;font-weight:800;color:#111;">Total: ${money(options.total)}</div>` }
+      : { totalHtml: emailTotalsHtml(options) }
   );
 }
 
-export function emailOrderItemsText(items: EmailOrderItem[], options?: { total?: unknown }) {
+export function emailOrderItemsText(items: EmailOrderItem[], options?: { total?: unknown; subtotal?: unknown; shipping?: unknown }) {
   const body = items
     .map((item) => `${item.nameSnapshot} x${item.quantity} (${money(item.subtotal)})`)
     .join("; ");
   if (options?.total === undefined) return body;
-  return `${body}. Total: ${money(options.total)}`;
+  const totals = [
+    options.subtotal === undefined ? "" : `Subtotal: ${money(options.subtotal)}`,
+    options.shipping === undefined ? "" : `Envío: ${Number(options.shipping || 0) > 0 ? money(options.shipping) : "Gratis"}`,
+    `Total: ${money(options.total)}`,
+  ].filter(Boolean).join(". ");
+  return `${body}. ${totals}`;
 }

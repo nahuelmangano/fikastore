@@ -54,7 +54,7 @@ export default function RegretButtonModal() {
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="flex items-center gap-1 hover:text-zinc-600">
+      <button type="button" onClick={() => setOpen(true)} className="flex items-center gap-1 text-inherit hover:text-zinc-600">
         <ChevronSmall />
         Botón de arrepentimiento
       </button>

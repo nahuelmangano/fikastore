@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import ProductDetailClient from "./ui";
 import { getAutomaticDiscountsForProducts } from "@/lib/promotions";
 import StoreTemporarilyClosed from "@/components/StoreTemporarilyClosed";
-import { getTemporaryShutdownSettings } from "@/lib/storeSettings";
+import { getCheckoutPaymentSettings, getTemporaryShutdownSettings } from "@/lib/storeSettings";
 
 function splitProductName(name: string) {
   const [base, ...rest] = name.split(/\s+—\s+/);
@@ -61,7 +61,25 @@ export default async function ProductDetailPage({
   });
 
   const activeVariants = sortVariantsBySize(variants.length > 0 ? variants : [product]);
-  const promoMap = await getAutomaticDiscountsForProducts(activeVariants.map((variant) => variant.id));
+  const variantIds = activeVariants.map((variant) => variant.id);
+  const [paymentSettings, cashPromoMap, transferPromoMap, mercadoPagoPromoMap, agreementPromoMap] = await Promise.all([
+    getCheckoutPaymentSettings(),
+    getAutomaticDiscountsForProducts(variantIds, "cash"),
+    getAutomaticDiscountsForProducts(variantIds, "transfer"),
+    getAutomaticDiscountsForProducts(variantIds, "mercadopago"),
+    getAutomaticDiscountsForProducts(variantIds, "agreement"),
+  ]);
+  const promoMap = new Map(
+    variantIds.map((id) => [
+      id,
+      Math.max(
+        cashPromoMap.get(id) ?? 0,
+        transferPromoMap.get(id) ?? 0,
+        mercadoPagoPromoMap.get(id) ?? 0,
+        agreementPromoMap.get(id) ?? 0
+      ),
+    ])
+  );
   const promoPercent = promoMap.get(product.id) ?? 0;
 
   return (
@@ -70,6 +88,13 @@ export default async function ProductDetailPage({
       variants={activeVariants}
       promoPercent={promoPercent}
       promoPercents={Object.fromEntries(promoMap)}
+      promoPercentsByPaymentMethod={{
+        cash: Object.fromEntries(cashPromoMap),
+        transfer: Object.fromEntries(transferPromoMap),
+        mercadopago: Object.fromEntries(mercadoPagoPromoMap),
+        agreement: Object.fromEntries(agreementPromoMap),
+      }}
+      paymentSettings={paymentSettings}
     />
   );
 }

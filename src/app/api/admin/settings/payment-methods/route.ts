@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { isStaffRole } from "@/lib/roles";
-import { getManualPaymentSettings, setManualPaymentSettings } from "@/lib/storeSettings";
+import {
+  getManualPaymentSettings,
+  getPaymentFinancingDisplaySettings,
+  setManualPaymentSettings,
+  setPaymentFinancingDisplaySettings,
+} from "@/lib/storeSettings";
 
 export const runtime = "nodejs";
 
@@ -10,7 +15,11 @@ export async function GET() {
   const role = (session?.user as { role?: string } | undefined)?.role;
   if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
-  return NextResponse.json({ ok: true, methods: await getManualPaymentSettings() });
+  const [methods, financingDisplay] = await Promise.all([
+    getManualPaymentSettings(),
+    getPaymentFinancingDisplaySettings(),
+  ]);
+  return NextResponse.json({ ok: true, methods, financingDisplay });
 }
 
 export async function PATCH(req: Request) {
@@ -19,7 +28,14 @@ export async function PATCH(req: Request) {
   if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
-  await setManualPaymentSettings(body.methods);
+  await Promise.all([
+    setManualPaymentSettings(body.methods),
+    setPaymentFinancingDisplaySettings(body.financingDisplay),
+  ]);
 
-  return NextResponse.json({ ok: true, methods: await getManualPaymentSettings() });
+  const [methods, financingDisplay] = await Promise.all([
+    getManualPaymentSettings(),
+    getPaymentFinancingDisplaySettings(),
+  ]);
+  return NextResponse.json({ ok: true, methods, financingDisplay });
 }

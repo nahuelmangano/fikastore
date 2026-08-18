@@ -1,9 +1,11 @@
 import Link from "next/link";
+import HomeBannerCarousel from "@/components/HomeBannerCarousel";
 import StoreTemporarilyClosed from "@/components/StoreTemporarilyClosed";
-import { getHomeCategoryTiles, getTemporaryShutdownSettings } from "@/lib/storeSettings";
+import { getHomeBannerSettings, getHomeCategoryTiles, getTemporaryShutdownSettings } from "@/lib/storeSettings";
 
 export default async function HomePage() {
-  const [homeTiles, temporaryShutdown] = await Promise.all([
+  const [homeBanner, homeTiles, temporaryShutdown] = await Promise.all([
+    getHomeBannerSettings(),
     getHomeCategoryTiles(),
     getTemporaryShutdownSettings(),
   ]);
@@ -28,6 +30,8 @@ export default async function HomePage() {
                 ))}
               </div>
             ) : null}
+
+            <HomeBannerCarousel settings={homeBanner} />
 
             {secondaryTiles.length > 0 ? (
               <div
