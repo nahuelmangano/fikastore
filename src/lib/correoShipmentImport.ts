@@ -35,6 +35,7 @@ function splitAddress(line: string) {
 type CorreoImportOrder = Awaited<ReturnType<typeof getCorreoImportOrder>>;
 type CorreoShipmentImportOptions = {
   recipientEmail?: string;
+  extOrderId?: string;
 };
 
 function errorMessage(e: unknown) {
@@ -98,7 +99,7 @@ export async function buildCorreoShipmentPayload(
 
   return {
     customerId: await requireEnv("CORREO_ARG_CUSTOMER_ID"),
-    extOrderId: order.id,
+    extOrderId: options.extOrderId || order.id,
     orderNumber: order.orderNumber || undefined,
     sender,
     recipient: {
@@ -142,7 +143,11 @@ export async function importCorreoShipment(
     return { ok: true as const, shipment: existingShipment, reused: true };
   }
 
-  const payload = await buildCorreoShipmentPayload(order, options);
+  const extOrderId =
+    existingShipment && (existingShipment.status !== "IMPORTED" || !existingShipment.shippingId)
+      ? `${order.id}-${Date.now().toString(36)}`
+      : order.id;
+  const payload = await buildCorreoShipmentPayload(order, { ...options, extOrderId });
 
   let placeholder: CorreoShipment;
   try {

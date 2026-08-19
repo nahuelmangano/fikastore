@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { Mail, MapPin, Phone } from "lucide-react";
 import RegretButtonModal from "@/components/RegretButtonModal";
+import { getSocialLinksSettings } from "@/lib/storeSettings";
 
 const PAYMENT_LOGOS = [
   { label: "Mercado Pago", url: "https://dk0k1i3js6c49.cloudfront.net/applications/logos/payment-icons/mercadopago.png" },
@@ -29,6 +30,7 @@ export default async function StoreFooter() {
   const email = process.env.NEXT_PUBLIC_STORE_CONTACT_EMAIL || process.env.SUPPORT_EMAIL || "fika.arg@hotmail.com";
   const phone = process.env.NEXT_PUBLIC_STORE_CONTACT_PHONE || "1128460302";
   const location = process.env.NEXT_PUBLIC_STORE_CONTACT_LOCATION || "Buenos Aires, Argentina";
+  const socialLinks = await getSocialLinksSettings();
 
   return (
     <footer className="mt-20 border-t border-zinc-200 bg-white text-black">
@@ -61,9 +63,18 @@ export default async function StoreFooter() {
           <section>
             <h2 className="text-base font-normal uppercase">Nuestras redes sociales</h2>
             <div className="mt-3 flex items-center gap-3">
-              <a href="#" aria-label="Facebook" className="text-black hover:text-zinc-600"><FacebookIcon /></a>
-              <a href="#" aria-label="Instagram" className="text-black hover:text-zinc-600"><InstagramIcon /></a>
-              <a href="#" aria-label="TikTok" className="text-black hover:text-zinc-600"><TikTokIcon /></a>
+              {socialLinks.facebook ? (
+                <a href={socialLinks.facebook} target="_blank" rel="noreferrer" aria-label="Facebook" className="text-black hover:text-zinc-600"><FacebookIcon /></a>
+              ) : null}
+              {socialLinks.instagram ? (
+                <a href={socialLinks.instagram} target="_blank" rel="noreferrer" aria-label="Instagram" className="text-black hover:text-zinc-600"><InstagramIcon /></a>
+              ) : null}
+              {socialLinks.tiktok ? (
+                <a href={socialLinks.tiktok} target="_blank" rel="noreferrer" aria-label="TikTok" className="text-black hover:text-zinc-600"><TikTokIcon /></a>
+              ) : null}
+              {!socialLinks.facebook && !socialLinks.instagram && !socialLinks.tiktok ? (
+                <span className="text-sm text-zinc-500">Sin redes configuradas</span>
+              ) : null}
             </div>
           </section>
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CalendarClock, CreditCard, PackageCheck, ShoppingBag } from "lucide-react";
 import type { Prisma } from "@prisma/client";
+import type { ReactNode } from "react";
 import { prisma } from "@/lib/prisma";
 import AdminPageHeader from "@/components/admin/layout/AdminPageHeader";
 import PageToolbar from "@/components/admin/layout/PageToolbar";
@@ -221,24 +222,24 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
       key: "order",
       header: "Pedido",
       cell: (order) => (
-        <div>
-          <Link href={`/admin/orders/${order.id}`} className="font-semibold text-[var(--admin-primary)] hover:underline">
+        <OrderTableCellLink orderId={order.id}>
+          <div className="font-semibold text-[var(--admin-primary)]">
             #{order.orderNumber}
-          </Link>
+          </div>
           <div className="mt-1 max-w-32 truncate text-xs text-[var(--admin-muted)]" title={order.id}>
             {order.id}
           </div>
-        </div>
+        </OrderTableCellLink>
       ),
     },
     {
       key: "customer",
       header: "Cliente",
       cell: (order) => (
-        <div>
+        <OrderTableCellLink orderId={order.id}>
           <div className="font-semibold text-[var(--admin-text)]">{order.user?.name || order.user?.email || "Sin cliente"}</div>
           {order.user?.name && order.user?.email ? <div className="mt-1 text-xs text-[var(--admin-muted)]">{order.user.email}</div> : null}
-        </div>
+        </OrderTableCellLink>
       ),
     },
     {
@@ -247,10 +248,10 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
       cell: (order) => {
         const date = formatDate(order.createdAt);
         return (
-          <div>
+          <OrderTableCellLink orderId={order.id}>
             <div className="font-medium text-[var(--admin-text-soft)]">{date.day}</div>
             <div className="mt-1 text-xs text-[var(--admin-muted)]">{date.time}</div>
-          </div>
+          </OrderTableCellLink>
         );
       },
     },
@@ -259,7 +260,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
       header: "Pago",
       cell: (order) => {
         const statusInfo = paymentStatus(order.payments[0]?.status);
-        return <StatusBadge label={statusInfo.label} variant={statusInfo.variant} />;
+        return <OrderTableCellLink orderId={order.id}><StatusBadge label={statusInfo.label} variant={statusInfo.variant} /></OrderTableCellLink>;
       },
     },
     {
@@ -267,7 +268,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
       header: "Estado pedido",
       cell: (order) => {
         const statusInfo = orderStatus(order.status);
-        return <StatusBadge label={statusInfo.label} variant={statusInfo.variant} />;
+        return <OrderTableCellLink orderId={order.id}><StatusBadge label={statusInfo.label} variant={statusInfo.variant} /></OrderTableCellLink>;
       },
     },
     {
@@ -275,13 +276,17 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
       header: "Envío",
       cell: (order) => {
         const statusInfo = shippingStatus(order);
-        return <StatusBadge label={statusInfo.label} variant={statusInfo.variant} />;
+        return <OrderTableCellLink orderId={order.id}><StatusBadge label={statusInfo.label} variant={statusInfo.variant} /></OrderTableCellLink>;
       },
     },
     {
       key: "total",
       header: "Total",
-      cell: (order) => <span className="font-semibold text-[var(--admin-text)]">{money(order.total)}</span>,
+      cell: (order) => (
+        <OrderTableCellLink orderId={order.id}>
+          <span className="font-semibold text-[var(--admin-text)]">{money(order.total)}</span>
+        </OrderTableCellLink>
+      ),
     },
     {
       key: "actions",
@@ -453,6 +458,17 @@ function OrdersEmptyState({ hasFilters }: { hasFilters: boolean }) {
         )
       }
     />
+  );
+}
+
+function OrderTableCellLink({ orderId, children }: { orderId: string; children: ReactNode }) {
+  return (
+    <Link
+      href={`/admin/orders/${orderId}`}
+      className="-m-4 block px-4 py-4 xl:-my-3 xl:px-4 xl:py-3"
+    >
+      {children}
+    </Link>
   );
 }
 

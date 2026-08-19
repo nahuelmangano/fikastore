@@ -7,25 +7,135 @@ function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
 }
 
-export default function AdminOrderDetail({ order }: { order: any }) {
+type PriceValue = number | string;
+
+type OrderPayment = {
+  status?: string | null;
+  paymentId?: string | null;
+};
+
+type OrderUser = {
+  name?: string | null;
+  email?: string | null;
+};
+
+type OrderItem = {
+  id: string;
+  nameSnapshot: string;
+  quantity: number;
+  unitPrice: PriceValue;
+  subtotal: PriceValue;
+};
+
+type EPickShipmentState = {
+  status?: string | null;
+  epickOrderId?: string | null;
+  senderCode?: string | null;
+  mpUrl?: string | null;
+};
+
+type CorreoShipmentState = {
+  status?: string | null;
+  shippingId?: string | null;
+};
+
+type CorreoTrackingEvent = {
+  event?: string | null;
+  date?: string | null;
+  branch?: string | null;
+  status?: string | null;
+};
+
+type CorreoTrackingRow = {
+  trackingNumber?: string | null;
+  events?: CorreoTrackingEvent[];
+};
+
+type AdminOrder = {
+  id: string;
+  orderNumber: number;
+  status: string;
+  total: PriceValue;
+  createdAt: string | Date;
+  shippedAt?: string | Date | null;
+  shippingName?: string | null;
+  shippingPhone?: string | null;
+  shippingAddressLine?: string | null;
+  shippingCity?: string | null;
+  shippingProvince?: string | null;
+  shippingZip?: string | null;
+  shippingAmount?: PriceValue | null;
+  notes?: string | null;
+  user?: OrderUser | null;
+  items: OrderItem[];
+  payments?: OrderPayment[];
+  epickShipment?: EPickShipmentState | null;
+  correoShipment?: CorreoShipmentState | null;
+};
+
+const CANCELLABLE_STATUSES = new Set(["pending_payment", "paid", "shipped", "delivered"]);
+
+export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
   const [status, setStatus] = useState<string>(order.status);
+  const [paymentStatus, setPaymentStatus] = useState<string>(order.payments?.[0]?.status ?? "—");
   const [shippedAt, setShippedAt] = useState<string | null>(order.shippedAt ? String(order.shippedAt) : null);
   const [loading, setLoading] = useState(false);
+  const [paidLoading, setPaidLoading] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [shipLoading, setShipLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [epick, setEpick] = useState<any>(order.epickShipment ?? null);
+  const [epick, setEpick] = useState<EPickShipmentState | null>(order.epickShipment ?? null);
   const [epickMsg, setEpickMsg] = useState<string | null>(null);
-  const [correo, setCorreo] = useState<any>(order.correoShipment ?? null);
+  const [correo, setCorreo] = useState<CorreoShipmentState | null>(order.correoShipment ?? null);
   const [correoMsg, setCorreoMsg] = useState<string | null>(null);
   const [correoLoading, setCorreoLoading] = useState(false);
+  const [correoTracking, setCorreoTracking] = useState<CorreoTrackingRow[] | null>(null);
+  const [shipEmailOpen, setShipEmailOpen] = useState(false);
+  const [shipEmailMessage, setShipEmailMessage] = useState("");
+  const [shipEmailPreview, setShipEmailPreview] = useState<{ to?: string; subject?: string; html?: string } | null>(null);
+  const [shipEmailLoading, setShipEmailLoading] = useState(false);
+  const [shipEmailMsg, setShipEmailMsg] = useState<string | null>(null);
 
   const lastPayment = order.payments?.[0];
   const itemsSubtotal = order.items.reduce(
-    (acc: number, it: any) => acc + Number(it.subtotal || 0),
+    (acc: number, it) => acc + Number(it.subtotal || 0),
     0
   );
   const shippingAmount = Number(order.shippingAmount || 0);
+
+  async function loadShipEmailPreview(customMessage = shipEmailMessage) {
+    setShipEmailMsg(null);
+    setShipEmailLoading(true);
+    const res = await fetch(`/api/admin/orders/${order.id}/ship-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "preview", customMessage }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setShipEmailLoading(false);
+    if (!res.ok) {
+      setShipEmailMsg(data?.error || "No se pudo generar el preview del mail.");
+      return;
+    }
+    setShipEmailPreview({ to: data.to, subject: data.subject, html: data.html });
+  }
+
+  async function sendShipEmail() {
+    setShipEmailMsg(null);
+    setShipEmailLoading(true);
+    const res = await fetch(`/api/admin/orders/${order.id}/ship-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "send", customMessage: shipEmailMessage }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setShipEmailLoading(false);
+    if (!res.ok) {
+      setShipEmailMsg(data?.error || "No se pudo enviar el mail.");
+      return;
+    }
+    setShipEmailMsg("✅ Mail de pedido enviado enviado al cliente.");
+  }
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -55,7 +165,7 @@ export default function AdminOrderDetail({ order }: { order: any }) {
                 Total: <span className="font-semibold">{money(Number(order.total))}</span>
               </div>
               <div className="mt-1 text-xs text-zinc-400">
-                Pago: {lastPayment?.status ?? "—"} {lastPayment?.paymentId ? `(${lastPayment.paymentId})` : ""}
+                Pago: {paymentStatus} {lastPayment?.paymentId ? `(${lastPayment.paymentId})` : ""}
               </div>
               {shippedAt && (
                 <div className="mt-1 text-xs text-zinc-400">
@@ -92,7 +202,7 @@ export default function AdminOrderDetail({ order }: { order: any }) {
           <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
             <div className="text-sm font-semibold">Items</div>
             <div className="mt-3 space-y-3">
-              {order.items.map((it: any) => (
+              {order.items.map((it) => (
                 <div
                   key={it.id}
                   className="flex items-start justify-between rounded-xl border border-zinc-800 bg-zinc-950/40 p-4"
@@ -132,6 +242,31 @@ export default function AdminOrderDetail({ order }: { order: any }) {
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <button
+              disabled={paidLoading || status !== "pending_payment"}
+              onClick={async () => {
+                setMsg(null);
+                setPaidLoading(true);
+
+                const res = await fetch(`/api/admin/orders/${order.id}/paid`, { method: "POST" });
+                const data = await res.json().catch(() => ({}));
+
+                setPaidLoading(false);
+
+                if (!res.ok) {
+                  setMsg(data?.error || "No se pudo marcar como pagado.");
+                  return;
+                }
+
+                setStatus(data.order.status);
+                setPaymentStatus(data.payment?.status || "approved");
+                setMsg("✅ Pedido marcado como pagado.");
+              }}
+              className="w-full rounded-2xl bg-emerald-100 px-4 py-3 text-sm font-semibold text-emerald-900 hover:bg-emerald-50 disabled:opacity-50 sm:w-auto"
+            >
+              {paidLoading ? "Marcando..." : "Marcar como pagado"}
+            </button>
+
+            <button
               disabled={loading || status !== "paid"}
               onClick={async () => {
                 setMsg(null);
@@ -150,6 +285,8 @@ export default function AdminOrderDetail({ order }: { order: any }) {
                 setStatus(data.order.status);
                 setShippedAt(data.order.shippedAt);
                 setMsg("✅ Pedido marcado como enviado.");
+                setShipEmailOpen(true);
+                await loadShipEmailPreview("");
               }}
               className="w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50 sm:w-auto"
             >
@@ -157,9 +294,9 @@ export default function AdminOrderDetail({ order }: { order: any }) {
             </button>
 
             <button
-              disabled={cancelLoading || status !== "pending_payment"}
+              disabled={cancelLoading || !CANCELLABLE_STATUSES.has(status)}
               onClick={async () => {
-                const ok = window.confirm("¿Cancelar este pedido? Se liberará el stock.");
+                const ok = window.confirm("¿Cancelar este pedido? Se restaurará el stock de sus productos.");
                 if (!ok) return;
 
                 setMsg(null);
@@ -196,6 +333,74 @@ export default function AdminOrderDetail({ order }: { order: any }) {
               * Solo se puede marcar “enviado” si el pedido está en estado <b>paid</b>.
             </p>
           )}
+
+          {shipEmailOpen && (
+            <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-zinc-100">Mail de pedido enviado</h2>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Revisá el contenido, agregá una nota si hace falta y envialo manualmente.
+                  </p>
+                </div>
+                {shipEmailPreview?.to ? (
+                  <div className="text-right text-xs text-zinc-500">
+                    Para: <span className="text-zinc-300">{shipEmailPreview.to}</span>
+                  </div>
+                ) : null}
+              </div>
+
+              <label className="mt-4 block text-sm text-zinc-300">
+                Mensaje adicional
+                <textarea
+                  value={shipEmailMessage}
+                  onChange={(event) => setShipEmailMessage(event.target.value)}
+                  placeholder="Ej: Te compartimos el aviso de despacho. En breve vas a poder seguir el envío desde el detalle del pedido."
+                  rows={4}
+                  className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+                />
+              </label>
+
+              <div className="mt-3 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  disabled={shipEmailLoading}
+                  onClick={() => loadShipEmailPreview()}
+                  className="rounded-2xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60 disabled:opacity-50"
+                >
+                  {shipEmailLoading ? "Actualizando..." : "Actualizar preview"}
+                </button>
+                <button
+                  type="button"
+                  disabled={shipEmailLoading || !shipEmailPreview}
+                  onClick={sendShipEmail}
+                  className="rounded-2xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
+                >
+                  {shipEmailLoading ? "Enviando..." : "Enviar mail"}
+                </button>
+              </div>
+
+              {shipEmailMsg ? (
+                <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-zinc-200">
+                  {shipEmailMsg}
+                </div>
+              ) : null}
+
+              {shipEmailPreview ? (
+                <div className="mt-4 overflow-hidden rounded-xl border border-zinc-800 bg-white text-zinc-900">
+                  <div className="border-b border-zinc-200 px-4 py-3 text-sm">
+                    <div className="font-semibold">Asunto</div>
+                    <div className="mt-1 text-zinc-700">{shipEmailPreview.subject}</div>
+                  </div>
+                  <iframe
+                    title="Preview mail pedido enviado"
+                    srcDoc={shipEmailPreview.html || ""}
+                    className="h-[460px] w-full bg-white"
+                  />
+                </div>
+              ) : null}
+            </section>
+          )}
         </div>
 
         <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
@@ -206,6 +411,14 @@ export default function AdminOrderDetail({ order }: { order: any }) {
                 Estado: <span className="text-zinc-200">{correo?.status ?? "—"}</span>
               </div>
             </div>
+            <a
+              href="https://www.correoargentino.com.ar/MiCorreo"
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-zinc-400 hover:text-zinc-200"
+            >
+              Abrir MiCorreo
+            </a>
           </div>
 
           {correo?.shippingId && (
@@ -215,6 +428,31 @@ export default function AdminOrderDetail({ order }: { order: any }) {
           {correoMsg && (
             <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 text-sm text-zinc-200">
               {correoMsg}
+            </div>
+          )}
+
+          {correoTracking && (
+            <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 text-sm text-zinc-200">
+              <div className="font-semibold">Tracking Correo</div>
+              {correoTracking.map((row, index) => (
+                <div key={`${row.trackingNumber || "tracking"}-${index}`} className="mt-3">
+                  <div className="font-mono text-xs text-zinc-400">
+                    {row.trackingNumber || correo?.shippingId || "Sin número"}
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {(row.events || []).slice(0, 4).map((event, eventIndex) => (
+                      <div key={`${event.event || "event"}-${eventIndex}`} className="text-xs text-zinc-400">
+                        <span className="text-zinc-200">{event.event || event.status || "Evento"}</span>
+                        {event.date ? ` · ${event.date}` : ""}
+                        {event.branch ? ` · ${event.branch}` : ""}
+                      </div>
+                    ))}
+                    {(row.events || []).length === 0 && (
+                      <div className="text-xs text-zinc-500">Sin eventos informados todavía.</div>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
@@ -237,6 +475,62 @@ export default function AdminOrderDetail({ order }: { order: any }) {
               className="rounded-2xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60"
             >
               {correoLoading ? "Importando..." : correo ? "Reimportar envío" : "Importar envío"}
+            </button>
+
+            <button
+              disabled={correoLoading || !correo}
+              onClick={async () => {
+                setCorreoMsg(null);
+                setCorreoLoading(true);
+                const res = await fetch(`/api/admin/orders/${order.id}/correo/tracking`, { method: "GET" });
+                const data = await res.json().catch(() => ({}));
+                setCorreoLoading(false);
+                if (!res.ok) {
+                  setCorreoMsg(data?.error || "No se pudo consultar tracking de Correo.");
+                  return;
+                }
+                setCorreo(data.shipment);
+                const rows = Array.isArray(data.tracking) ? data.tracking : [data.tracking].filter(Boolean);
+                setCorreoTracking(rows);
+                setCorreoMsg("✅ Tracking de Correo actualizado.");
+              }}
+              className="rounded-2xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60 disabled:opacity-50"
+            >
+              {correoLoading ? "Consultando..." : "Consultar tracking"}
+            </button>
+
+            <button
+              disabled={
+                correoLoading ||
+                !correo ||
+                correo?.status === "CANCELLED_LOCAL" ||
+                correo?.status === "CANCELLED"
+              }
+              onClick={async () => {
+                const ok = window.confirm(
+                  "Esto solo marca el envío como cancelado en la tienda. Para cancelarlo en Correo Argentino, hacelo también desde el portal MiCorreo."
+                );
+                if (!ok) return;
+
+                setCorreoMsg(null);
+                setCorreoLoading(true);
+                const res = await fetch(`/api/admin/orders/${order.id}/correo/cancel`, { method: "POST" });
+                const data = await res.json().catch(() => ({}));
+                setCorreoLoading(false);
+                if (!res.ok) {
+                  setCorreoMsg(data?.error || "No se pudo cancelar el envío.");
+                  return;
+                }
+                setCorreo(data.shipment);
+                setCorreoMsg(
+                  data.reused
+                    ? "El envío ya estaba marcado como cancelado localmente."
+                    : "✅ Envío marcado como cancelado localmente. Para anularlo en Correo Argentino, usá el portal MiCorreo."
+                );
+              }}
+              className="rounded-2xl border border-red-300 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50"
+            >
+              {correoLoading ? "Procesando..." : "Marcar cancelado local"}
             </button>
           </div>
         </div>
@@ -329,7 +623,7 @@ export default function AdminOrderDetail({ order }: { order: any }) {
                   setEpickMsg(data?.error || "No se pudo consultar tracking.");
                   return;
                 }
-                setEpick((prev: any) => ({ ...prev, status: data.status }));
+                setEpick((prev) => ({ ...(prev ?? {}), status: data.status }));
                 setEpickMsg(`Tracking actualizado: ${data.status}`);
               }}
               className="rounded-2xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60 disabled:opacity-50"

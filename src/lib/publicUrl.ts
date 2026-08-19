@@ -49,6 +49,12 @@ export function publicBaseUrl(req?: Request) {
 
     const origin = usablePublicUrl(req.headers.get("origin"));
     if (origin) return origin;
+
+    const referer = req.headers.get("referer");
+    if (referer) {
+      const fromReferer = usablePublicUrl(referer);
+      if (fromReferer) return fromReferer;
+    }
   }
 
   return trimTrailingSlash(process.env.SITE_URL || process.env.NEXTAUTH_URL || "http://localhost:3000");

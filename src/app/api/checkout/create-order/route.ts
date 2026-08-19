@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { Prisma } from "@prisma/client";
-import { normalizePromoCode, priceCartItems } from "@/lib/promotions";
+import { getFreeShippingForCart, normalizePromoCode, priceCartItems } from "@/lib/promotions";
 import { getCheckoutPaymentSettings, getEmailJobSettings, getTemporaryShutdownSettings } from "@/lib/storeSettings";
 import { validateArgentinaPostalCodeProvince } from "@/lib/argentinaPostalCode";
 import { publicBaseUrl } from "@/lib/publicUrl";
@@ -156,8 +156,10 @@ export async function POST(req: Request) {
   if (!selectedCarrier) return bad("Seleccioná un método de envío válido.");
 
   const rawShippingAmount = Number(body.shippingAmount);
-  const shippingAmount = selectedCarrier.custom
-    ? selectedCarrier.flatRate
+  const quotedShippingAmount = selectedCarrier.custom
+    ? selectedCarrier.pricingMode === "agreement"
+      ? 0
+      : selectedCarrier.flatRate
     : Number.isFinite(rawShippingAmount) && rawShippingAmount >= 0
       ? rawShippingAmount
       : 0;
@@ -187,6 +189,10 @@ export async function POST(req: Request) {
     productId,
     quantity,
   }));
+  const promotionDeliveryType =
+    shippingMethod === "correo" ? shippingDeliveryType || "D" : isPickup ? null : "D";
+  const freeShipping = await getFreeShippingForCart(merged, promoCode, paymentMethod, promotionDeliveryType, shippingMethod);
+  const shippingAmount = freeShipping.applies ? 0 : quotedShippingAmount;
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -211,7 +217,7 @@ export async function POST(req: Request) {
       }
 
       let total = new Prisma.Decimal(0);
-      const priced = await priceCartItems(merged, promoCode, paymentMethod);
+      const priced = await priceCartItems(merged, promoCode, paymentMethod, promotionDeliveryType, shippingMethod);
       const pricedById = new Map(priced.items.map((it) => [it.productId, it]));
 
       const orderItemsData = merged.map((it) => {

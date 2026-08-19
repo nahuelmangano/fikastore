@@ -17,6 +17,7 @@ type Carrier = {
   custom: boolean;
   description: string;
   flatRate: number;
+  pricingMode: "fixed" | "agreement";
   configured: boolean;
   requiredCount: number;
   completedCount: number;
@@ -42,6 +43,7 @@ export default function AdminPaqueteria({
   const [customName, setCustomName] = useState("");
   const [customDescription, setCustomDescription] = useState("");
   const [customFlatRate, setCustomFlatRate] = useState("");
+  const [customPricingMode, setCustomPricingMode] = useState<"fixed" | "agreement">("fixed");
   const [creatingCustom, setCreatingCustom] = useState(false);
 
   const summary = useMemo(() => {
@@ -120,6 +122,7 @@ export default function AdminPaqueteria({
         name: customName,
         description: customDescription,
         flatRate: Number(customFlatRate || 0),
+        pricingMode: customPricingMode,
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -134,6 +137,7 @@ export default function AdminPaqueteria({
     setCustomName("");
     setCustomDescription("");
     setCustomFlatRate("");
+    setCustomPricingMode("fixed");
     setMsg(`${data.carrier?.name || "Método personalizado"} creado.`);
   }
 
@@ -148,6 +152,7 @@ export default function AdminPaqueteria({
         name: patch.name ?? carrier.name,
         description: patch.description ?? carrier.description,
         flatRate: patch.flatRate ?? carrier.flatRate,
+        pricingMode: patch.pricingMode ?? carrier.pricingMode,
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -191,7 +196,7 @@ export default function AdminPaqueteria({
         ) : null}
 
         <SectionCard className="mt-8 xl:mt-6" title="Método personalizado" description="Agregá opciones propias como motomensajería, comisionista o cadetería local.">
-          <div className="grid gap-4 lg:grid-cols-[1fr_1fr_180px_auto]">
+          <div className="grid gap-4 lg:grid-cols-[1fr_1fr_160px_180px_auto]">
             <label className="block">
               <span className="text-sm font-semibold text-[var(--admin-text)]">Nombre</span>
               <input
@@ -211,12 +216,24 @@ export default function AdminPaqueteria({
               />
             </label>
             <label className="block">
+              <span className="text-sm font-semibold text-[var(--admin-text)]">Modo</span>
+              <select
+                value={customPricingMode}
+                onChange={(event) => setCustomPricingMode(event.target.value === "agreement" ? "agreement" : "fixed")}
+                className="admin-input mt-2"
+              >
+                <option value="fixed">Precio fijo</option>
+                <option value="agreement">A convenir</option>
+              </select>
+            </label>
+            <label className="block">
               <span className="text-sm font-semibold text-[var(--admin-text)]">Precio</span>
               <input
                 value={customFlatRate}
                 onChange={(event) => setCustomFlatRate(event.target.value.replace(/[^\d.]/g, ""))}
                 placeholder="2500"
                 inputMode="decimal"
+                disabled={customPricingMode === "agreement"}
                 className="admin-input mt-2"
               />
             </label>
@@ -310,6 +327,7 @@ function ProviderCard({
   const [customName, setCustomName] = useState(carrier.name);
   const [customDescription, setCustomDescription] = useState(carrier.description);
   const [customFlatRate, setCustomFlatRate] = useState(String(carrier.flatRate || 0));
+  const [customPricingMode, setCustomPricingMode] = useState<"fixed" | "agreement">(carrier.pricingMode);
 
   return (
     <article className="rounded-3xl border border-[var(--admin-border)] bg-[var(--admin-background)] p-5 xl:p-4 transition duration-150 hover:-translate-y-0.5 hover:shadow-[var(--admin-shadow)]">
@@ -330,7 +348,9 @@ function ProviderCard({
             </div>
             {carrier.custom ? (
               <div className="mt-2 text-xs font-semibold text-[var(--admin-primary)]">
-                Precio fijo: ${carrier.flatRate.toLocaleString("es-AR")}
+                {carrier.pricingMode === "agreement"
+                  ? "Precio a convenir"
+                  : `Precio fijo: $${carrier.flatRate.toLocaleString("es-AR")}`}
               </div>
             ) : null}
           </div>
@@ -405,7 +425,7 @@ function ProviderCard({
       {carrier.custom ? (
         <div className="mt-5 rounded-2xl border border-[var(--admin-border)] bg-white/60 p-4">
           <div className="text-sm font-semibold text-[var(--admin-text)]">Configuración personalizada</div>
-          <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_1fr_160px_auto]">
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="block">
               <span className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Nombre</span>
               <input value={customName} onChange={(event) => setCustomName(event.target.value)} className="admin-input mt-2" />
@@ -415,15 +435,27 @@ function ProviderCard({
               <input value={customDescription} onChange={(event) => setCustomDescription(event.target.value)} className="admin-input mt-2" />
             </label>
             <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Modo</span>
+              <select
+                value={customPricingMode}
+                onChange={(event) => setCustomPricingMode(event.target.value === "agreement" ? "agreement" : "fixed")}
+                className="admin-input mt-2"
+              >
+                <option value="fixed">Precio fijo</option>
+                <option value="agreement">A convenir</option>
+              </select>
+            </label>
+            <label className="block">
               <span className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Precio</span>
               <input
                 value={customFlatRate}
                 onChange={(event) => setCustomFlatRate(event.target.value.replace(/[^\d.]/g, ""))}
                 inputMode="decimal"
+                disabled={customPricingMode === "agreement"}
                 className="admin-input mt-2"
               />
             </label>
-            <div className="flex items-end">
+            <div className="flex justify-end sm:col-span-2">
               <button
                 type="button"
                 disabled={busy || !customName.trim()}
@@ -432,9 +464,10 @@ function ProviderCard({
                     name: customName,
                     description: customDescription,
                     flatRate: Number(customFlatRate || 0),
+                    pricingMode: customPricingMode,
                   })
                 }
-                className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[var(--admin-border)] px-4 py-2 text-sm font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex min-h-[44px] w-full items-center justify-center rounded-2xl bg-[var(--admin-primary)] px-5 py-2 text-sm font-semibold text-white shadow-sm transition duration-150 hover:bg-[var(--admin-primary-hover)] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
               >
                 Guardar
               </button>

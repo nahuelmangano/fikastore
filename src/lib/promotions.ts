@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 
 export type PromotionType = "global" | "product" | "code";
 export type PromotionPaymentMethod = "mercadopago" | "agreement" | "cash" | "transfer";
+export type PromotionFreeShippingDeliveryType = "D" | "S";
 
 export type PricingInputItem = {
   productId: string;
@@ -28,6 +29,8 @@ export type PricingSummary = {
   discountAmount: number;
   autoDiscountAmount: number;
   codeDiscountAmount: number;
+  freeShipping: boolean;
+  freeShippingPromotionName: string | null;
 };
 
 export type PricingResult = {
@@ -63,6 +66,7 @@ function activeWindowWhere(now: Date) {
 }
 
 const PAYMENT_METHODS = new Set<PromotionPaymentMethod>(["mercadopago", "agreement", "cash", "transfer"]);
+const FREE_SHIPPING_DELIVERY_TYPES = new Set<PromotionFreeShippingDeliveryType>(["D", "S"]);
 
 export function parsePromotionPaymentMethods(value: string | null | undefined): PromotionPaymentMethod[] {
   if (!value) return [];
@@ -75,10 +79,83 @@ export function parsePromotionPaymentMethods(value: string | null | undefined): 
   }
 }
 
-function promotionMatchesPaymentMethod(value: string | null | undefined, paymentMethod?: string | null) {
+export function parsePromotionFreeShippingDeliveryTypes(
+  value: string | null | undefined
+): PromotionFreeShippingDeliveryType[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((method) => String(method || "").trim().toUpperCase())
+      .filter((method): method is PromotionFreeShippingDeliveryType =>
+        FREE_SHIPPING_DELIVERY_TYPES.has(method as PromotionFreeShippingDeliveryType)
+      );
+  } catch {
+    return [];
+  }
+}
+
+export function parsePromotionFreeShippingCarrierKeys(value: string | null | undefined): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return [
+      ...new Set(
+        parsed
+          .map((key) => String(key || "").trim())
+          .filter((key) => key.length > 0 && key.length <= 80)
+      ),
+    ];
+  } catch {
+    return [];
+  }
+}
+
+function promotionMatchesFreeShippingDeliveryType(
+  value: string | null | undefined,
+  deliveryType?: string | null
+) {
+  const types = parsePromotionFreeShippingDeliveryTypes(value);
+  if (types.length === 0 || !deliveryType) return true;
+  return types.includes(deliveryType.toUpperCase() as PromotionFreeShippingDeliveryType);
+}
+
+function promotionMatchesFreeShippingCarrierKey(
+  value: string | null | undefined,
+  carrierKey?: string | null
+) {
+  const keys = parsePromotionFreeShippingCarrierKeys(value);
+  if (keys.length === 0 || !carrierKey) return true;
+  return keys.includes(carrierKey);
+}
+
+function inferredPaymentMethodsFromName(name: string | null | undefined): PromotionPaymentMethod[] {
+  const text = String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const methods: PromotionPaymentMethod[] = [];
+
+  if (text.includes("efectivo")) methods.push("cash");
+  if (text.includes("transferencia")) methods.push("transfer");
+  if (text.includes("mercado pago") || text.includes("mercadopago")) methods.push("mercadopago");
+  if (text.includes("acordar")) methods.push("agreement");
+
+  return methods;
+}
+
+function promotionMatchesPaymentMethod(
+  value: string | null | undefined,
+  paymentMethod?: string | null,
+  name?: string | null
+) {
   const methods = parsePromotionPaymentMethods(value);
-  if (methods.length === 0 || !paymentMethod) return true;
-  return methods.includes(paymentMethod as PromotionPaymentMethod);
+  const effectiveMethods = methods.length > 0 ? methods : inferredPaymentMethodsFromName(name);
+
+  if (effectiveMethods.length === 0 || !paymentMethod) return true;
+  return effectiveMethods.includes(paymentMethod as PromotionPaymentMethod);
 }
 
 export async function getAutomaticDiscountsForProducts(productIds: string[], paymentMethod?: string | null) {
@@ -101,7 +178,7 @@ export async function getAutomaticDiscountsForProducts(productIds: string[], pay
     },
   });
   const matchingPromos = promos.filter((promo) =>
-    promotionMatchesPaymentMethod(promo.paymentMethods, paymentMethod)
+    promotionMatchesPaymentMethod(promo.paymentMethods, paymentMethod, promo.name)
   );
 
   const globalMax = matchingPromos
@@ -143,7 +220,7 @@ async function getCodeDiscountPercent(code: string | null, paymentMethod?: strin
     };
   }
 
-  if (!promotionMatchesPaymentMethod(promo.paymentMethods, paymentMethod)) {
+  if (!promotionMatchesPaymentMethod(promo.paymentMethods, paymentMethod, promo.code)) {
     return {
       percent: 0,
       valid: false,
@@ -163,7 +240,9 @@ async function getCodeDiscountPercent(code: string | null, paymentMethod?: strin
 export async function priceCartItems(
   inputItems: PricingInputItem[],
   promoCode?: string | null,
-  paymentMethod?: string | null
+  paymentMethod?: string | null,
+  deliveryType?: string | null,
+  carrierKey?: string | null
 ): Promise<PricingResult> {
   const normalizedItems = inputItems
     .map((it) => ({
@@ -181,6 +260,8 @@ export async function priceCartItems(
         discountAmount: 0,
         autoDiscountAmount: 0,
         codeDiscountAmount: 0,
+        freeShipping: false,
+        freeShippingPromotionName: null,
       },
       code: { input: normalizePromoCode(promoCode), applied: null, percent: 0, valid: false, message: null },
     };
@@ -201,6 +282,7 @@ export async function priceCartItems(
   const autoMap = await getAutomaticDiscountsForProducts(merged.map((m) => m.productId), paymentMethod);
   const normalizedCode = normalizePromoCode(promoCode);
   const codeInfo = await getCodeDiscountPercent(normalizedCode, paymentMethod);
+  const freeShipping = await getFreeShippingForCart(merged, normalizedCode, paymentMethod, deliveryType, carrierKey);
 
   const items: PricedItem[] = [];
 
@@ -245,7 +327,15 @@ export async function priceCartItems(
       autoDiscountAmount: it.autoPercent > 0 ? it.autoDiscountAmount : 0,
       codeDiscountAmount: it.codePercent > 0 ? it.codeDiscountAmount : 0,
     })),
-    summary: { subtotalBase, subtotalDiscounted, discountAmount, autoDiscountAmount, codeDiscountAmount },
+    summary: {
+      subtotalBase,
+      subtotalDiscounted,
+      discountAmount,
+      autoDiscountAmount,
+      codeDiscountAmount,
+      freeShipping: freeShipping.applies,
+      freeShippingPromotionName: freeShipping.promotionName,
+    },
     code: {
       input: normalizedCode,
       applied: codeInfo.applied,
@@ -254,4 +344,47 @@ export async function priceCartItems(
       message: codeInfo.message,
     },
   };
+}
+
+export async function getFreeShippingForCart(
+  inputItems: PricingInputItem[],
+  promoCode?: string | null,
+  paymentMethod?: string | null,
+  deliveryType?: string | null,
+  carrierKey?: string | null
+) {
+  const productIds = [
+    ...new Set(inputItems.map((item) => String(item.productId || "").trim()).filter(Boolean)),
+  ];
+  if (productIds.length === 0) return { applies: false, promotionName: null as string | null };
+
+  const code = normalizePromoCode(promoCode);
+  const now = new Date();
+  const promos = await prisma.promotion.findMany({
+    where: {
+      isActive: true,
+      freeShipping: true,
+      type: { in: code ? ["global", "product", "code"] : ["global", "product"] },
+      ...activeWindowWhere(now),
+      OR: [{ type: { not: "code" } }, { code }],
+    },
+    include: {
+      products: {
+        where: { productId: { in: productIds } },
+        select: { productId: true },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const match = promos.find((promo) => {
+    if (!promotionMatchesPaymentMethod(promo.paymentMethods, paymentMethod, promo.name)) return false;
+    if (!promotionMatchesFreeShippingDeliveryType(promo.freeShippingDeliveryTypes, deliveryType)) return false;
+    if (!promotionMatchesFreeShippingCarrierKey(promo.freeShippingCarrierKeys, carrierKey)) return false;
+    if (promo.type === "product") return promo.products.length > 0;
+    if (promo.type === "code") return Boolean(code && promo.code === code);
+    return true;
+  });
+
+  return { applies: Boolean(match), promotionName: match?.name ?? null };
 }

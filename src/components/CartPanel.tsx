@@ -105,11 +105,10 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
     return m;
   }, [pricing]);
 
-  const total = pricing?.summary?.subtotalDiscounted ?? items.reduce((acc, it) => acc + it.price * it.quantity, 0);
-  const subtotalBase = pricing?.summary?.subtotalBase ?? total;
-  const discountAmount = pricing?.summary?.discountAmount ?? 0;
-  const autoDiscountAmount = pricing?.summary?.autoDiscountAmount ?? 0;
+  const rawCartTotal = items.reduce((acc, it) => acc + it.price * it.quantity, 0);
+  const subtotalBase = pricing?.summary?.subtotalBase ?? rawCartTotal;
   const codeDiscountAmount = pricing?.summary?.codeDiscountAmount ?? 0;
+  const cartDisplayTotal = Math.max(0, subtotalBase - codeDiscountAmount);
 
   if (items.length === 0) {
     return (
@@ -155,21 +154,7 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
                 {(() => {
                   const pi = pricingById.get(it.productId);
                   const base = Number(pi?.basePrice ?? it.price);
-                  const final = Number(pi?.finalPrice ?? it.price);
-                  const percent = Number(pi?.totalPercent ?? 0);
-                  if (percent <= 0) return <span>${base.toLocaleString("es-AR")}</span>;
-                  return (
-                    <div>
-                      <span className="line-through text-zinc-500">${base.toLocaleString("es-AR")}</span>{" "}
-                      <span className="text-zinc-200">${final.toLocaleString("es-AR")}</span>{" "}
-                      <span className="text-xs text-zinc-500">({percent}% OFF)</span>
-                      <div className="text-xs text-zinc-500">
-                        {Number(pi?.autoPercent ?? 0) > 0 && <span>Promo tienda {pi?.autoPercent}%</span>}
-                        {Number(pi?.autoPercent ?? 0) > 0 && Number(pi?.codePercent ?? 0) > 0 && <span> + </span>}
-                        {Number(pi?.codePercent ?? 0) > 0 && <span>Código {pi?.codePercent}%</span>}
-                      </div>
-                    </div>
-                  );
+                  return <span>${base.toLocaleString("es-AR")}</span>;
                 })()}
               </div>
 
@@ -210,7 +195,7 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
 
             <div className="flex flex-col items-end justify-between">
               <div className="text-sm text-zinc-300">
-                ${Number(pricingById.get(it.productId)?.finalSubtotal ?? it.price * it.quantity).toLocaleString("es-AR")}
+                ${Number((pricingById.get(it.productId)?.basePrice ?? it.price) * it.quantity).toLocaleString("es-AR")}
               </div>
 
               <button
@@ -267,18 +252,6 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
           <span className="text-zinc-400">Subtotal</span>
           <span className="text-zinc-300">${subtotalBase.toLocaleString("es-AR")}</span>
         </div>
-        {discountAmount > 0 && (
-          <div className="mt-2 flex items-center justify-between text-sm">
-            <span className="text-zinc-400">Descuento</span>
-            <span className="text-amber-300">-${discountAmount.toLocaleString("es-AR")}</span>
-          </div>
-        )}
-        {autoDiscountAmount > 0 && (
-          <div className="mt-1 flex items-center justify-between text-xs">
-            <span className="text-zinc-500">- Promo tienda</span>
-            <span className="text-zinc-400">-${autoDiscountAmount.toLocaleString("es-AR")}</span>
-          </div>
-        )}
         {codeDiscountAmount > 0 && (
           <div className="mt-1 flex items-center justify-between text-xs">
             <span className="text-zinc-500">- Código promocional</span>
@@ -287,7 +260,7 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
         )}
         <div className="mt-2 flex items-center justify-between">
           <span className="text-zinc-300">Total</span>
-          <span className="text-xl font-semibold">${Number(total).toLocaleString("es-AR")}</span>
+          <span className="text-xl font-semibold">${Number(cartDisplayTotal).toLocaleString("es-AR")}</span>
         </div>
 
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

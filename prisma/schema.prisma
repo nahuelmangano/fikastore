@@ -96,6 +96,9 @@ model Promotion {
   percent   Int
   code      String?
   paymentMethods String? @db.NVarChar(1000) // JSON array: mercadopago|agreement|cash|transfer. Null/empty applies to all.
+  freeShipping Boolean @default(false)
+  freeShippingDeliveryTypes String? @db.NVarChar(1000) // JSON array: D|S. Null/empty applies to all shipping delivery types.
+  freeShippingCarrierKeys String? @db.NVarChar(1000) // JSON array: shipping carrier keys. Null/empty applies to all carriers.
   isActive  Boolean  @default(true)
   startsAt  DateTime?
   endsAt    DateTime?

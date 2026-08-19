@@ -289,9 +289,14 @@ export default async function ProductsPage({
                           </div>
 
                           {promoPercent > 0 ? (
-                            <p className="mt-1 truncate text-[11px] leading-4 text-zinc-700">
-                              {promoPercent}% OFF con transferencia o efectivo
-                            </p>
+                            <>
+                              <p className="mt-1 truncate text-[11px] leading-4 text-zinc-700">
+                                {promoPercent}% OFF con transferencia o efectivo
+                              </p>
+                              <p className="mt-1 text-sm font-semibold leading-5 text-[#8B551F]">
+                                {moneyNoCents(finalPrice)}
+                              </p>
+                            </>
                           ) : null}
 
                           <div className="mt-4 border-t border-zinc-200 pt-3">

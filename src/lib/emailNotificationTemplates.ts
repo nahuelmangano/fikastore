@@ -198,10 +198,11 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefault[] = [
     category: "Pedidos",
     subject: "{{storeName}} · Tu pedido fue enviado",
     enabled: true,
-    variables: ["customerName", "orderNumber", "orderUrl", "storeName", "storeUrl"],
+    variables: ["customerName", "orderNumber", "orderUrl", "storeName", "storeUrl", "customMessageHtml", "customMessageText"],
     html: layout(
       "Tu pedido fue enviado",
       `<p style="margin:0 0 18px;color:#444;">Hola {{customerName}}, tu pedido {{orderNumber}} ya está en camino.</p>
+       {{{customMessageHtml}}}
        <table style="width:100%;border-collapse:collapse;margin:0 0 24px;">
          <tr>
            <td style="width:33.33%;vertical-align:top;">
@@ -224,7 +225,7 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefault[] = [
        </div>
        <p style="margin:18px 0 0;"><a href="{{orderUrl}}" style="display:inline-block;background:#111;color:#fff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:700;">Ver pedido</a></p>`
     ),
-    text: "Hola {{customerName}}, tu pedido {{orderNumber}} fue enviado. Ver pedido: {{orderUrl}}",
+    text: "Hola {{customerName}}, tu pedido {{orderNumber}} fue enviado.\n{{customMessageText}}\nVer pedido: {{orderUrl}}",
   },
   {
     key: "cart-abandoned",

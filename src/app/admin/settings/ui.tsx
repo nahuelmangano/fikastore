@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Save,
   Settings,
+  Share2,
   Store,
   Tag,
   Truck,
@@ -99,6 +100,18 @@ type AnalyticsSettings = {
   metaPixelId: string;
 };
 
+type SocialLinksSettings = {
+  facebook: string;
+  instagram: string;
+  tiktok: string;
+};
+
+const EMPTY_SOCIAL_LINKS: SocialLinksSettings = {
+  facebook: "",
+  instagram: "",
+  tiktok: "",
+};
+
 type DomainStatus = "NOT_CONFIGURED" | "PENDING" | "VERIFIED" | "ACTIVE" | "ERROR";
 
 type CustomDomainSettings = {
@@ -116,7 +129,7 @@ type BrowserCryptoWithUuid = Crypto & {
   randomUUID?: () => string;
 };
 
-type SettingsTab = "appearance" | "home" | "content" | "pages" | "categories" | "payments" | "domain" | "analytics";
+type SettingsTab = "appearance" | "home" | "content" | "pages" | "categories" | "payments" | "social" | "domain" | "analytics";
 
 const tabs: { key: SettingsTab; label: string; icon: LucideIcon }[] = [
   { key: "appearance", label: "Apariencia", icon: Paintbrush },
@@ -125,6 +138,7 @@ const tabs: { key: SettingsTab; label: string; icon: LucideIcon }[] = [
   { key: "pages", label: "Páginas", icon: FileText },
   { key: "categories", label: "Categorías", icon: LayoutGrid },
   { key: "payments", label: "Medios de pago", icon: CreditCard },
+  { key: "social", label: "Redes", icon: Share2 },
   { key: "domain", label: "Dominio", icon: Globe },
   { key: "analytics", label: "Analíticas", icon: BarChart3 },
 ];
@@ -229,6 +243,7 @@ export default function AdminSettingsPage({
   manualPaymentMethods,
   paymentFinancingDisplaySettings,
   analyticsSettings,
+  socialLinksSettings,
   customDomainSettings,
   currentUserRole,
   informationSections,
@@ -245,6 +260,7 @@ export default function AdminSettingsPage({
   manualPaymentMethods: ManualPaymentMethodSettings[];
   paymentFinancingDisplaySettings: PaymentFinancingDisplaySettings;
   analyticsSettings: AnalyticsSettings;
+  socialLinksSettings?: SocialLinksSettings;
   customDomainSettings: CustomDomainSettings;
   currentUserRole: string;
   informationSections: InformationSection[];
@@ -263,6 +279,7 @@ export default function AdminSettingsPage({
   const [financingDisplay, setFinancingDisplay] = useState(paymentFinancingDisplaySettings);
   const [gaMeasurementId, setGaMeasurementId] = useState(analyticsSettings.googleAnalyticsMeasurementId);
   const [metaPixelId, setMetaPixelId] = useState(analyticsSettings.metaPixelId);
+  const [socialLinks, setSocialLinks] = useState<SocialLinksSettings>(socialLinksSettings ?? EMPTY_SOCIAL_LINKS);
   const [domainSettings, setDomainSettings] = useState(customDomainSettings);
   const [customDomain, setCustomDomain] = useState(customDomainSettings.customDomain);
   const [homeBanner, setHomeBanner] = useState<HomeBannerSettings>(homeBannerSettings);
@@ -278,6 +295,7 @@ export default function AdminSettingsPage({
   const [mpLoading, setMpLoading] = useState(false);
   const [manualPaymentsLoading, setManualPaymentsLoading] = useState(false);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [socialLinksLoading, setSocialLinksLoading] = useState(false);
   const [domainLoading, setDomainLoading] = useState(false);
   const [domainVerifyLoading, setDomainVerifyLoading] = useState(false);
   const [logoLoading, setLogoLoading] = useState(false);
@@ -290,6 +308,7 @@ export default function AdminSettingsPage({
   const [mpMsg, setMpMsg] = useState<string | null>(null);
   const [manualPaymentsMsg, setManualPaymentsMsg] = useState<string | null>(null);
   const [analyticsMsg, setAnalyticsMsg] = useState<string | null>(null);
+  const [socialLinksMsg, setSocialLinksMsg] = useState<string | null>(null);
   const [domainMsg, setDomainMsg] = useState<string | null>(null);
   const [homeBannerMsg, setHomeBannerMsg] = useState<string | null>(null);
   const [tileMsg, setTileMsg] = useState<string | null>(null);
@@ -469,6 +488,28 @@ export default function AdminSettingsPage({
     setManualMethods(data.methods || []);
     if (data.financingDisplay) setFinancingDisplay(data.financingDisplay);
     setManualPaymentsMsg("Medios de pago guardados.");
+  }
+
+  async function saveSocialLinksSettings() {
+    setSocialLinksMsg(null);
+    setSocialLinksLoading(true);
+
+    const res = await fetch("/api/admin/settings/social-links", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(socialLinks),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    setSocialLinksLoading(false);
+
+    if (!res.ok) {
+      setSocialLinksMsg(String(data?.error || "No se pudieron guardar las redes sociales."));
+      return;
+    }
+
+    setSocialLinks(data.settings || { facebook: "", instagram: "", tiktok: "" });
+    setSocialLinksMsg("Redes sociales guardadas.");
   }
 
   async function saveAnalyticsSettings() {
@@ -1335,6 +1376,55 @@ export default function AdminSettingsPage({
             onSave={saveCustomDomainSettings}
             onVerify={verifyCustomDomainSettings}
           />
+        ) : null}
+
+        {activeTab === "social" ? (
+          <div className="mt-8 xl:mt-6 grid gap-6 xl:gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+            <SectionCard title="Redes sociales" description="Configurá los enlaces que aparecen en el footer de la tienda." icon={Share2}>
+              <div className="rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-5 xl:p-4">
+                <div className="grid gap-4">
+                  <SocialLinkField
+                    label="Facebook"
+                    value={socialLinks.facebook}
+                    placeholder="https://facebook.com/tu-tienda"
+                    onChange={(facebook) => setSocialLinks((prev) => ({ ...prev, facebook }))}
+                  />
+                  <SocialLinkField
+                    label="Instagram"
+                    value={socialLinks.instagram}
+                    placeholder="https://instagram.com/tu-tienda"
+                    onChange={(instagram) => setSocialLinks((prev) => ({ ...prev, instagram }))}
+                  />
+                  <SocialLinkField
+                    label="TikTok"
+                    value={socialLinks.tiktok}
+                    placeholder="https://tiktok.com/@tu-tienda"
+                    onChange={(tiktok) => setSocialLinks((prev) => ({ ...prev, tiktok }))}
+                  />
+                </div>
+
+                <div className="mt-5 flex flex-wrap items-center gap-3">
+                  <PrimaryButton onClick={saveSocialLinksSettings} loading={socialLinksLoading} label="Guardar redes" />
+                  <span className="text-xs text-[#A37A55]">Dejá vacío el campo que no quieras mostrar.</span>
+                </div>
+                {socialLinksMsg ? <Notice>{socialLinksMsg}</Notice> : null}
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Preview del footer" description="Así se verán los iconos configurados." icon={Share2}>
+              <div className="rounded-3xl border border-[#E5D7C8] bg-white/70 p-5 xl:p-4">
+                <h3 className="text-sm font-semibold uppercase text-[#5F3B18]">Nuestras redes sociales</h3>
+                <div className="mt-4 flex items-center gap-4 text-[#5F3B18]">
+                  {socialLinks.facebook.trim() ? <FacebookPreviewIcon /> : null}
+                  {socialLinks.instagram.trim() ? <InstagramPreviewIcon /> : null}
+                  {socialLinks.tiktok.trim() ? <TikTokPreviewIcon /> : null}
+                  {!socialLinks.facebook.trim() && !socialLinks.instagram.trim() && !socialLinks.tiktok.trim() ? (
+                    <span className="text-sm text-[#8F6A49]">No se mostrarán redes en el footer.</span>
+                  ) : null}
+                </div>
+              </div>
+            </SectionCard>
+          </div>
         ) : null}
 
         {activeTab === "analytics" ? (
@@ -2548,6 +2638,55 @@ function FinancingDisplayToggle({
         </button>
       </div>
     </div>
+  );
+}
+
+function SocialLinkField({
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block">
+      <FieldLabel label={label} />
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        autoComplete="off"
+        className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
+      />
+    </label>
+  );
+}
+
+function FacebookPreviewIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-7 w-7" aria-hidden="true">
+      <path fill="currentColor" d="M14 8h2V5h-2.4C10.9 5 10 6.8 10 8.8V11H8v3h2v7h3v-7h2.5l.5-3h-3V9c0-.7.2-1 1-1Z" />
+    </svg>
+  );
+}
+
+function InstagramPreviewIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-7 w-7" aria-hidden="true">
+      <path fill="currentColor" d="M7.8 2h8.4A5.8 5.8 0 0 1 22 7.8v8.4a5.8 5.8 0 0 1-5.8 5.8H7.8A5.8 5.8 0 0 1 2 16.2V7.8A5.8 5.8 0 0 1 7.8 2Zm0 2A3.8 3.8 0 0 0 4 7.8v8.4A3.8 3.8 0 0 0 7.8 20h8.4a3.8 3.8 0 0 0 3.8-3.8V7.8A3.8 3.8 0 0 0 16.2 4H7.8ZM12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm5.3-2.5a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4Z" />
+    </svg>
+  );
+}
+
+function TikTokPreviewIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-7 w-7" aria-hidden="true">
+      <path fill="currentColor" d="M15 3c.4 2.4 1.8 3.9 4 4.2V10a7.1 7.1 0 0 1-4-1.3V15a5.5 5.5 0 1 1-5.5-5.5c.3 0 .7 0 1 .1v3.1a2.5 2.5 0 1 0 1.5 2.3V3h3Z" />
+    </svg>
   );
 }
 

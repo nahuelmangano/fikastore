@@ -42,6 +42,7 @@ export async function GET() {
       custom: c.custom,
       description: c.description,
       flatRate: c.flatRate,
+      pricingMode: c.pricingMode,
     })),
   });
 }
@@ -51,13 +52,19 @@ export async function POST(req: Request) {
   const role = (session?.user as { role?: string } | undefined)?.role;
   if (!isStaffRole(role)) return deny();
 
-  const body = (await req.json().catch(() => null)) as { name?: string; description?: string; flatRate?: number } | null;
+  const body = (await req.json().catch(() => null)) as {
+    name?: string;
+    description?: string;
+    flatRate?: number;
+    pricingMode?: "fixed" | "agreement";
+  } | null;
 
   try {
     const carrier = await createCustomShippingCarrier({
       name: String(body?.name || ""),
       description: String(body?.description || ""),
       flatRate: Number(body?.flatRate || 0),
+      pricingMode: body?.pricingMode === "agreement" ? "agreement" : "fixed",
     });
     return NextResponse.json({ ok: true, carrier });
   } catch (error) {
@@ -81,6 +88,7 @@ export async function PATCH(req: Request) {
     name?: string;
     description?: string;
     flatRate?: number;
+    pricingMode?: "fixed" | "agreement";
   } | null;
   const key = String(body?.key || "").trim();
   const enabled = body?.enabled;
@@ -88,6 +96,7 @@ export async function PATCH(req: Request) {
   const name = body?.name;
   const description = body?.description;
   const flatRate = body?.flatRate;
+  const pricingMode = body?.pricingMode;
 
   if (
     !canTargetCarrierKey(key) ||
@@ -95,7 +104,9 @@ export async function PATCH(req: Request) {
       typeof visibleToMerchant !== "boolean" &&
       typeof name !== "string" &&
       typeof description !== "string" &&
-      typeof flatRate !== "number")
+      typeof flatRate !== "number" &&
+      pricingMode !== "fixed" &&
+      pricingMode !== "agreement")
   ) {
     return NextResponse.json({ ok: false, error: "Payload inválido." }, { status: 400 });
   }
@@ -140,10 +151,17 @@ export async function PATCH(req: Request) {
     );
   }
 
-  if (found.custom && (typeof description === "string" || typeof flatRate === "number")) {
+  if (
+    found.custom &&
+    (typeof description === "string" ||
+      typeof flatRate === "number" ||
+      pricingMode === "fixed" ||
+      pricingMode === "agreement")
+  ) {
     await setCustomShippingCarrierSettings(key, {
       description: typeof description === "string" ? description : found.description,
       flatRate: typeof flatRate === "number" ? flatRate : found.flatRate,
+      pricingMode: pricingMode === "fixed" || pricingMode === "agreement" ? pricingMode : found.pricingMode,
     });
   }
 
@@ -160,6 +178,7 @@ export async function PATCH(req: Request) {
       custom: found.custom,
       description: found.description,
       flatRate: found.flatRate,
+      pricingMode: found.pricingMode,
     },
   });
 }

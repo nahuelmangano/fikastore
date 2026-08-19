@@ -5,13 +5,15 @@ import { prisma } from "@/lib/prisma";
 import { isStaffRole } from "@/lib/roles";
 import { notifyBackInStock } from "@/lib/stockNotifications";
 
+const CANCELLABLE_STATUSES = new Set(["pending_payment", "paid", "shipped", "delivered"]);
+
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
+  const role = (session?.user as { role?: string } | undefined)?.role;
 
   if (!isStaffRole(role)) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
@@ -30,7 +32,7 @@ export async function POST(
         throw new Error("not_found");
       }
 
-      if (order.status !== "pending_payment") {
+      if (!CANCELLABLE_STATUSES.has(order.status)) {
         throw new Error("invalid_status");
       }
 
@@ -58,7 +60,7 @@ export async function POST(
 
       if (order.payments.length > 0) {
         await tx.payment.updateMany({
-          where: { orderId: order.id, status: "pending" },
+          where: { orderId: order.id, status: { in: ["pending", "approved"] } },
           data: { status: "cancelled" },
         });
       }
@@ -69,13 +71,14 @@ export async function POST(
     await Promise.all(Array.from(restoredProductIds).map((productId) => notifyBackInStock(productId, req)));
 
     return NextResponse.json({ ok: true, order: updated });
-  } catch (err: any) {
-    if (err?.message === "not_found") {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "";
+    if (message === "not_found") {
       return NextResponse.json({ ok: false, error: "Order not found" }, { status: 404 });
     }
-    if (err?.message === "invalid_status") {
+    if (message === "invalid_status") {
       return NextResponse.json(
-        { ok: false, error: "Solo se puede cancelar si está pending_payment." },
+        { ok: false, error: "Solo se puede cancelar si está pendiente, pagado, enviado o entregado." },
         { status: 400 }
       );
     }

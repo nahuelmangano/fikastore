@@ -152,9 +152,15 @@ export async function PATCH(req: Request) {
     smtpFrom: String(body.smtpFrom || "").trim(),
     smtpReplyTo: String(body.smtpReplyTo || "").trim(),
     smtpPassConfigured: Boolean(body.smtpPassConfigured),
+    smtpAuthType: body.smtpAuthType === "microsoft_oauth2" ? "microsoft_oauth2" as const : "password" as const,
+    smtpMicrosoftClientId: String(body.smtpMicrosoftClientId || "").trim(),
+    smtpMicrosoftTenantId: String(body.smtpMicrosoftTenantId || "common").trim() || "common",
+    smtpMicrosoftClientSecretConfigured: Boolean(body.smtpMicrosoftClientSecretConfigured),
+    smtpMicrosoftRefreshTokenConfigured: Boolean(body.smtpMicrosoftRefreshTokenConfigured),
     smtpSource: "none" as const,
   };
   const smtpPass = String(body.smtpPass || "").trim();
+  const smtpMicrosoftClientSecret = String(body.smtpMicrosoftClientSecret || "").trim();
 
   if (!settings.purchaseSubject || !settings.purchaseMessage || !settings.backInStockSubject || !settings.backInStockMessage) {
     return NextResponse.json({ ok: false, error: "Todos los campos son requeridos." }, { status: 400 });
@@ -172,7 +178,9 @@ export async function PATCH(req: Request) {
     settings.smtpHost.length > MAX_SMTP_FIELD_LENGTH ||
     settings.smtpUser.length > MAX_SMTP_FIELD_LENGTH ||
     settings.smtpFrom.length > MAX_SMTP_FIELD_LENGTH ||
-    settings.smtpReplyTo.length > MAX_SMTP_FIELD_LENGTH
+    settings.smtpReplyTo.length > MAX_SMTP_FIELD_LENGTH ||
+    settings.smtpMicrosoftClientId.length > MAX_SMTP_FIELD_LENGTH ||
+    settings.smtpMicrosoftTenantId.length > MAX_SMTP_FIELD_LENGTH
   )) {
     return NextResponse.json({ ok: false, error: "Los campos SMTP no pueden superar 255 caracteres." }, { status: 400 });
   }
@@ -190,16 +198,28 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: false, error: "El email de respuesta no es valido." }, { status: 400 });
   }
 
-  if (canManageSmtp && smtpPass && !canEncryptMailingSecrets()) {
+  if (canManageSmtp && settings.smtpAuthType === "microsoft_oauth2") {
+    if (!settings.smtpUser || !isValidEmail(settings.smtpUser)) {
+      return NextResponse.json({ ok: false, error: "Para Microsoft OAuth2, el usuario SMTP debe ser un email valido." }, { status: 400 });
+    }
+    if (!settings.smtpMicrosoftClientId) {
+      return NextResponse.json({ ok: false, error: "Falta el Client ID de Microsoft." }, { status: 400 });
+    }
+    if (!smtpMicrosoftClientSecret && !settings.smtpMicrosoftClientSecretConfigured) {
+      return NextResponse.json({ ok: false, error: "Falta el Client Secret de Microsoft." }, { status: 400 });
+    }
+  }
+
+  if (canManageSmtp && (smtpPass || smtpMicrosoftClientSecret) && !canEncryptMailingSecrets()) {
     return NextResponse.json(
-      { ok: false, error: "Falta configurar MAILING_ENCRYPTION_KEY para guardar contrasenas SMTP." },
+      { ok: false, error: "Falta configurar MAILING_ENCRYPTION_KEY para guardar secretos de SMTP." },
       { status: 400 }
     );
   }
 
   await setMailingSettings(settings);
   if (canManageSmtp) {
-    await setMailingSmtpSettings({ ...settings, smtpPass });
+    await setMailingSmtpSettings({ ...settings, smtpPass, smtpMicrosoftClientSecret });
   }
   return NextResponse.json({ ok: true, settings: await getMailingSettings() });
 }

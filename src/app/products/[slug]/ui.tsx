@@ -79,6 +79,14 @@ type ShippingRate = {
   price?: unknown;
 };
 
+type ShippingQuoteRow = {
+  label: string;
+  amount: number;
+  carrierKey: string;
+  deliveryType: "D" | "S" | null;
+  freeShipping: boolean;
+};
+
 type PaymentMethodKey = "mercadopago" | "agreement" | "cash" | "transfer";
 
 type PaymentSettings = {
@@ -131,7 +139,7 @@ export default function ProductDetailClient({
   const [postalCode, setPostalCode] = useState("");
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
-  const [quoteRows, setQuoteRows] = useState<Array<{ label: string; amount: number }>>([]);
+  const [quoteRows, setQuoteRows] = useState<ShippingQuoteRow[]>([]);
   const [stockAlertLoading, setStockAlertLoading] = useState(false);
   const [stockAlertMessage, setStockAlertMessage] = useState<string | null>(null);
   const [financingOpen, setFinancingOpen] = useState(false);
@@ -275,16 +283,20 @@ export default function ProductDetailClient({
     const andreaniData = await andreaniRes.json().catch(() => ({}));
     const correoData = await correoRes.json().catch(() => ({}));
 
-    const rows: Array<{ label: string; amount: number }> = [];
+    const rows: ShippingQuoteRow[] = [];
     const isEnabled = (k: string) => enabled.get(k) !== false;
 
     if (isEnabled("epick") && epickRes.ok) {
       const amount = Number(epickData?.quote?.price ?? epickData?.quote?.total ?? 0);
-      if (Number.isFinite(amount) && amount > 0) rows.push({ label: "E-pick", amount });
+      if (Number.isFinite(amount) && amount > 0) {
+        rows.push({ label: "E-pick", amount, carrierKey: "epick", deliveryType: "D", freeShipping: false });
+      }
     }
     if (isEnabled("andreani") && andreaniRes.ok) {
       const amount = Number(andreaniData?.quote?.tarifaConIva?.total ?? 0);
-      if (Number.isFinite(amount) && amount > 0) rows.push({ label: "Andreani", amount });
+      if (Number.isFinite(amount) && amount > 0) {
+        rows.push({ label: "Andreani", amount, carrierKey: "andreani", deliveryType: "D", freeShipping: false });
+      }
     }
     if (isEnabled("correo") && correoRes.ok) {
       const rates = Array.isArray(correoData?.quote?.rates)
@@ -295,18 +307,54 @@ export default function ProductDetailClient({
       const domicilioAmount = Number(domicilio?.price ?? 0);
       const sucursalAmount = Number(sucursal?.price ?? 0);
       if (Number.isFinite(domicilioAmount) && domicilioAmount > 0) {
-        rows.push({ label: "Correo Argentino (domicilio)", amount: domicilioAmount });
+        rows.push({
+          label: "Correo Argentino (domicilio)",
+          amount: domicilioAmount,
+          carrierKey: "correo",
+          deliveryType: "D",
+          freeShipping: false,
+        });
       }
       if (Number.isFinite(sucursalAmount) && sucursalAmount > 0) {
-        rows.push({ label: "Correo Argentino (sucursal)", amount: sucursalAmount });
+        rows.push({
+          label: "Correo Argentino (sucursal)",
+          amount: sucursalAmount,
+          carrierKey: "correo",
+          deliveryType: "S",
+          freeShipping: false,
+        });
       }
     }
 
-    rows.sort((a, b) => a.amount - b.amount);
-    setQuoteRows(rows);
+    const rowsWithPromos = await Promise.all(
+      rows.map(async (row) => {
+        const res = await fetch("/api/promotions/cart-pricing", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            items: [{ productId: selected.id, quantity: qty }],
+            promoCode: null,
+            paymentMethod: null,
+            deliveryType: row.deliveryType,
+            carrierKey: row.carrierKey,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        return {
+          ...row,
+          freeShipping: res.ok && data?.pricing?.summary?.freeShipping === true,
+        };
+      })
+    );
+
+    rowsWithPromos.sort((a, b) => {
+      if (a.freeShipping !== b.freeShipping) return a.freeShipping ? -1 : 1;
+      return a.amount - b.amount;
+    });
+    setQuoteRows(rowsWithPromos);
     setQuoteLoading(false);
 
-    if (rows.length === 0) {
+    if (rowsWithPromos.length === 0) {
       setQuoteError("No se pudo cotizar con los proveedores disponibles.");
     }
   }
@@ -611,7 +659,18 @@ export default function ProductDetailClient({
                           {row.label}
                           {idx === 0 && <span className="ml-2 text-xs text-amber-300">Más conveniente</span>}
                         </span>
-                        <span className="font-semibold">${row.amount.toLocaleString("es-AR")}</span>
+                        <span className="font-semibold">
+                          {row.freeShipping ? (
+                            <span className="inline-flex items-center gap-2">
+                              <span className="text-xs font-medium text-zinc-500 line-through">
+                                ${row.amount.toLocaleString("es-AR")}
+                              </span>
+                              <span className="text-emerald-300">Gratis</span>
+                            </span>
+                          ) : (
+                            `$${row.amount.toLocaleString("es-AR")}`
+                          )}
+                        </span>
                       </div>
                     ))}
                   </div>

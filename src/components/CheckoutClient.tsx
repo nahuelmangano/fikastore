@@ -40,6 +40,15 @@ type CorreoAgency = {
   zip: string;
 };
 
+function postalCodeDistance(a: string, b: string) {
+  const left = Number(String(a || "").replace(/\D/g, ""));
+  const right = Number(String(b || "").replace(/\D/g, ""));
+  if (!Number.isFinite(left) || !Number.isFinite(right) || left <= 0 || right <= 0) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return Math.abs(left - right);
+}
+
 type EpickQuote = {
   price?: unknown;
   total?: unknown;
@@ -69,6 +78,8 @@ type PricingData = {
     discountAmount?: number;
     autoDiscountAmount?: number;
     codeDiscountAmount?: number;
+    freeShipping?: boolean;
+    freeShippingPromotionName?: string | null;
   };
   code?: {
     valid?: boolean;
@@ -93,6 +104,7 @@ type CheckoutCarrier = {
   custom?: boolean;
   description?: string;
   flatRate?: number;
+  pricingMode?: "fixed" | "agreement";
 };
 
 const PROVINCES = [
@@ -125,6 +137,26 @@ const PROVINCES = [
 function provinceNameFromCode(code: string) {
   const found = PROVINCES.find((p) => p.code === code);
   return found?.name || "";
+}
+
+function shippingEstimateLabel(amount: number, freeShipping: boolean) {
+  if (freeShipping) return "Estimado Gratis";
+  return amount > 0 ? `Estimado $${amount.toLocaleString("es-AR")}` : "Ingresa tu CP para cotizar";
+}
+
+function ShippingAmount({ amount, freeShipping }: { amount: number; freeShipping: boolean }) {
+  if (freeShipping && amount > 0) {
+    return (
+      <span className="inline-flex items-center gap-2">
+        <span className="text-xs font-medium text-zinc-500 line-through">
+          ${amount.toLocaleString("es-AR")}
+        </span>
+        <span className="text-emerald-300">Gratis</span>
+      </span>
+    );
+  }
+
+  return <>{amount > 0 ? `$${amount.toLocaleString("es-AR")}` : "—"}</>;
 }
 
 export default function CheckoutClient({ paymentSettings }: { paymentSettings: CheckoutPaymentSettings }) {
@@ -223,6 +255,17 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
     [checkoutCarriers],
   );
   const selectedCustomCarrier = customCarriers.find((carrier) => carrier.key === shippingMethod) || null;
+  const selectedShippingIsAgreement = selectedCustomCarrier?.pricingMode === "agreement";
+  const promotionDeliveryType =
+    shippingMethod === "correo" ? correoDeliveryType : shippingMethod === "pickup" ? null : "D";
+  const sortedCorreoAgencies = useMemo(() => {
+    const customerZip = shipping.zip.trim();
+    if (!customerZip) return correoAgencies;
+    return [...correoAgencies].sort((a, b) => {
+      const distanceDiff = postalCodeDistance(a.zip, customerZip) - postalCodeDistance(b.zip, customerZip);
+      return distanceDiff || a.city.localeCompare(b.city) || a.name.localeCompare(b.name);
+    });
+  }, [correoAgencies, shipping.zip]);
   const activeCorreoAmount = correoDeliveryType === "S" ? correoBranchAmount : correoHomeAmount;
   const correoBranchNeedsAgency =
     shippingMethod === "correo" && correoDeliveryType === "S" && !selectedCorreoAgency;
@@ -234,15 +277,26 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
         : shippingMethod === "correo"
           ? activeCorreoAmount
           : selectedCustomCarrier
-            ? Number(selectedCustomCarrier.flatRate || 0)
+            ? selectedCustomCarrier.pricingMode === "agreement"
+              ? 0
+              : Number(selectedCustomCarrier.flatRate || 0)
             : 0;
   const subtotalBase = pricing?.summary?.subtotalBase ?? subtotalFallback;
   const subtotalDiscounted = pricing?.summary?.subtotalDiscounted ?? subtotalFallback;
   const discountAmount = pricing?.summary?.discountAmount ?? 0;
   const autoDiscountAmount = pricing?.summary?.autoDiscountAmount ?? 0;
   const codeDiscountAmount = pricing?.summary?.codeDiscountAmount ?? 0;
-  const total = subtotalDiscounted + shippingAmount;
-  const requiresAddress = shippingMethod !== "pickup" && !(shippingMethod === "correo" && correoDeliveryType === "S");
+  const freeShippingApplies = pricing?.summary?.freeShipping === true;
+  const epickFreeShipping = freeShippingApplies && shippingMethod === "epick" && epickAmount > 0;
+  const andreaniFreeShipping = freeShippingApplies && shippingMethod === "andreani" && andreaniAmount > 0;
+  const correoHomeFreeShipping =
+    freeShippingApplies && shippingMethod === "correo" && correoDeliveryType === "D" && correoHomeAmount > 0;
+  const correoBranchFreeShipping =
+    freeShippingApplies && shippingMethod === "correo" && correoDeliveryType === "S" && correoBranchAmount > 0;
+  const activeCorreoFreeShipping = correoDeliveryType === "S" ? correoBranchFreeShipping : correoHomeFreeShipping;
+  const effectiveShippingAmount = freeShippingApplies ? 0 : shippingAmount;
+  const total = subtotalDiscounted + effectiveShippingAmount;
+  const requiresAddress = shippingMethod !== "pickup";
   const branchReady = shippingMethod !== "correo" || correoDeliveryType !== "S" || Boolean(selectedCorreoAgency);
   const enabledManualPaymentMethods = paymentSettings.manualMethods.filter((method) => method.enabled);
   const selectedManualPaymentMethod = enabledManualPaymentMethods.find((method) => method.key === paymentMethod) || null;
@@ -263,6 +317,8 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
           items: summaryItems.map((it) => ({ productId: it.productId, quantity: it.quantity })),
           promoCode,
           paymentMethod,
+          deliveryType: promotionDeliveryType,
+          carrierKey: shippingMethod,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -278,7 +334,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
     return () => {
       cancelled = true;
     };
-  }, [summaryItems, promoCode, paymentMethod]);
+  }, [summaryItems, promoCode, paymentMethod, promotionDeliveryType, shippingMethod]);
 
   const pricingById = useMemo(() => {
     const map = new Map<string, PricingItem>();
@@ -493,7 +549,8 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
         shipping.province.trim() &&
         shipping.zip.trim() &&
         !postalCodeProvinceError
-      : branchReady);
+      : true) &&
+    branchReady;
 
   async function createOrder() {
     setError(null);
@@ -512,7 +569,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
             shippingMethod === "correo" && correoDeliveryType === "S" && selectedCorreoAgency
               ? selectedCorreoAgency
               : undefined,
-          shippingAmount,
+          shippingAmount: effectiveShippingAmount,
           paymentMethod,
           promoCode,
           notes: customerNotes,
@@ -613,8 +670,20 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
               )}
               <div className="mt-2 flex items-center justify-between text-sm text-zinc-400">
                 <span>Envio</span>
-                <span>{shippingMethod === "pickup" ? "Gratis" : `$${shippingAmount.toLocaleString("es-AR")}`}</span>
+                <span>
+                  {selectedShippingIsAgreement
+                    ? "A convenir"
+                    : shippingMethod === "pickup" || effectiveShippingAmount <= 0
+                      ? "Gratis"
+                      : `$${effectiveShippingAmount.toLocaleString("es-AR")}`}
+                </span>
               </div>
+              {freeShippingApplies && shippingMethod !== "pickup" && shippingAmount > 0 && (
+                <div className="mt-1 flex items-center justify-between text-xs">
+                  <span className="text-zinc-500">- Envío bonificado</span>
+                  <span className="text-zinc-400">-${shippingAmount.toLocaleString("es-AR")}</span>
+                </div>
+              )}
               <div className="mt-3 flex items-center justify-between">
                 <span className="text-zinc-300">Total</span>
                 <span className="text-xl font-semibold">${total.toLocaleString("es-AR")}</span>
@@ -708,45 +777,6 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                 </select>
               </div>
 
-              {!requiresAddress && shippingMethod === "correo" && correoDeliveryType === "S" && (
-                <>
-                  <div>
-                    <label className="text-sm text-zinc-300">Sucursal Correo Argentino</label>
-                    <select
-                      value={selectedCorreoAgencyCode}
-                      onChange={(e) => setSelectedCorreoAgencyCode(e.target.value)}
-                      className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
-                      disabled={!shipping.provinceCode || correoAgenciesLoading}
-                    >
-                      <option value="">
-                        {correoAgenciesLoading ? "Cargando sucursales..." : "Seleccionar sucursal"}
-                      </option>
-                      {correoAgencies.map((agency) => (
-                        <option key={agency.code} value={agency.code}>
-                          {agency.name} - {agency.city} ({agency.zip})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {selectedCorreoAgency && (
-                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 text-sm text-zinc-300">
-                      <div className="font-medium">{selectedCorreoAgency.name}</div>
-                      <div className="mt-1 text-zinc-400">
-                        {selectedCorreoAgency.addressLine}, {selectedCorreoAgency.city}, {selectedCorreoAgency.province} ({selectedCorreoAgency.zip})
-                      </div>
-                      <div className="mt-1 text-xs text-zinc-500 font-mono">{selectedCorreoAgency.code}</div>
-                    </div>
-                  )}
-
-                  {correoAgenciesError && (
-                    <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
-                      {correoAgenciesError}
-                    </div>
-                  )}
-                </>
-              )}
-
               {requiresAddress && postalCodeProvinceError && (
                 <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
                   {postalCodeProvinceError}
@@ -773,13 +803,13 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                           {quoteLoading
                             ? "Cotizando..."
                             : shippingQuote?.price || shippingQuote?.total
-                              ? `Estimado $${Number(shippingQuote.price ?? shippingQuote.total).toLocaleString("es-AR")}`
+                              ? shippingEstimateLabel(Number(shippingQuote.price ?? shippingQuote.total), epickFreeShipping)
                               : "Ingresa tu CP para cotizar"}
                         </div>
                       </div>
                     </div>
                     <div className="text-sm font-semibold">
-                      {epickAmount > 0 ? `$${epickAmount.toLocaleString("es-AR")}` : "—"}
+                      <ShippingAmount amount={epickAmount} freeShipping={epickFreeShipping} />
                     </div>
                   </label>
                 )}
@@ -800,13 +830,13 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                           {andreaniLoading
                             ? "Cotizando..."
                             : andreaniQuote?.tarifaConIva?.total
-                              ? `Estimado $${Number(andreaniQuote.tarifaConIva.total).toLocaleString("es-AR")}`
+                              ? shippingEstimateLabel(Number(andreaniQuote.tarifaConIva.total), andreaniFreeShipping)
                               : "Ingresa tu CP para cotizar"}
                         </div>
                       </div>
                     </div>
                     <div className="text-sm font-semibold">
-                      {andreaniAmount > 0 ? `$${andreaniAmount.toLocaleString("es-AR")}` : "—"}
+                      <ShippingAmount amount={andreaniAmount} freeShipping={andreaniFreeShipping} />
                     </div>
                   </label>
                 )}
@@ -830,13 +860,13 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                             : correoBranchNeedsAgency
                               ? "Selecciona una sucursal para cotizar"
                             : activeCorreoAmount > 0
-                                ? `Estimado $${activeCorreoAmount.toLocaleString("es-AR")}`
+                                ? shippingEstimateLabel(activeCorreoAmount, activeCorreoFreeShipping)
                                 : "Completa los datos para cotizar"}
                         </div>
                         </div>
                       </div>
                       <div className="text-sm font-semibold">
-                        {activeCorreoAmount > 0 ? `$${activeCorreoAmount.toLocaleString("es-AR")}` : "—"}
+                        <ShippingAmount amount={activeCorreoAmount} freeShipping={activeCorreoFreeShipping} />
                       </div>
                     </label>
 
@@ -856,7 +886,16 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                       >
                         <div className="font-medium">Domicilio</div>
                         <div className="mt-1 text-xs opacity-80">
-                          {correoHomeAmount > 0 ? `$${correoHomeAmount.toLocaleString("es-AR")}` : "Sin tarifa"}
+                          {correoHomeFreeShipping ? (
+                            <span>
+                              <span className="line-through">${correoHomeAmount.toLocaleString("es-AR")}</span>{" "}
+                              <span className="font-semibold text-emerald-600">Gratis</span>
+                            </span>
+                          ) : correoHomeAmount > 0 ? (
+                            `$${correoHomeAmount.toLocaleString("es-AR")}`
+                          ) : (
+                            "Sin tarifa"
+                          )}
                         </div>
                       </button>
                       <button
@@ -876,12 +915,58 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                         <div className="mt-1 text-xs opacity-80">
                           {correoBranchNeedsAgency
                             ? "Selecciona sucursal"
-                            : correoBranchAmount > 0
-                              ? `$${correoBranchAmount.toLocaleString("es-AR")}`
-                              : "Sin tarifa"}
+                            : correoBranchFreeShipping
+                              ? (
+                                  <span>
+                                    <span className="line-through">${correoBranchAmount.toLocaleString("es-AR")}</span>{" "}
+                                    <span className="font-semibold text-emerald-600">Gratis</span>
+                                  </span>
+                                )
+                              : correoBranchAmount > 0
+                                ? `$${correoBranchAmount.toLocaleString("es-AR")}`
+                                : "Sin tarifa"}
                         </div>
                       </button>
                     </div>
+
+                    {shippingMethod === "correo" && correoDeliveryType === "S" && (
+                      <div className="mt-3 grid gap-3">
+                        <div>
+                          <label className="text-sm text-zinc-300">Sucursal Correo Argentino</label>
+                          <select
+                            value={selectedCorreoAgencyCode}
+                            onChange={(e) => setSelectedCorreoAgencyCode(e.target.value)}
+                            className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
+                            disabled={!shipping.provinceCode || correoAgenciesLoading}
+                          >
+                            <option value="">
+                              {correoAgenciesLoading ? "Cargando sucursales..." : "Seleccionar sucursal"}
+                            </option>
+                            {sortedCorreoAgencies.map((agency) => (
+                              <option key={agency.code} value={agency.code}>
+                                {agency.name} - {agency.city} ({agency.zip})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {selectedCorreoAgency && (
+                          <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 text-sm text-zinc-300">
+                            <div className="font-medium">{selectedCorreoAgency.name}</div>
+                            <div className="mt-1 text-zinc-400">
+                              {selectedCorreoAgency.addressLine}, {selectedCorreoAgency.city}, {selectedCorreoAgency.province} ({selectedCorreoAgency.zip})
+                            </div>
+                            <div className="mt-1 text-xs text-zinc-500 font-mono">{selectedCorreoAgency.code}</div>
+                          </div>
+                        )}
+
+                        {correoAgenciesError && (
+                          <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+                            {correoAgenciesError}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -906,6 +991,8 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
 
                 {customCarriers.map((carrier) => {
                   const amount = Number(carrier.flatRate || 0);
+                  const isAgreement = carrier.pricingMode === "agreement";
+                  const customFreeShipping = freeShippingApplies && shippingMethod === carrier.key && amount > 0 && !isAgreement;
                   return (
                     <label key={carrier.key} className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
                       <div className="flex items-start gap-3">
@@ -918,11 +1005,19 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                         />
                         <div>
                           <div className="text-sm font-medium">{carrier.name}</div>
-                          <div className="text-xs text-zinc-500">{carrier.description || "Método de entrega personalizado"}</div>
+                          <div className="text-xs text-zinc-500">
+                            {isAgreement ? "Coordinamos el costo después de la compra." : carrier.description || "Método de entrega personalizado"}
+                          </div>
                         </div>
                       </div>
                       <div className="text-sm font-semibold">
-                        {amount > 0 ? `$${amount.toLocaleString("es-AR")}` : "Gratis"}
+                        {isAgreement ? (
+                          "A convenir"
+                        ) : amount > 0 ? (
+                          <ShippingAmount amount={amount} freeShipping={customFreeShipping} />
+                        ) : (
+                          "Gratis"
+                        )}
                       </div>
                     </label>
                   );

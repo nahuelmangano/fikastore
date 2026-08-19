@@ -5,6 +5,9 @@ import { isStaffRole } from "@/lib/roles";
 import {
   normalizePromoCode,
   parsePromotionPaymentMethods,
+  parsePromotionFreeShippingDeliveryTypes,
+  parsePromotionFreeShippingCarrierKeys,
+  type PromotionFreeShippingDeliveryType,
   type PromotionPaymentMethod,
   type PromotionType,
 } from "@/lib/promotions";
@@ -16,6 +19,9 @@ type UpdateBody = {
   type?: PromotionType;
   percent?: number;
   code?: string | null;
+  freeShipping?: boolean;
+  freeShippingDeliveryTypes?: string[];
+  freeShippingCarrierKeys?: string[];
   paymentMethods?: string[];
   productIds?: string[];
   startsAt?: string | null;
@@ -24,6 +30,7 @@ type UpdateBody = {
 };
 
 const allowedPaymentMethods = new Set<PromotionPaymentMethod>(["mercadopago", "agreement", "cash", "transfer"]);
+const allowedFreeShippingDeliveryTypes = new Set<PromotionFreeShippingDeliveryType>(["D", "S"]);
 
 function parseDate(v: string | null | undefined) {
   if (!v) return null;
@@ -41,6 +48,32 @@ function normalizePaymentMethods(value: unknown) {
     ),
   ];
   return methods.length > 0 ? methods : null;
+}
+
+function normalizeFreeShippingDeliveryTypes(value: unknown) {
+  if (!Array.isArray(value)) return null;
+  const types = [
+    ...new Set(
+      value
+        .map((type) => String(type || "").trim().toUpperCase())
+        .filter((type): type is PromotionFreeShippingDeliveryType =>
+          allowedFreeShippingDeliveryTypes.has(type as PromotionFreeShippingDeliveryType)
+        )
+    ),
+  ];
+  return types.length > 0 ? types : null;
+}
+
+function normalizeFreeShippingCarrierKeys(value: unknown) {
+  if (!Array.isArray(value)) return null;
+  const keys = [
+    ...new Set(
+      value
+        .map((key) => String(key || "").trim())
+        .filter((key) => key.length > 0 && key.length <= 80)
+    ),
+  ];
+  return keys.length > 0 ? keys : null;
 }
 
 export async function PATCH(
@@ -77,8 +110,11 @@ export async function PATCH(
 
   const name = String(body.name || "").trim();
   const type = String(body.type || "").trim().toLowerCase() as PromotionType;
-  const percent = Math.floor(Number(body.percent));
+  const freeShipping = body.freeShipping === true;
+  const percent = freeShipping ? 0 : Math.floor(Number(body.percent));
   const code = normalizePromoCode(body.code ?? null);
+  const freeShippingDeliveryTypes = normalizeFreeShippingDeliveryTypes(body.freeShippingDeliveryTypes);
+  const freeShippingCarrierKeys = normalizeFreeShippingCarrierKeys(body.freeShippingCarrierKeys);
   const startsAt = parseDate(body.startsAt);
   const endsAt = parseDate(body.endsAt);
   const paymentMethods = normalizePaymentMethods(body.paymentMethods);
@@ -89,8 +125,11 @@ export async function PATCH(
   if (!["global", "product", "code"].includes(type)) {
     return NextResponse.json({ ok: false, error: "Tipo inválido." }, { status: 400 });
   }
-  if (!Number.isFinite(percent) || percent <= 0 || percent >= 100) {
-    return NextResponse.json({ ok: false, error: "Porcentaje inválido (1-99)." }, { status: 400 });
+  if (!Number.isFinite(percent) || percent < 0 || percent >= 100 || (!freeShipping && percent <= 0)) {
+    return NextResponse.json(
+      { ok: false, error: freeShipping ? "Porcentaje inválido (0-99)." : "Porcentaje inválido (1-99)." },
+      { status: 400 }
+    );
   }
   if (type === "code" && !code) {
     return NextResponse.json({ ok: false, error: "Código requerido para promo code." }, { status: 400 });
@@ -117,6 +156,9 @@ export async function PATCH(
       type,
       percent,
       code: code || null,
+      freeShipping,
+      freeShippingDeliveryTypes: freeShipping && freeShippingDeliveryTypes ? JSON.stringify(freeShippingDeliveryTypes) : null,
+      freeShippingCarrierKeys: freeShipping && freeShippingCarrierKeys ? JSON.stringify(freeShippingCarrierKeys) : null,
       paymentMethods: paymentMethods ? JSON.stringify(paymentMethods) : null,
       startsAt,
       endsAt,
@@ -143,6 +185,9 @@ export async function PATCH(
       type: updated.type,
       percent: updated.percent,
       code: updated.code,
+      freeShipping: updated.freeShipping,
+      freeShippingDeliveryTypes: parsePromotionFreeShippingDeliveryTypes(updated.freeShippingDeliveryTypes),
+      freeShippingCarrierKeys: parsePromotionFreeShippingCarrierKeys(updated.freeShippingCarrierKeys),
       paymentMethods: parsePromotionPaymentMethods(updated.paymentMethods),
       isActive: updated.isActive,
       startsAt: updated.startsAt,

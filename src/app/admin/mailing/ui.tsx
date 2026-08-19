@@ -2,6 +2,7 @@
 
 import { forwardRef, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import type { MailingSettings } from "@/lib/storeSettings";
 import { sanitizeRichText, stripRichText } from "@/lib/richText";
 
@@ -52,6 +53,7 @@ export default function AdminMailingPage({
 }: AdminMailingPageProps) {
   const [settings, setSettings] = useState(initialSettings);
   const [smtpPass, setSmtpPass] = useState("");
+  const [smtpMicrosoftClientSecret, setSmtpMicrosoftClientSecret] = useState("");
   const [testEmail, setTestEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState<"purchase" | "backInStock" | "smtp" | null>(null);
@@ -67,6 +69,11 @@ export default function AdminMailingPage({
   const previewRef = useRef<HTMLElement | null>(null);
   const templateHtmlRef = useRef<HTMLDivElement | null>(null);
   const shouldScrollToPreviewRef = useRef(false);
+  const searchParams = useSearchParams();
+  const microsoftRedirectUri =
+    typeof window === "undefined"
+      ? "/api/admin/mailing/microsoft/oauth/callback"
+      : `${window.location.origin}/api/admin/mailing/microsoft/oauth/callback`;
   const automaticTemplateRows = automaticTemplates;
 
   async function loadAutomaticTemplates() {
@@ -113,8 +120,34 @@ export default function AdminMailingPage({
     });
   }, [preview]);
 
+  useEffect(() => {
+    const microsoftStatus = searchParams.get("microsoft");
+    if (!microsoftStatus) return;
+
+    const messages: Record<string, string> = {
+      connected: "Cuenta Microsoft conectada para SMTP OAuth2.",
+      missing_config: "Completá usuario SMTP, Client ID y Client Secret antes de conectar Microsoft.",
+      invalid_state: "La conexión con Microsoft venció. Intentá nuevamente.",
+      token_error: "Microsoft no pudo completar la autorización. Revisá credenciales y redirect URI.",
+      forbidden: "No tenés permisos para conectar Microsoft.",
+    };
+
+    setMsg(messages[microsoftStatus] || `Microsoft OAuth2: ${microsoftStatus}`);
+  }, [searchParams]);
+
   function updateField<K extends keyof MailingSettings>(field: K, value: MailingSettings[K]) {
     setSettings((current) => ({ ...current, [field]: value }));
+  }
+
+  function setSmtpAuthType(authType: MailingSettings["smtpAuthType"]) {
+    setSettings((current) => ({
+      ...current,
+      smtpAuthType: authType,
+      smtpHost: authType === "microsoft_oauth2" && !current.smtpHost ? "smtp.office365.com" : current.smtpHost,
+      smtpPort: authType === "microsoft_oauth2" ? "587" : current.smtpPort,
+      smtpMicrosoftTenantId:
+        authType === "microsoft_oauth2" && !current.smtpMicrosoftTenantId ? "common" : current.smtpMicrosoftTenantId,
+    }));
   }
 
   async function saveSettings() {
@@ -124,7 +157,7 @@ export default function AdminMailingPage({
     const res = await fetch("/api/admin/mailing", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...settings, smtpPass }),
+      body: JSON.stringify({ ...settings, smtpPass, smtpMicrosoftClientSecret }),
     });
     const data = await res.json().catch(() => null);
 
@@ -136,7 +169,24 @@ export default function AdminMailingPage({
 
     setSettings(data.settings);
     setSmtpPass("");
+    setSmtpMicrosoftClientSecret("");
     setMsg("Configuracion de mailing guardada.");
+  }
+
+  async function disconnectMicrosoftOAuth() {
+    setSaving(true);
+    setMsg("");
+    const res = await fetch("/api/admin/mailing/microsoft/disconnect", { method: "POST" });
+    const data = await res.json().catch(() => null);
+    setSaving(false);
+
+    if (!res.ok || !data?.ok) {
+      setMsg(String(data?.error || "No se pudo desconectar Microsoft."));
+      return;
+    }
+
+    setSettings(data.settings);
+    setMsg("Cuenta Microsoft desconectada.");
   }
 
   async function sendTestEmail(template: "purchase" | "backInStock" | "smtp") {
@@ -566,25 +616,137 @@ export default function AdminMailingPage({
             </p>
           ) : null}
 
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setSmtpAuthType("password")}
+              className={[
+                "rounded-2xl border p-4 text-left transition",
+                settings.smtpAuthType === "password"
+                  ? "border-zinc-100 bg-zinc-100 text-zinc-950"
+                  : "border-zinc-800 bg-zinc-950 text-zinc-200 hover:bg-zinc-900",
+              ].join(" ")}
+            >
+              <span className="block text-sm font-semibold">SMTP genérico</span>
+              <span className={settings.smtpAuthType === "password" ? "mt-1 block text-xs text-zinc-700" : "mt-1 block text-xs text-zinc-500"}>
+                Usá host, puerto, usuario y contraseña o app password.
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSmtpAuthType("microsoft_oauth2")}
+              className={[
+                "rounded-2xl border p-4 text-left transition",
+                settings.smtpAuthType === "microsoft_oauth2"
+                  ? "border-sky-200 bg-sky-50 text-sky-950"
+                  : "border-zinc-800 bg-zinc-950 text-zinc-200 hover:bg-zinc-900",
+              ].join(" ")}
+            >
+              <span className="block text-sm font-semibold">Hotmail / Outlook</span>
+              <span className={settings.smtpAuthType === "microsoft_oauth2" ? "mt-1 block text-xs text-sky-800" : "mt-1 block text-xs text-zinc-500"}>
+                Conectá Microsoft OAuth2 para enviar desde Outlook.
+              </span>
+            </button>
+          </div>
+
           <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <label className="block text-sm font-medium text-zinc-200">
+              Tipo de autenticacion
+              <select
+                value={settings.smtpAuthType}
+                onChange={(e) => setSmtpAuthType(e.target.value === "microsoft_oauth2" ? "microsoft_oauth2" : "password")}
+                className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+              >
+                <option value="password">SMTP generico con contrasena</option>
+                <option value="microsoft_oauth2">Hotmail / Outlook con Microsoft OAuth2</option>
+              </select>
+            </label>
+            <div className="hidden md:block" />
             <TextInput label="Host SMTP" value={settings.smtpHost} onChange={(value) => updateField("smtpHost", value)} placeholder="smtp.example.com" />
             <TextInput label="Puerto" value={settings.smtpPort} onChange={(value) => updateField("smtpPort", value)} placeholder="587" />
             <TextInput label="Usuario SMTP" value={settings.smtpUser} onChange={(value) => updateField("smtpUser", value)} placeholder="ventas@example.com" />
             <TextInput label="Email remitente" value={settings.smtpFrom} onChange={(value) => updateField("smtpFrom", value)} placeholder="ventas@example.com" />
             <TextInput label="Responder a" value={settings.smtpReplyTo} onChange={(value) => updateField("smtpReplyTo", value)} placeholder="soporte@example.com" />
-            <label className="block text-sm font-medium text-zinc-200">
-              Contrasena SMTP
-              <input
-                type="password"
-                value={smtpPass}
-                onChange={(e) => setSmtpPass(e.target.value)}
-                placeholder={settings.smtpPassConfigured ? "Configurada. Completar para reemplazar." : "App password o clave SMTP"}
-                disabled={!canSaveSmtpSecrets}
-                autoComplete="new-password"
-                className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
-              />
-              {settings.smtpPassConfigured ? <span className="mt-2 block text-xs text-zinc-500">La contrasena guardada no se muestra.</span> : null}
-            </label>
+            {settings.smtpAuthType === "password" ? (
+              <label className="block text-sm font-medium text-zinc-200">
+                Contrasena SMTP
+                <input
+                  type="password"
+                  value={smtpPass}
+                  onChange={(e) => setSmtpPass(e.target.value)}
+                  placeholder={settings.smtpPassConfigured ? "Configurada. Completar para reemplazar." : "App password o clave SMTP"}
+                  disabled={!canSaveSmtpSecrets}
+                  autoComplete="new-password"
+                  className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
+                />
+                {settings.smtpPassConfigured ? <span className="mt-2 block text-xs text-zinc-500">La contrasena guardada no se muestra.</span> : null}
+              </label>
+            ) : (
+              <>
+                <div className="md:col-span-2 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
+                  <div className="font-semibold">Configuración Hotmail / Outlook</div>
+                  <p className="mt-1">
+                    Completá el usuario de Outlook, Client ID y Client Secret, guardá cambios y después presioná
+                    <strong> Conectar Outlook</strong>.
+                  </p>
+                </div>
+                <TextInput
+                  label="Microsoft Client ID"
+                  value={settings.smtpMicrosoftClientId}
+                  onChange={(value) => updateField("smtpMicrosoftClientId", value)}
+                  placeholder="Application (client) ID"
+                />
+                <TextInput
+                  label="Microsoft Tenant ID"
+                  value={settings.smtpMicrosoftTenantId}
+                  onChange={(value) => updateField("smtpMicrosoftTenantId", value)}
+                  placeholder="common"
+                />
+                <label className="block text-sm font-medium text-zinc-200">
+                  Microsoft Client Secret
+                  <input
+                    type="password"
+                    value={smtpMicrosoftClientSecret}
+                    onChange={(e) => setSmtpMicrosoftClientSecret(e.target.value)}
+                    placeholder={settings.smtpMicrosoftClientSecretConfigured ? "Configurado. Completar para reemplazar." : "Client secret value"}
+                    disabled={!canSaveSmtpSecrets}
+                    autoComplete="new-password"
+                    className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  />
+                  {settings.smtpMicrosoftClientSecretConfigured ? <span className="mt-2 block text-xs text-zinc-500">El secreto guardado no se muestra.</span> : null}
+                </label>
+                <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-400">
+                  <div className="font-semibold text-zinc-200">OAuth2 Microsoft</div>
+                  <p className="mt-2">
+                    Guardá primero usuario, Client ID y Client Secret. Después conectá la cuenta para obtener el permiso SMTP.
+                  </p>
+                  <p className="mt-2 font-mono text-xs text-zinc-500">
+                    Redirect URI: {microsoftRedirectUri}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <a
+                      href="/api/admin/mailing/microsoft/oauth/start"
+                      className="rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
+                    >
+                      {settings.smtpMicrosoftRefreshTokenConfigured ? "Reconectar Outlook" : "Conectar Outlook"}
+                    </a>
+                    {settings.smtpMicrosoftRefreshTokenConfigured ? (
+                      <button
+                        type="button"
+                        onClick={disconnectMicrosoftOAuth}
+                        disabled={saving}
+                        className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Desconectar
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 text-xs text-zinc-500">
+                    Estado: {settings.smtpMicrosoftRefreshTokenConfigured ? "OAuth conectado" : "OAuth sin conectar"}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
         </section>

@@ -3,11 +3,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isStaffRole } from "@/lib/roles";
-import { publicBaseUrl } from "@/lib/publicUrl";
-import { queueAndSendEmailNotification } from "@/lib/emailNotificationService";
 
 
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await getServerSession(authOptions);
   const role = (session?.user as { role?: string } | undefined)?.role;
@@ -39,26 +37,5 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       shippedAt: new Date(),
     },
   });
-  // Enviar mail al cliente
-  const user = await prisma.user.findUnique({ where: { id: updated.userId } });
-
-  if (user?.email) {
-    const baseUrl = publicBaseUrl(req);
-    await queueAndSendEmailNotification({
-      templateKey: "order-shipped",
-      to: user.email,
-      recipientUserId: user.id,
-      orderId: updated.id,
-      idempotencyKey: `order-shipped:${updated.id}`,
-      payload: {
-        customerName: user.name || user.email,
-        orderNumber: updated.orderNumber ? `#${updated.orderNumber}` : updated.id,
-        orderUrl: `${baseUrl}/account/orders/${updated.id}`,
-        storeName: "FikaStore",
-        storeUrl: baseUrl,
-      },
-    }).catch(() => {});
-  }
-
   return NextResponse.json({ ok: true, order: updated });
 }

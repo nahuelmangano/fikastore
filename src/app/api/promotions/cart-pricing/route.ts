@@ -7,6 +7,8 @@ type Body = {
   items?: { productId: string; quantity: number }[];
   promoCode?: string | null;
   paymentMethod?: string | null;
+  deliveryType?: string | null;
+  carrierKey?: string | null;
 };
 
 export async function POST(req: Request) {
@@ -15,6 +17,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Body inválido." }, { status: 400 });
   }
 
-  const pricing = await priceCartItems(body.items, body.promoCode ?? null, body.paymentMethod ?? null);
+  const pricing = await priceCartItems(
+    body.items,
+    body.promoCode ?? null,
+    body.paymentMethod ?? null,
+    body.deliveryType ?? null,
+    body.carrierKey ?? null
+  );
   return NextResponse.json({ ok: true, pricing });
 }

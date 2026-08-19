@@ -17,6 +17,7 @@ const MANUAL_PAYMENT_SETTINGS_KEY = "manual_payment_settings";
 const PAYMENT_FINANCING_DISPLAY_SETTINGS_KEY = "payment_financing_display_settings";
 const GOOGLE_ANALYTICS_MEASUREMENT_ID_KEY = "google_analytics_measurement_id";
 const META_PIXEL_ID_KEY = "meta_pixel_id";
+const SOCIAL_LINKS_SETTINGS_KEY = "social_links_settings";
 const ENCRYPTED_VALUE_PREFIX = "enc:v1:";
 
 export const DEFAULT_ANNOUNCEMENT_TEXT =
@@ -79,10 +80,16 @@ export type MailingSettings = {
   smtpFrom: string;
   smtpReplyTo: string;
   smtpPassConfigured: boolean;
+  smtpAuthType: "password" | "microsoft_oauth2";
+  smtpMicrosoftClientId: string;
+  smtpMicrosoftTenantId: string;
+  smtpMicrosoftClientSecretConfigured: boolean;
+  smtpMicrosoftRefreshTokenConfigured: boolean;
   smtpSource: "admin" | "env" | "none";
 };
 
-export type ResolvedSmtpConfig = {
+export type ResolvedSmtpPasswordConfig = {
+  authType: "password";
   host: string;
   port: number;
   user: string;
@@ -91,6 +98,22 @@ export type ResolvedSmtpConfig = {
   replyTo?: string;
   source: "admin" | "env";
 };
+
+export type ResolvedSmtpMicrosoftOAuth2Config = {
+  authType: "microsoft_oauth2";
+  host: string;
+  port: number;
+  user: string;
+  from: string;
+  replyTo?: string;
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+  tenantId: string;
+  source: "admin";
+};
+
+export type ResolvedSmtpConfig = ResolvedSmtpPasswordConfig | ResolvedSmtpMicrosoftOAuth2Config;
 
 export type MercadoPagoSettings = {
   accessTokenConfigured: boolean;
@@ -123,6 +146,12 @@ export type PaymentFinancingDisplaySettings = {
 export type AnalyticsSettings = {
   googleAnalyticsMeasurementId: string;
   metaPixelId: string;
+};
+
+export type SocialLinksSettings = {
+  facebook: string;
+  instagram: string;
+  tiktok: string;
 };
 
 const DEFAULT_MANUAL_PAYMENT_METHODS: ManualPaymentMethodSettings[] = [
@@ -182,7 +211,12 @@ type StoredMailingSmtpSettings = {
   smtpUser: string;
   smtpFrom: string;
   smtpReplyTo: string;
+  smtpAuthType?: "password" | "microsoft_oauth2";
+  smtpMicrosoftClientId?: string;
+  smtpMicrosoftTenantId?: string;
   encryptedSmtpPass?: string;
+  encryptedMicrosoftClientSecret?: string;
+  encryptedMicrosoftRefreshToken?: string;
 };
 
 type StoredMercadoPagoSettings = {
@@ -226,6 +260,11 @@ export const DEFAULT_MAILING_SETTINGS: MailingSettings = {
   smtpFrom: "",
   smtpReplyTo: "",
   smtpPassConfigured: false,
+  smtpAuthType: "password",
+  smtpMicrosoftClientId: "",
+  smtpMicrosoftTenantId: "common",
+  smtpMicrosoftClientSecretConfigured: false,
+  smtpMicrosoftRefreshTokenConfigured: false,
   smtpSource: "none",
 };
 
@@ -467,6 +506,66 @@ export async function setAnalyticsSettings(settings: AnalyticsSettings) {
       },
     }),
   ]);
+}
+
+function normalizeSocialUrl(value: unknown) {
+  const raw = String(value || "").trim().slice(0, 300);
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^[\w.-]+\.[a-z]{2,}/i.test(raw)) return `https://${raw}`;
+  return raw;
+}
+
+function normalizeSocialLinksSettings(input: unknown): SocialLinksSettings {
+  const value = input && typeof input === "object" ? input as Partial<SocialLinksSettings> : {};
+  return {
+    facebook: normalizeSocialUrl(value.facebook),
+    instagram: normalizeSocialUrl(value.instagram),
+    tiktok: normalizeSocialUrl(value.tiktok),
+  };
+}
+
+export async function getSocialLinksSettings(): Promise<SocialLinksSettings> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: SOCIAL_LINKS_SETTINGS_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return normalizeSocialLinksSettings(null);
+
+  try {
+    return normalizeSocialLinksSettings(JSON.parse(row.value));
+  } catch {
+    return normalizeSocialLinksSettings(null);
+  }
+}
+
+export async function setSocialLinksSettings(settings: unknown) {
+  const value = JSON.stringify(normalizeSocialLinksSettings(settings));
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: SOCIAL_LINKS_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: SOCIAL_LINKS_SETTINGS_KEY,
+      value,
+      isSecret: false,
+    },
+    update: {
+      value,
+      isSecret: false,
+    },
+  });
 }
 
 export async function getHomeCategoryTiles() {
@@ -783,13 +882,19 @@ function envSmtpSettings() {
 
 function normalizeSmtpSettings(value: Partial<StoredMailingSmtpSettings> | null | undefined): StoredMailingSmtpSettings {
   const port = String(value?.smtpPort || "").trim() || "587";
+  const authType = value?.smtpAuthType === "microsoft_oauth2" ? "microsoft_oauth2" : "password";
   return {
     smtpHost: String(value?.smtpHost || "").trim(),
     smtpPort: port,
     smtpUser: String(value?.smtpUser || "").trim(),
     smtpFrom: String(value?.smtpFrom || "").trim(),
     smtpReplyTo: String(value?.smtpReplyTo || "").trim(),
+    smtpAuthType: authType,
+    smtpMicrosoftClientId: String(value?.smtpMicrosoftClientId || "").trim(),
+    smtpMicrosoftTenantId: String(value?.smtpMicrosoftTenantId || "common").trim() || "common",
     encryptedSmtpPass: String(value?.encryptedSmtpPass || "").trim() || undefined,
+    encryptedMicrosoftClientSecret: String(value?.encryptedMicrosoftClientSecret || "").trim() || undefined,
+    encryptedMicrosoftRefreshToken: String(value?.encryptedMicrosoftRefreshToken || "").trim() || undefined,
   };
 }
 
@@ -815,10 +920,37 @@ async function getStoredMailingSmtpSettings(): Promise<StoredMailingSmtpSettings
 
 export async function getResolvedSmtpConfig(): Promise<ResolvedSmtpConfig> {
   const stored = await getStoredMailingSmtpSettings();
+  if (
+    stored?.smtpAuthType === "microsoft_oauth2" &&
+    stored.smtpUser &&
+    stored.smtpMicrosoftClientId &&
+    stored.encryptedMicrosoftClientSecret &&
+    stored.encryptedMicrosoftRefreshToken
+  ) {
+    const clientSecret = decryptSecret(stored.encryptedMicrosoftClientSecret);
+    const refreshToken = decryptSecret(stored.encryptedMicrosoftRefreshToken);
+    if (clientSecret && refreshToken) {
+      return {
+        authType: "microsoft_oauth2",
+        host: stored.smtpHost || "smtp.office365.com",
+        port: Number(stored.smtpPort || "587"),
+        user: stored.smtpUser,
+        from: stored.smtpFrom || stored.smtpUser,
+        replyTo: stored.smtpReplyTo || undefined,
+        clientId: stored.smtpMicrosoftClientId,
+        clientSecret,
+        refreshToken,
+        tenantId: stored.smtpMicrosoftTenantId || "common",
+        source: "admin",
+      };
+    }
+  }
+
   if (stored?.smtpHost && stored.smtpUser && stored.encryptedSmtpPass) {
     const pass = decryptSecret(stored.encryptedSmtpPass);
     if (pass) {
       return {
+        authType: "password",
         host: stored.smtpHost,
         port: Number(stored.smtpPort || "587"),
         user: stored.smtpUser,
@@ -836,6 +968,7 @@ export async function getResolvedSmtpConfig(): Promise<ResolvedSmtpConfig> {
   }
 
   return {
+    authType: "password",
     host: env.host,
     port: Number(env.port || "587"),
     user: env.user,
@@ -851,12 +984,20 @@ export async function setMailingSmtpSettings(settings: {
   smtpUser: string;
   smtpFrom: string;
   smtpReplyTo: string;
+  smtpAuthType?: "password" | "microsoft_oauth2";
   smtpPass?: string;
+  smtpMicrosoftClientId?: string;
+  smtpMicrosoftTenantId?: string;
+  smtpMicrosoftClientSecret?: string;
+  smtpMicrosoftRefreshToken?: string;
 }) {
   const current = await getStoredMailingSmtpSettings();
   const smtpPass = String(settings.smtpPass || "").trim();
+  const microsoftClientSecret = String(settings.smtpMicrosoftClientSecret || "").trim();
+  const microsoftRefreshToken = String(settings.smtpMicrosoftRefreshToken || "").trim();
+  const hasNewSecret = Boolean(smtpPass || microsoftClientSecret || microsoftRefreshToken);
 
-  if (smtpPass && !canEncryptMailingSecrets()) {
+  if (hasNewSecret && !canEncryptMailingSecrets()) {
     throw new Error("MAILING_ENCRYPTION_KEY missing");
   }
 
@@ -866,15 +1007,75 @@ export async function setMailingSmtpSettings(settings: {
     smtpUser: settings.smtpUser,
     smtpFrom: settings.smtpFrom,
     smtpReplyTo: settings.smtpReplyTo,
+    smtpAuthType: settings.smtpAuthType,
+    smtpMicrosoftClientId: settings.smtpMicrosoftClientId,
+    smtpMicrosoftTenantId: settings.smtpMicrosoftTenantId,
     encryptedSmtpPass: smtpPass ? encryptSecret(smtpPass) : current?.encryptedSmtpPass,
+    encryptedMicrosoftClientSecret: microsoftClientSecret
+      ? encryptSecret(microsoftClientSecret)
+      : current?.encryptedMicrosoftClientSecret,
+    encryptedMicrosoftRefreshToken: microsoftRefreshToken
+      ? encryptSecret(microsoftRefreshToken)
+      : current?.encryptedMicrosoftRefreshToken,
   });
 
-  const hasPublicConfig = Boolean(value.smtpHost || value.smtpUser || value.smtpFrom || value.smtpReplyTo);
-  if (!hasPublicConfig && !smtpPass) {
+  const hasPublicConfig = Boolean(
+    value.smtpHost ||
+    value.smtpUser ||
+    value.smtpFrom ||
+    value.smtpReplyTo ||
+    value.smtpMicrosoftClientId
+  );
+  if (!hasPublicConfig && !hasNewSecret) {
     return prisma.shippingProviderSetting.deleteMany({
       where: { provider: STOREFRONT_SETTINGS_PROVIDER, key: MAILING_SMTP_SETTINGS_KEY },
     });
   }
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: MAILING_SMTP_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: MAILING_SMTP_SETTINGS_KEY,
+      value: JSON.stringify(value),
+      isSecret: true,
+    },
+    update: {
+      value: JSON.stringify(value),
+      isSecret: true,
+    },
+  });
+}
+
+export async function getMailingMicrosoftOAuthCredentials() {
+  const stored = await getStoredMailingSmtpSettings();
+  if (!stored?.smtpMicrosoftClientId || !stored.encryptedMicrosoftClientSecret) return null;
+
+  return {
+    smtpUser: stored.smtpUser,
+    smtpFrom: stored.smtpFrom,
+    smtpReplyTo: stored.smtpReplyTo,
+    smtpHost: stored.smtpHost || "smtp.office365.com",
+    smtpPort: stored.smtpPort || "587",
+    clientId: stored.smtpMicrosoftClientId,
+    clientSecret: decryptSecret(stored.encryptedMicrosoftClientSecret),
+    tenantId: stored.smtpMicrosoftTenantId || "common",
+  };
+}
+
+export async function disconnectMailingMicrosoftOAuth() {
+  const current = await getStoredMailingSmtpSettings();
+  if (!current) return null;
+
+  const value = normalizeSmtpSettings({
+    ...current,
+    encryptedMicrosoftRefreshToken: undefined,
+  });
 
   return prisma.shippingProviderSetting.upsert({
     where: {
@@ -919,7 +1120,15 @@ export async function getMailingSettings(): Promise<MailingSettings> {
 
   const storedSmtp = await getStoredMailingSmtpSettings();
   const envSmtp = envSmtpSettings();
-  const smtpSource = storedSmtp?.smtpHost && storedSmtp.smtpUser && storedSmtp.encryptedSmtpPass
+  const hasAdminMicrosoftOAuth2 = Boolean(
+    storedSmtp?.smtpAuthType === "microsoft_oauth2" &&
+    storedSmtp.smtpUser &&
+    storedSmtp.smtpMicrosoftClientId &&
+    storedSmtp.encryptedMicrosoftClientSecret &&
+    storedSmtp.encryptedMicrosoftRefreshToken
+  );
+  const hasAdminPasswordSmtp = Boolean(storedSmtp?.smtpHost && storedSmtp.smtpUser && storedSmtp.encryptedSmtpPass);
+  const smtpSource = hasAdminMicrosoftOAuth2 || hasAdminPasswordSmtp
     ? "admin"
     : envSmtp.host && envSmtp.user && envSmtp.pass
       ? "env"
@@ -933,6 +1142,11 @@ export async function getMailingSettings(): Promise<MailingSettings> {
     smtpFrom: storedSmtp?.smtpFrom || "",
     smtpReplyTo: storedSmtp?.smtpReplyTo || "",
     smtpPassConfigured: Boolean(storedSmtp?.encryptedSmtpPass),
+    smtpAuthType: storedSmtp?.smtpAuthType || "password",
+    smtpMicrosoftClientId: storedSmtp?.smtpMicrosoftClientId || "",
+    smtpMicrosoftTenantId: storedSmtp?.smtpMicrosoftTenantId || "common",
+    smtpMicrosoftClientSecretConfigured: Boolean(storedSmtp?.encryptedMicrosoftClientSecret),
+    smtpMicrosoftRefreshTokenConfigured: Boolean(storedSmtp?.encryptedMicrosoftRefreshToken),
     smtpSource,
   };
 }

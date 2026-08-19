@@ -44,6 +44,7 @@ export default async function AdminPaqueteriaPage() {
           custom: c.custom,
           description: c.description,
           flatRate: c.flatRate,
+          pricingMode: c.pricingMode,
           configured: config?.configured ?? true,
           requiredCount: config?.requiredCount ?? 0,
           completedCount: config?.completedCount ?? 0,

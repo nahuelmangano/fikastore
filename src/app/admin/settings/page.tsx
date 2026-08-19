@@ -11,6 +11,7 @@ import {
   getMercadoPagoSettings,
   getPaymentFinancingDisplaySettings,
   getSiteTitle,
+  getSocialLinksSettings,
   getStoreLogoUrl,
   getTemporaryShutdownSettings,
 } from "@/lib/storeSettings";
@@ -33,6 +34,7 @@ export default async function SettingsPage() {
     manualPaymentMethods,
     paymentFinancingDisplaySettings,
     analyticsSettings,
+    socialLinksSettings,
     customDomainSettings,
     informationSections,
     categories,
@@ -48,6 +50,7 @@ export default async function SettingsPage() {
     getManualPaymentSettings(),
     getPaymentFinancingDisplaySettings(),
     getAnalyticsSettings(),
+    getSocialLinksSettings(),
     getCustomDomainSettings(),
     getInformationSections(),
     prisma.category.findMany({
@@ -69,6 +72,7 @@ export default async function SettingsPage() {
       manualPaymentMethods={manualPaymentMethods}
       paymentFinancingDisplaySettings={paymentFinancingDisplaySettings}
       analyticsSettings={analyticsSettings}
+      socialLinksSettings={socialLinksSettings}
       customDomainSettings={customDomainSettings}
       currentUserRole={currentUserRole}
       informationSections={informationSections}

@@ -15,11 +15,13 @@ import {
   Sparkles,
   Tag,
   TicketPercent,
+  Truck,
   XCircle,
   type LucideIcon,
 } from "lucide-react";
 
 type PaymentMethodKey = "mercadopago" | "agreement" | "cash" | "transfer";
+type FreeShippingDeliveryTypeKey = "D" | "S";
 
 type ProductOption = {
   id: string;
@@ -35,6 +37,9 @@ type Promotion = {
   name: string;
   type: "global" | "product" | "code";
   percent: number;
+  freeShipping: boolean;
+  freeShippingDeliveryTypes: FreeShippingDeliveryTypeKey[];
+  freeShippingCarrierKeys: string[];
   code: string | null;
   paymentMethods: PaymentMethodKey[];
   isActive: boolean;
@@ -47,16 +52,30 @@ type Promotion = {
 type FormState = {
   name: string;
   percent: number;
+  freeShipping: boolean;
+  freeShippingDeliveryTypes: FreeShippingDeliveryTypeKey[];
+  freeShippingCarrierKeys: string[];
   startsAt: string;
   endsAt: string;
   paymentMethods: PaymentMethodKey[];
 };
 
-type ActiveTab = "global" | "product" | "code";
+type ActiveTab = "global" | "product" | "code" | "shipping";
+
+type ShippingCarrierOption = {
+  key: string;
+  name: string;
+  enabled: boolean;
+  visibleToMerchant?: boolean;
+  custom?: boolean;
+};
 
 const emptyForm: FormState = {
   name: "",
   percent: 10,
+  freeShipping: false,
+  freeShippingDeliveryTypes: [],
+  freeShippingCarrierKeys: [],
   startsAt: "",
   endsAt: "",
   paymentMethods: ["cash", "transfer"],
@@ -69,10 +88,16 @@ const paymentMethodOptions: { key: PaymentMethodKey; label: string }[] = [
   { key: "agreement", label: "A convenir" },
 ];
 
+const freeShippingDeliveryTypeOptions: { key: FreeShippingDeliveryTypeKey; label: string }[] = [
+  { key: "D", label: "Domicilio" },
+  { key: "S", label: "Sucursal" },
+];
+
 const tabs: { key: ActiveTab; label: string; icon: LucideIcon }[] = [
   { key: "global", label: "Descuento general", icon: Sparkles },
   { key: "product", label: "Por producto", icon: PackageSearch },
   { key: "code", label: "Código promocional", icon: TicketPercent },
+  { key: "shipping", label: "Envío gratis", icon: Truck },
 ];
 
 function formatDate(v: string | null) {
@@ -120,6 +145,20 @@ function paymentMethodsLabel(methods: PaymentMethodKey[]) {
   return labels.join(" · ") || "Todos";
 }
 
+function freeShippingDeliveryTypesLabel(types: FreeShippingDeliveryTypeKey[]) {
+  if (!types.length) return "Todos los envíos";
+  const labels = types
+    .map((type) => freeShippingDeliveryTypeOptions.find((option) => option.key === type)?.label)
+    .filter(Boolean);
+  return labels.join(" · ") || "Todos los envíos";
+}
+
+function freeShippingCarriersLabel(keys: string[], carriers: ShippingCarrierOption[]) {
+  if (!keys.length) return "Todos los métodos";
+  const labels = keys.map((key) => carriers.find((carrier) => carrier.key === key)?.name || key);
+  return labels.join(" · ") || "Todos los métodos";
+}
+
 function toDateTimeLocal(v: string | null) {
   if (!v) return "";
   const d = new Date(v);
@@ -136,7 +175,7 @@ function generateCode() {
 function validateForm(tab: ActiveTab, form: FormState, promoCode: string, selectedProducts: string[]) {
   const errors: string[] = [];
   if (!form.name.trim()) errors.push("El nombre es obligatorio.");
-  if (!Number.isFinite(form.percent) || form.percent < 1 || form.percent > 99) {
+  if (tab !== "shipping" && (!Number.isFinite(form.percent) || form.percent < 1 || form.percent > 99)) {
     errors.push("El porcentaje debe estar entre 1 y 99.");
   }
   if (tab === "code" && !promoCode.trim()) errors.push("El código promocional es obligatorio.");
@@ -159,12 +198,26 @@ export default function AdminPromotions({ products }: { products: ProductOption[
   const [globalForm, setGlobalForm] = useState<FormState>(emptyForm);
   const [productForm, setProductForm] = useState<FormState>(emptyForm);
   const [codeForm, setCodeForm] = useState<FormState>(emptyForm);
+  const [shippingForm, setShippingForm] = useState<FormState>({
+    ...emptyForm,
+    percent: 0,
+    freeShipping: true,
+    name: "Envío gratis",
+  });
   const [promoCode, setPromoCode] = useState("");
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
+  const [shippingCarrierOptions, setShippingCarrierOptions] = useState<ShippingCarrierOption[]>([]);
   const [submitting, setSubmitting] = useState<ActiveTab | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const activeForm = activeTab === "global" ? globalForm : activeTab === "product" ? productForm : codeForm;
+  const activeForm =
+    activeTab === "global"
+      ? globalForm
+      : activeTab === "product"
+        ? productForm
+        : activeTab === "code"
+          ? codeForm
+          : shippingForm;
   const activeErrors = validateForm(activeTab, activeForm, promoCode, selectedProducts);
 
   const filteredProducts = useMemo(() => {
@@ -214,6 +267,21 @@ export default function AdminPromotions({ products }: { products: ProductOption[
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch("/api/admin/shipping/carriers");
+      const data = await res.json().catch(() => ({}));
+      if (cancelled) return;
+      if (res.ok && Array.isArray(data?.carriers)) {
+        setShippingCarrierOptions(data.carriers);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function copyCode(code: string) {
     await navigator.clipboard?.writeText(code).catch(() => null);
     setCopiedCode(code);
@@ -221,7 +289,8 @@ export default function AdminPromotions({ products }: { products: ProductOption[
   }
 
   async function createPromotion(payload: Record<string, unknown>, key: ActiveTab) {
-    const visualErrors = validateForm(key, key === "global" ? globalForm : key === "product" ? productForm : codeForm, promoCode, selectedProducts);
+    const form = key === "global" ? globalForm : key === "product" ? productForm : key === "code" ? codeForm : shippingForm;
+    const visualErrors = validateForm(key, form, promoCode, selectedProducts);
     if (visualErrors.length > 0) {
       setError(visualErrors[0]);
       setMsg(null);
@@ -252,7 +321,8 @@ export default function AdminPromotions({ products }: { products: ProductOption[
       return;
     }
 
-    const visualErrors = validateForm(key, key === "global" ? globalForm : key === "product" ? productForm : codeForm, promoCode, selectedProducts);
+    const form = key === "global" ? globalForm : key === "product" ? productForm : key === "code" ? codeForm : shippingForm;
+    const visualErrors = validateForm(key, form, promoCode, selectedProducts);
     if (visualErrors.length > 0) {
       setError(visualErrors[0]);
       setMsg(null);
@@ -283,6 +353,7 @@ export default function AdminPromotions({ products }: { products: ProductOption[
     setGlobalForm(emptyForm);
     setProductForm(emptyForm);
     setCodeForm(emptyForm);
+    setShippingForm({ ...emptyForm, percent: 0, freeShipping: true, name: "Envío gratis" });
     setPromoCode("");
     setSelectedProducts([]);
   }
@@ -291,12 +362,15 @@ export default function AdminPromotions({ products }: { products: ProductOption[
     const form = {
       name: p.name,
       percent: p.percent,
+      freeShipping: p.freeShipping,
+      freeShippingDeliveryTypes: p.freeShippingDeliveryTypes || [],
+      freeShippingCarrierKeys: p.freeShippingCarrierKeys || [],
       startsAt: toDateTimeLocal(p.startsAt),
       endsAt: toDateTimeLocal(p.endsAt),
       paymentMethods: p.paymentMethods,
     };
     setEditingId(p.id);
-    setActiveTab(p.type);
+    setActiveTab(p.freeShipping ? "shipping" : p.type);
     setError(null);
     setMsg(null);
     setProductSearch("");
@@ -305,6 +379,7 @@ export default function AdminPromotions({ products }: { products: ProductOption[
     if (p.type === "global") setGlobalForm(form);
     if (p.type === "product") setProductForm(form);
     if (p.type === "code") setCodeForm(form);
+    if (p.freeShipping) setShippingForm({ ...form, percent: 0, freeShipping: true });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -332,6 +407,8 @@ export default function AdminPromotions({ products }: { products: ProductOption[
           name: globalForm.name,
           type: "global",
           percent: globalForm.percent,
+          freeShipping: false,
+          freeShippingDeliveryTypes: [],
           paymentMethods: globalForm.paymentMethods,
           startsAt: globalForm.startsAt || null,
           endsAt: globalForm.endsAt || null,
@@ -347,6 +424,8 @@ export default function AdminPromotions({ products }: { products: ProductOption[
           name: productForm.name,
           type: "product",
           percent: productForm.percent,
+          freeShipping: false,
+          freeShippingDeliveryTypes: [],
           paymentMethods: productForm.paymentMethods,
           productIds: selectedProducts,
           startsAt: productForm.startsAt || null,
@@ -366,6 +445,8 @@ export default function AdminPromotions({ products }: { products: ProductOption[
           name: codeForm.name,
           type: "code",
           percent: codeForm.percent,
+          freeShipping: false,
+          freeShippingDeliveryTypes: [],
           code: promoCode,
           paymentMethods: codeForm.paymentMethods,
           startsAt: codeForm.startsAt || null,
@@ -376,6 +457,26 @@ export default function AdminPromotions({ products }: { products: ProductOption[
       if (!editingId && validateForm("code", codeForm, promoCode, selectedProducts).length === 0) {
         setCodeForm(emptyForm);
         setPromoCode("");
+      }
+    }
+
+    if (activeTab === "shipping") {
+      await savePromotion(
+        {
+          name: shippingForm.name,
+          type: "global",
+          percent: 0,
+          freeShipping: true,
+          freeShippingDeliveryTypes: shippingForm.freeShippingDeliveryTypes,
+          freeShippingCarrierKeys: shippingForm.freeShippingCarrierKeys,
+          paymentMethods: shippingForm.paymentMethods,
+          startsAt: shippingForm.startsAt || null,
+          endsAt: shippingForm.endsAt || null,
+        },
+        "shipping"
+      );
+      if (!editingId && validateForm("shipping", shippingForm, promoCode, selectedProducts).length === 0) {
+        setShippingForm({ ...emptyForm, percent: 0, freeShipping: true, name: "Envío gratis" });
       }
     }
   }
@@ -537,6 +638,14 @@ export default function AdminPromotions({ products }: { products: ProductOption[
                 </>
               ) : null}
 
+              {activeTab === "shipping" ? (
+                <FreeShippingFields
+                  form={shippingForm}
+                  onChange={setShippingForm}
+                  carriers={shippingCarrierOptions}
+                />
+              ) : null}
+
               {activeErrors.length > 0 ? (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 xl:py-2.5 text-sm text-amber-900">
                   {activeErrors[0]}
@@ -551,6 +660,8 @@ export default function AdminPromotions({ products }: { products: ProductOption[
                   ? editingId ? "Guardando..." : "Creando..."
                   : editingId
                     ? "Guardar cambios"
+                    : activeTab === "shipping"
+                      ? "Crear envío gratis"
                     : activeTab === "global"
                       ? "Crear descuento general"
                       : activeTab === "product"
@@ -565,6 +676,7 @@ export default function AdminPromotions({ products }: { products: ProductOption[
                 form={activeForm}
                 promoCode={promoCode}
                 selectedCount={selectedProducts.length}
+                carriers={shippingCarrierOptions}
               />
               {msg ? (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 xl:py-2.5 text-sm text-emerald-900">
@@ -642,8 +754,19 @@ export default function AdminPromotions({ products }: { products: ProductOption[
                               </div>
                             ) : null}
                           </td>
-                          <td className="px-4 py-4 xl:py-2.5 text-[#70471F]">{promotionTypeLabel(p.type)}</td>
-                          <td className="px-4 py-4 xl:py-2.5 font-semibold text-[#5F3B18]">{p.percent}%</td>
+                          <td className="px-4 py-4 xl:py-2.5 text-[#70471F]">
+                            {p.freeShipping ? "Envío gratis" : promotionTypeLabel(p.type)}
+                          </td>
+                          <td className="px-4 py-4 xl:py-2.5 font-semibold text-[#5F3B18]">
+                            <div>{p.percent > 0 ? `${p.percent}%` : "No aplica a productos"}</div>
+                            {p.freeShipping ? (
+                              <div className="mt-1 text-xs text-emerald-700">
+                                Envío gratis: {freeShippingDeliveryTypesLabel(p.freeShippingDeliveryTypes)}
+                                {" · "}
+                                {freeShippingCarriersLabel(p.freeShippingCarrierKeys, shippingCarrierOptions)}
+                              </div>
+                            ) : null}
+                          </td>
                           <td className="px-4 py-4 xl:py-2.5 text-[#8F6A49]">{paymentMethodsLabel(p.paymentMethods)}</td>
                           <td className="px-4 py-4 xl:py-2.5 text-[#8F6A49]">
                             <div>{formatDate(p.startsAt)}</div>
@@ -765,6 +888,56 @@ function PromotionFields({
   );
 }
 
+function FreeShippingFields({
+  form,
+  onChange,
+  carriers,
+}: {
+  form: FormState;
+  onChange: (updater: (prev: FormState) => FormState) => void;
+  carriers: ShippingCarrierOption[];
+}) {
+  return (
+    <>
+      <Input
+        label="Nombre"
+        value={form.name}
+        onChange={(v) => onChange((s) => ({ ...s, name: v }))}
+        placeholder="Envío gratis"
+      />
+      <FreeShippingDeliveryTypePicker
+        selected={form.freeShippingDeliveryTypes}
+        onChange={(freeShippingDeliveryTypes) => onChange((s) => ({ ...s, freeShippingDeliveryTypes }))}
+      />
+      <FreeShippingCarrierPicker
+        carriers={carriers}
+        selected={form.freeShippingCarrierKeys}
+        onChange={(freeShippingCarrierKeys) => onChange((s) => ({ ...s, freeShippingCarrierKeys }))}
+      />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <DateInput
+          label="Activo desde"
+          value={form.startsAt}
+          onChange={(v) => onChange((s) => ({ ...s, startsAt: v }))}
+        />
+        <DateInput
+          label="Activo hasta"
+          value={form.endsAt}
+          onChange={(v) => onChange((s) => ({ ...s, endsAt: v }))}
+        />
+      </div>
+      <PaymentMethodPicker
+        selected={form.paymentMethods}
+        onChange={(paymentMethods) => onChange((s) => ({ ...s, paymentMethods }))}
+      />
+      <div className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 xl:py-2.5 text-sm text-[#8F6A49]">
+        <div>• No descuenta productos ni modifica el subtotal.</div>
+        <div>• Si coincide con el pago y el tipo de entrega, el costo de envío queda en $0 para el cliente.</div>
+      </div>
+    </>
+  );
+}
+
 function PaymentMethodPicker({
   selected,
   onChange,
@@ -807,6 +980,100 @@ function PaymentMethodPicker({
   );
 }
 
+function FreeShippingDeliveryTypePicker({
+  selected,
+  onChange,
+}: {
+  selected: FreeShippingDeliveryTypeKey[];
+  onChange: (types: FreeShippingDeliveryTypeKey[]) => void;
+}) {
+  return (
+    <div>
+      <div className="text-sm font-semibold text-[#70471F]">Tipo de envío bonificado</div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        {freeShippingDeliveryTypeOptions.map((option) => {
+          const checked = selected.includes(option.key);
+          return (
+            <label
+              key={option.key}
+              className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 text-sm text-[#70471F] transition duration-150 hover:bg-[#F2ECE5]"
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(event) => {
+                  onChange(
+                    event.target.checked
+                      ? [...selected, option.key]
+                      : selected.filter((type) => type !== option.key)
+                  );
+                }}
+                className="h-4 w-4 accent-[#8B5A2B]"
+              />
+              <span>{option.label}</span>
+            </label>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-xs text-[#8F6A49]">
+        Si no seleccionás ninguno, el envío se bonifica tanto a domicilio como a sucursal.
+      </p>
+    </div>
+  );
+}
+
+function FreeShippingCarrierPicker({
+  carriers,
+  selected,
+  onChange,
+}: {
+  carriers: ShippingCarrierOption[];
+  selected: string[];
+  onChange: (keys: string[]) => void;
+}) {
+  const availableCarriers = carriers.filter((carrier) => carrier.enabled);
+
+  return (
+    <div>
+      <div className="text-sm font-semibold text-[#70471F]">Métodos de envío donde aplica</div>
+      {availableCarriers.length > 0 ? (
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {availableCarriers.map((carrier) => {
+            const checked = selected.includes(carrier.key);
+            return (
+              <label
+                key={carrier.key}
+                className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 text-sm text-[#70471F] transition duration-150 hover:bg-[#F2ECE5]"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => {
+                    onChange(
+                      event.target.checked
+                        ? [...selected, carrier.key]
+                        : selected.filter((key) => key !== carrier.key)
+                    );
+                  }}
+                  className="h-4 w-4 accent-[#8B5A2B]"
+                />
+                <span>{carrier.name}</span>
+              </label>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mt-2 rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 text-sm text-[#8F6A49]">
+          No hay métodos de envío activos para seleccionar.
+        </div>
+      )}
+      <p className="mt-2 text-xs text-[#8F6A49]">
+        Si no seleccionás ninguno, la promoción aplica a todos los métodos de envío activos.
+      </p>
+    </div>
+  );
+}
+
 function Input({
   label,
   value,
@@ -815,6 +1082,7 @@ function Input({
   min,
   max,
   placeholder,
+  disabled = false,
 }: {
   label: string;
   value: string;
@@ -823,6 +1091,7 @@ function Input({
   min?: number;
   max?: number;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   return (
     <label className="block">
@@ -834,7 +1103,8 @@ function Input({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none transition duration-150 placeholder:text-[#B18B68] focus:border-[#8B5A2B]"
+        disabled={disabled}
+        className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none transition duration-150 placeholder:text-[#B18B68] focus:border-[#8B5A2B] disabled:cursor-not-allowed disabled:bg-[#EFE7DE] disabled:text-[#8F6A49]"
       />
     </label>
   );
@@ -920,16 +1190,21 @@ function PreviewBox({
   form,
   promoCode,
   selectedCount,
+  carriers,
 }: {
   tab: ActiveTab;
   form: FormState;
   promoCode: string;
   selectedCount: number;
+  carriers: ShippingCarrierOption[];
 }) {
   const hasPercent = Number.isFinite(form.percent) && form.percent > 0;
   const paymentText = ` Aplica en: ${paymentMethodsLabel(form.paymentMethods)}.`;
+  const shippingText = freeShippingDeliveryTypesLabel(form.freeShippingDeliveryTypes).toLowerCase();
+  const carriersText = freeShippingCarriersLabel(form.freeShippingCarrierKeys, carriers).toLowerCase();
   const text = (() => {
-    if (!hasPercent) return "Completá los datos para ver un resumen del descuento.";
+    if (!hasPercent && !form.freeShipping) return "Completá los datos para ver un resumen del descuento.";
+    if (form.freeShipping) return `Esta promoción bonificará el costo de envío para ${shippingText} en ${carriersText}.${paymentText}`;
     if (tab === "global") return `Este descuento aplicará ${form.percent}% a toda la tienda.${paymentText}`;
     if (tab === "product") {
       if (selectedCount === 0) return `Este descuento aplicará ${form.percent}% a los productos que selecciones.${paymentText}`;
@@ -946,7 +1221,7 @@ function PreviewBox({
           <BadgePercent className="h-5 w-5" aria-hidden="true" />
         </div>
         <div>
-          <h2 className="font-semibold text-[#5F3B18]">Preview del descuento</h2>
+          <h2 className="font-semibold text-[#5F3B18]">Preview de la promoción</h2>
           <p className="mt-1 text-sm text-[#8F6A49]">Resumen antes de crear la promoción.</p>
         </div>
       </div>
