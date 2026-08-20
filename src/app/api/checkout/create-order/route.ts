@@ -304,7 +304,7 @@ export async function POST(req: Request) {
           ? "Podés completar el pago desde el enlace de tu pedido."
           : manualPaymentMethod?.instructions || "La tienda te contactará para coordinar el pago.";
       const paymentInstructions = paymentMethod === "transfer"
-        ? transferInstructionsWithBankDetails(basePaymentInstructions)
+        ? transferInstructionsWithBankDetails(basePaymentInstructions, manualPaymentMethod?.bankDetails)
         : basePaymentInstructions;
       const shippingLabel = emailShippingLabel(shippingMethod, selectedCarrier.name, createdOrder.shippingDeliveryType);
       const shippingAddressLines =

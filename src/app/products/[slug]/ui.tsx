@@ -81,10 +81,12 @@ type ShippingRate = {
 
 type ShippingQuoteRow = {
   label: string;
+  description?: string;
   amount: number;
   carrierKey: string;
   deliveryType: "D" | "S" | null;
   freeShipping: boolean;
+  pricingMode: "fixed" | "agreement";
 };
 
 type PaymentMethodKey = "mercadopago" | "agreement" | "cash" | "transfer";
@@ -289,13 +291,13 @@ export default function ProductDetailClient({
     if (isEnabled("epick") && epickRes.ok) {
       const amount = Number(epickData?.quote?.price ?? epickData?.quote?.total ?? 0);
       if (Number.isFinite(amount) && amount > 0) {
-        rows.push({ label: "E-pick", amount, carrierKey: "epick", deliveryType: "D", freeShipping: false });
+        rows.push({ label: "E-pick", amount, carrierKey: "epick", deliveryType: "D", freeShipping: false, pricingMode: "fixed" });
       }
     }
     if (isEnabled("andreani") && andreaniRes.ok) {
       const amount = Number(andreaniData?.quote?.tarifaConIva?.total ?? 0);
       if (Number.isFinite(amount) && amount > 0) {
-        rows.push({ label: "Andreani", amount, carrierKey: "andreani", deliveryType: "D", freeShipping: false });
+        rows.push({ label: "Andreani", amount, carrierKey: "andreani", deliveryType: "D", freeShipping: false, pricingMode: "fixed" });
       }
     }
     if (isEnabled("correo") && correoRes.ok) {
@@ -313,6 +315,7 @@ export default function ProductDetailClient({
           carrierKey: "correo",
           deliveryType: "D",
           freeShipping: false,
+          pricingMode: "fixed",
         });
       }
       if (Number.isFinite(sucursalAmount) && sucursalAmount > 0) {
@@ -322,8 +325,28 @@ export default function ProductDetailClient({
           carrierKey: "correo",
           deliveryType: "S",
           freeShipping: false,
+          pricingMode: "fixed",
         });
       }
+    }
+
+    // Los medios configurados manualmente (retiros, puntos de retiro y
+    // entregas a acordar) no requieren una cotización externa.
+    for (const carrier of carriers) {
+      const key = String(carrier?.key || "");
+      if (!key || ["epick", "andreani", "correo"].includes(key) || !isEnabled(key)) continue;
+      const pricingMode = carrier?.pricingMode === "agreement" ? "agreement" : "fixed";
+      const amount = Number(carrier?.flatRate ?? 0);
+      if (!Number.isFinite(amount) || amount < 0) continue;
+      rows.push({
+        label: String(carrier?.name || key),
+        description: String(carrier?.description || "").trim() || undefined,
+        amount,
+        carrierKey: key,
+        deliveryType: null,
+        freeShipping: pricingMode === "fixed" && amount === 0,
+        pricingMode,
+      });
     }
 
     const rowsWithPromos = await Promise.all(
@@ -631,6 +654,12 @@ export default function ProductDetailClient({
                   <input
                     value={postalCode}
                     onChange={(e) => setPostalCode(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (!quoteLoading) void quoteShipping();
+                      }
+                    }}
                     placeholder="Código postal"
                     className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
                   />
@@ -656,15 +685,22 @@ export default function ProductDetailClient({
                         ].join(" ")}
                       >
                         <span className="text-zinc-300">
-                          {row.label}
+                          <span>{row.label}</span>
+                          {row.description && (
+                            <span className="mt-0.5 block text-xs text-zinc-500">{row.description}</span>
+                          )}
                           {idx === 0 && <span className="ml-2 text-xs text-amber-300">Más conveniente</span>}
                         </span>
                         <span className="font-semibold">
-                          {row.freeShipping ? (
+                          {row.pricingMode === "agreement" ? (
+                            <span className="text-amber-300">Acordar</span>
+                          ) : row.freeShipping || row.amount === 0 ? (
                             <span className="inline-flex items-center gap-2">
-                              <span className="text-xs font-medium text-zinc-500 line-through">
-                                ${row.amount.toLocaleString("es-AR")}
-                              </span>
+                              {row.amount > 0 && (
+                                <span className="text-xs font-medium text-zinc-500 line-through">
+                                  ${row.amount.toLocaleString("es-AR")}
+                                </span>
+                              )}
                               <span className="text-emerald-300">Gratis</span>
                             </span>
                           ) : (

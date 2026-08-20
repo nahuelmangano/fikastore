@@ -87,6 +87,15 @@ type ManualPaymentMethodSettings = {
   label: string;
   enabled: boolean;
   instructions: string;
+  bankDetails?: {
+    accountNumber: string;
+    cbu: string;
+    alias: string;
+    holder: string;
+    taxId: string;
+    accountType: string;
+    bank: string;
+  };
 };
 
 type PaymentFinancingDisplaySettings = {
@@ -459,6 +468,12 @@ export default function AdminSettingsPage({
 
   function patchManualMethod(key: ManualPaymentMethodKey, patch: Partial<ManualPaymentMethodSettings>) {
     setManualMethods((prev) => prev.map((method) => (method.key === key ? { ...method, ...patch } : method)));
+  }
+
+  function patchTransferBankDetail(key: keyof NonNullable<ManualPaymentMethodSettings["bankDetails"]>, value: string) {
+    setManualMethods((prev) => prev.map((method) => method.key === "transfer"
+      ? { ...method, bankDetails: { ...method.bankDetails, [key]: value } as NonNullable<ManualPaymentMethodSettings["bankDetails"]> }
+      : method));
   }
 
   function patchFinancingManualMethod(key: ManualPaymentMethodKey, visible: boolean) {
@@ -1265,6 +1280,29 @@ export default function AdminSettingsPage({
                           className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm leading-6 text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
                         />
                       </label>
+                      {method.key === "transfer" ? (
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                          {([
+                            ["accountNumber", "Número de cuenta"],
+                            ["cbu", "CBU"],
+                            ["alias", "Alias"],
+                            ["holder", "Titular"],
+                            ["taxId", "CUIL / CUIT"],
+                            ["accountType", "Tipo de cuenta"],
+                            ["bank", "Banco"],
+                          ] as const).map(([key, label]) => (
+                            <label key={key} className={key === "bank" ? "sm:col-span-2" : ""}>
+                              <FieldLabel label={label} />
+                              <input
+                                value={method.bankDetails?.[key] || ""}
+                                onChange={(e) => patchTransferBankDetail(key, e.target.value)}
+                                maxLength={160}
+                                className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>

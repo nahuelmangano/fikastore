@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publicBaseUrl } from "@/lib/publicUrl";
 import { queueAndSendEmailNotification } from "@/lib/emailNotificationService";
-import { absoluteImageUrl, emailProductRowsHtml } from "@/lib/emailProductRows";
+import { absoluteImageUrl, emailOrderItemsHtml, emailOrderItemsText, emailProductRowsHtml } from "@/lib/emailProductRows";
 
 export const runtime = "nodejs";
 
@@ -91,7 +91,22 @@ export async function POST(req: Request) {
         order: { status: "pending_payment" },
         pendingAt: { lte: cutoff },
       },
-      include: { order: { include: { items: true, user: true } } },
+      include: {
+        order: {
+          include: {
+            items: {
+              include: {
+                product: {
+                  include: {
+                    images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }], take: 1 },
+                  },
+                },
+              },
+            },
+            user: true,
+          },
+        },
+      },
       take: 50,
     }),
   ]);
@@ -145,14 +160,7 @@ export async function POST(req: Request) {
 
   for (const payment of payments) {
     const order = payment.order;
-    const items = order.items.map((it) => ({
-      name: it.nameSnapshot,
-      qty: it.quantity,
-      unit: Number(it.unitPrice),
-      subtotal: Number(it.subtotal),
-    }));
-
-    const total = items.reduce((acc, it) => acc + it.subtotal, 0);
+    const itemsSubtotal = order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
 
     await queueAndSendEmailNotification({
       templateKey: "payment-pending-reminder",
@@ -164,7 +172,17 @@ export async function POST(req: Request) {
       payload: {
         customerName: order.user.name || order.user.email,
         orderNumber: order.orderNumber ? `#${order.orderNumber}` : order.id,
-        paymentAmount: `$${total.toLocaleString("es-AR")}`,
+        productsHtml: emailOrderItemsHtml(order.items, baseUrl, {
+          subtotal: itemsSubtotal,
+          shipping: order.shippingAmount,
+          total: order.total,
+        }),
+        productsText: emailOrderItemsText(order.items, {
+          subtotal: itemsSubtotal,
+          shipping: order.shippingAmount,
+          total: order.total,
+        }),
+        paymentAmount: money(Number(order.total)),
         reminderNumber: "1",
         paymentUrl: `${baseUrl}/pay/pending?orderId=${order.id}`,
         storeName: "FikaStore",

@@ -11,7 +11,8 @@ export type ShippingCarrierView = {
   custom: boolean;
   description: string;
   flatRate: number;
-  pricingMode: "fixed" | "agreement";
+  pricingMode: "fixed" | "agreement" | "free";
+  deliveryDays: string | null;
 };
 
 const CUSTOM_SHIPPING_PROVIDER = "custom_shipping";
@@ -100,6 +101,16 @@ function customSettingKey(carrierKey: string, field: "description" | "flatRate" 
   return `${carrierKey}:${field}`;
 }
 
+async function deliveryDaysForCarrier(key: string) {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: { provider_key: { provider: key, key: "DELIVERY_DAYS" } },
+    select: { value: true },
+  });
+  const value = String(row?.value || "").trim();
+  if (/^(\d+)(\s*-\s*\d+)?$/.test(value)) return value;
+  return key === "epick" ? "2-3" : key === "correo" ? "3-6" : null;
+}
+
 async function customCarrierSettingsMap() {
   const rows = await prisma.shippingProviderSetting.findMany({
     where: { provider: CUSTOM_SHIPPING_PROVIDER },
@@ -109,10 +120,10 @@ async function customCarrierSettingsMap() {
 }
 
 async function withCustomCarrierSettings(
-  carriers: Omit<ShippingCarrierView, "custom" | "description" | "flatRate" | "pricingMode">[],
+  carriers: Omit<ShippingCarrierView, "custom" | "description" | "flatRate" | "pricingMode" | "deliveryDays">[],
 ): Promise<ShippingCarrierView[]> {
   const settings = await customCarrierSettingsMap();
-  return carriers.map((carrier) => {
+  return Promise.all(carriers.map(async (carrier) => {
     const custom = isCustomShippingCarrierKey(carrier.key);
     const rawRate = Number(settings.get(customSettingKey(carrier.key, "flatRate")) || 0);
     const rawPricingMode = String(settings.get(customSettingKey(carrier.key, "pricingMode")) || "fixed");
@@ -123,9 +134,10 @@ async function withCustomCarrierSettings(
         ? String(settings.get(customSettingKey(carrier.key, "description")) || "Entrega personalizada.")
         : "",
       flatRate: custom && Number.isFinite(rawRate) && rawRate >= 0 ? rawRate : 0,
-      pricingMode: custom && rawPricingMode === "agreement" ? "agreement" : "fixed",
+      pricingMode: custom && rawPricingMode === "agreement" ? "agreement" : custom && rawPricingMode === "free" ? "free" : "fixed",
+      deliveryDays: await deliveryDaysForCarrier(carrier.key),
     };
-  });
+  }));
 }
 
 async function readShippingCarriers(options?: { visibleToMerchantOnly?: boolean }): Promise<ShippingCarrierView[]> {
@@ -194,7 +206,7 @@ export async function createCustomShippingCarrier(input: {
   name: string;
   description?: string;
   flatRate?: number;
-  pricingMode?: "fixed" | "agreement";
+  pricingMode?: "fixed" | "agreement" | "free";
 }) {
   const name = String(input.name || "").trim().slice(0, 80);
   if (!name) throw new Error("Nombre requerido.");
@@ -224,13 +236,13 @@ export async function createCustomShippingCarrier(input: {
 
 export async function setCustomShippingCarrierSettings(
   carrierKey: string,
-  input: { description?: string; flatRate?: number; pricingMode?: "fixed" | "agreement" },
+  input: { description?: string; flatRate?: number; pricingMode?: "fixed" | "agreement" | "free" },
 ) {
   if (!isCustomShippingCarrierKey(carrierKey)) throw new Error("Método personalizado inválido.");
 
   const flatRate = Math.max(0, Number(input.flatRate || 0));
   const description = String(input.description || "Entrega personalizada.").trim().slice(0, 200);
-  const pricingMode = input.pricingMode === "agreement" ? "agreement" : "fixed";
+  const pricingMode = input.pricingMode === "agreement" ? "agreement" : input.pricingMode === "free" ? "free" : "fixed";
 
   await prisma.$transaction([
     prisma.shippingProviderSetting.upsert({

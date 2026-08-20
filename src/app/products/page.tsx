@@ -268,12 +268,6 @@ export default async function ProductsPage({
                             ].join(" ")}
                           />
 
-                          {promoPercent > 0 && (
-                            <span className="absolute left-2 top-2 rounded bg-[#B58C69] px-2 py-1 text-[11px] font-semibold text-white shadow-sm">
-                              {promoPercent}% OFF
-                            </span>
-                          )}
-
                           {isOos && (
                             <span className="absolute right-2 top-2 rounded bg-white/90 px-2 py-1 text-[11px] uppercase text-zinc-700 shadow-sm">
                               Sin stock

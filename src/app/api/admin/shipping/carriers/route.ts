@@ -43,6 +43,7 @@ export async function GET() {
       description: c.description,
       flatRate: c.flatRate,
       pricingMode: c.pricingMode,
+      deliveryDays: c.deliveryDays,
     })),
   });
 }
@@ -56,7 +57,8 @@ export async function POST(req: Request) {
     name?: string;
     description?: string;
     flatRate?: number;
-    pricingMode?: "fixed" | "agreement";
+    pricingMode?: "fixed" | "agreement" | "free";
+    deliveryDays?: string;
   } | null;
 
   try {
@@ -64,7 +66,7 @@ export async function POST(req: Request) {
       name: String(body?.name || ""),
       description: String(body?.description || ""),
       flatRate: Number(body?.flatRate || 0),
-      pricingMode: body?.pricingMode === "agreement" ? "agreement" : "fixed",
+      pricingMode: body?.pricingMode === "agreement" ? "agreement" : body?.pricingMode === "free" ? "free" : "fixed",
     });
     return NextResponse.json({ ok: true, carrier });
   } catch (error) {
@@ -88,7 +90,8 @@ export async function PATCH(req: Request) {
     name?: string;
     description?: string;
     flatRate?: number;
-    pricingMode?: "fixed" | "agreement";
+    pricingMode?: "fixed" | "agreement" | "free";
+    deliveryDays?: string;
   } | null;
   const key = String(body?.key || "").trim();
   const enabled = body?.enabled;
@@ -97,6 +100,7 @@ export async function PATCH(req: Request) {
   const description = body?.description;
   const flatRate = body?.flatRate;
   const pricingMode = body?.pricingMode;
+  const deliveryDays = body?.deliveryDays;
 
   if (
     !canTargetCarrierKey(key) ||
@@ -105,8 +109,10 @@ export async function PATCH(req: Request) {
       typeof name !== "string" &&
       typeof description !== "string" &&
       typeof flatRate !== "number" &&
+      typeof deliveryDays !== "string" &&
       pricingMode !== "fixed" &&
-      pricingMode !== "agreement")
+      pricingMode !== "agreement" &&
+      pricingMode !== "free")
   ) {
     return NextResponse.json({ ok: false, error: "Payload inválido." }, { status: 400 });
   }
@@ -127,6 +133,18 @@ export async function PATCH(req: Request) {
 
   if ((typeof description === "string" || typeof flatRate === "number") && !found.custom) {
     return NextResponse.json({ ok: false, error: "Solo se puede editar precio y descripción en métodos personalizados." }, { status: 400 });
+  }
+
+  if (typeof deliveryDays === "string" && !/^(\d+)(\s*-\s*\d+)?$/.test(deliveryDays.trim())) {
+    return NextResponse.json({ ok: false, error: "Ingresá un día o rango válido, por ejemplo 3-6." }, { status: 400 });
+  }
+
+  if (typeof deliveryDays === "string") {
+    await prisma.shippingProviderSetting.upsert({
+      where: { provider_key: { provider: key, key: "DELIVERY_DAYS" } },
+      create: { provider: key, key: "DELIVERY_DAYS", value: deliveryDays.trim(), isSecret: false },
+      update: { value: deliveryDays.trim(), isSecret: false },
+    });
   }
 
   let updated: { key: string; name: string; enabled: boolean };
@@ -156,12 +174,13 @@ export async function PATCH(req: Request) {
     (typeof description === "string" ||
       typeof flatRate === "number" ||
       pricingMode === "fixed" ||
-      pricingMode === "agreement")
+      pricingMode === "agreement" ||
+      pricingMode === "free")
   ) {
     await setCustomShippingCarrierSettings(key, {
       description: typeof description === "string" ? description : found.description,
       flatRate: typeof flatRate === "number" ? flatRate : found.flatRate,
-      pricingMode: pricingMode === "fixed" || pricingMode === "agreement" ? pricingMode : found.pricingMode,
+      pricingMode: pricingMode === "fixed" || pricingMode === "agreement" || pricingMode === "free" ? pricingMode : found.pricingMode,
     });
   }
 

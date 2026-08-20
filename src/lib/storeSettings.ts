@@ -124,11 +124,22 @@ export type MercadoPagoSettings = {
 
 export type ManualPaymentMethodKey = "agreement" | "cash" | "transfer";
 
+export type TransferBankDetails = {
+  accountNumber: string;
+  cbu: string;
+  alias: string;
+  holder: string;
+  taxId: string;
+  accountType: string;
+  bank: string;
+};
+
 export type ManualPaymentMethodSettings = {
   key: ManualPaymentMethodKey;
   label: string;
   enabled: boolean;
   instructions: string;
+  bankDetails?: TransferBankDetails;
 };
 
 export type CheckoutPaymentSettings = {
@@ -171,15 +182,16 @@ const DEFAULT_MANUAL_PAYMENT_METHODS: ManualPaymentMethodSettings[] = [
     key: "transfer",
     label: "Transferencia",
     enabled: true,
+    bankDetails: {
+      accountNumber: "5025-566703/8",
+      cbu: "0140033503502556670388",
+      alias: "FIKAPIJAMAS",
+      holder: "CINTIA YANINA,NIZ",
+      taxId: "27-37175129-2",
+      accountType: "Caja de Ahorro",
+      bank: "Banco de la Provincia de Buenos Aires",
+    },
     instructions: [
-      "CA $ 5025-566703/8",
-      "CBU: 0140033503502556670388",
-      "Alias CBU: FIKAPIJAMAS",
-      "Integrante: CINTIA YANINA,NIZ",
-      "CUIL/CUIT: 27-37175129-2",
-      "Tipo: Caja de Ahorro",
-      "Banco de la Provincia de Buenos Aires",
-      "",
       "Recordá enviar el comprobante por mail, indicando el número de pedido, para poder confirmar tu compra.",
     ].join("\n"),
   },
@@ -1228,10 +1240,23 @@ function normalizeManualPaymentMethods(input: unknown): ManualPaymentMethodSetti
     if (method.key !== "agreement" && method.key !== "cash" && method.key !== "transfer") continue;
     const current = byKey.get(method.key);
     if (!current) continue;
+    const rawBankDetails = method.bankDetails;
+    const bankDetails = rawBankDetails && typeof rawBankDetails === "object"
+      ? {
+          accountNumber: String(rawBankDetails.accountNumber || "").trim().slice(0, 100),
+          cbu: String(rawBankDetails.cbu || "").trim().slice(0, 100),
+          alias: String(rawBankDetails.alias || "").trim().slice(0, 100),
+          holder: String(rawBankDetails.holder || "").trim().slice(0, 120),
+          taxId: String(rawBankDetails.taxId || "").trim().slice(0, 100),
+          accountType: String(rawBankDetails.accountType || "").trim().slice(0, 100),
+          bank: String(rawBankDetails.bank || "").trim().slice(0, 160),
+        }
+      : current.bankDetails;
     byKey.set(method.key, {
       ...current,
       enabled: method.enabled === true,
       instructions: String(method.instructions || "").trim().slice(0, 500) || current.instructions,
+      ...(method.key === "transfer" ? { bankDetails } : {}),
     });
   }
 

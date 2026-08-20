@@ -15,6 +15,7 @@ export async function GET() {
       description: c.description,
       flatRate: c.flatRate,
       pricingMode: c.pricingMode,
+      deliveryDays: c.deliveryDays,
     })),
   });
 }

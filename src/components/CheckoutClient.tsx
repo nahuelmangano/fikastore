@@ -22,6 +22,8 @@ type Shipping = {
 
 type BuiltInShippingMethod = "epick" | "andreani" | "correo" | "pickup";
 type ShippingMethod = BuiltInShippingMethod | string;
+
+const SELECTED_SHIPPING_KEY = "fika:selected-shipping";
 type PaymentMethod = "mercadopago" | "agreement" | "cash" | "transfer";
 type CorreoDeliveryType = "D" | "S";
 
@@ -94,6 +96,15 @@ type CheckoutPaymentSettings = {
     label: string;
     enabled: boolean;
     instructions: string;
+    bankDetails?: {
+      accountNumber: string;
+      cbu: string;
+      alias: string;
+      holder: string;
+      taxId: string;
+      accountType: string;
+      bank: string;
+    };
   }[];
 };
 
@@ -104,7 +115,8 @@ type CheckoutCarrier = {
   custom?: boolean;
   description?: string;
   flatRate?: number;
-  pricingMode?: "fixed" | "agreement";
+  pricingMode?: "fixed" | "agreement" | "free";
+  deliveryDays?: string | null;
 };
 
 const PROVINCES = [
@@ -212,13 +224,41 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
     };
     sync();
 
+    const syncShipping = () => {
+      try {
+        const stored = JSON.parse(localStorage.getItem(SELECTED_SHIPPING_KEY) || "null");
+        if (!stored?.key) return;
+        setShippingMethod(String(stored.key));
+        if (stored.postalCode) {
+          setShipping((current) => ({
+            ...current,
+            zip: String(stored.postalCode),
+            ...(stored.agencyProvince ? { province: String(stored.agencyProvince) } : {}),
+            ...(stored.agencyProvinceCode ? { provinceCode: String(stored.agencyProvinceCode) } : {}),
+          }));
+        }
+        if (stored.key === "correo" && (stored.deliveryType === "D" || stored.deliveryType === "S")) {
+          setCorreoDeliveryType(stored.deliveryType);
+        }
+        if (stored.key === "correo" && stored.agencyCode) {
+          setSelectedCorreoAgencyCode(String(stored.agencyCode));
+        }
+      } catch {
+        // Ignorar una selección guardada inválida.
+      }
+    };
+    syncShipping();
+
     const onChange = () => sync();
+    const onShippingChange = () => syncShipping();
     window.addEventListener("cart:changed", onChange);
     window.addEventListener("storage", onChange);
+    window.addEventListener("shipping:changed", onShippingChange);
 
     return () => {
       window.removeEventListener("cart:changed", onChange);
       window.removeEventListener("storage", onChange);
+      window.removeEventListener("shipping:changed", onShippingChange);
     };
   }, []);
 
@@ -255,6 +295,11 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
     [checkoutCarriers],
   );
   const selectedCustomCarrier = customCarriers.find((carrier) => carrier.key === shippingMethod) || null;
+  const carrierDeliveryDays = (key: string) => checkoutCarriers.find((carrier) => carrier.key === key)?.deliveryDays;
+  const deliveryDaysLabel = (key: string) => {
+    const days = carrierDeliveryDays(key);
+    return days ? `${days} días hábiles luego de ser despachado` : "Luego de ser despachado";
+  };
   const selectedShippingIsAgreement = selectedCustomCarrier?.pricingMode === "agreement";
   const promotionDeliveryType =
     shippingMethod === "correo" ? correoDeliveryType : shippingMethod === "pickup" ? null : "D";
@@ -406,11 +451,25 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
         return;
       }
 
-      const agencies = Array.isArray(data?.agencies) ? (data.agencies as CorreoAgency[]) : [];
+      let agencies = Array.isArray(data?.agencies) ? (data.agencies as CorreoAgency[]) : [];
+      try {
+        const stored = JSON.parse(localStorage.getItem(SELECTED_SHIPPING_KEY) || "null");
+        if (stored?.agencyCode && !agencies.some((agency) => agency.code === stored.agencyCode) && stored.agencyName) {
+          agencies = [{
+            code: String(stored.agencyCode),
+            name: String(stored.agencyName),
+            addressLine: String(stored.agencyAddressLine || ""),
+            city: String(stored.agencyCity || ""),
+            province: String(stored.agencyProvince || ""),
+            provinceCode: String(stored.agencyProvinceCode || ""),
+            zip: String(stored.agencyZip || ""),
+          }, ...agencies];
+        }
+      } catch {
+        // Ignorar selección guardada inválida.
+      }
       setCorreoAgencies(agencies);
-      setSelectedCorreoAgencyCode((current) =>
-        agencies.some((agency) => agency.code === current) ? current : ""
-      );
+      setSelectedCorreoAgencyCode((current) => agencies.some((agency) => agency.code === current) ? current : "");
     }, 300);
 
     return () => {
@@ -731,27 +790,25 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                 onChange={(v) => setShipping((s) => ({ ...s, phone: v }))}
               />
 
-              {requiresAddress && (
-                <>
+              <>
+                <Field
+                  label="Direccion"
+                  value={shipping.addressLine}
+                  onChange={(v) => setShipping((s) => ({ ...s, addressLine: v }))}
+                />
+                <div className="grid gap-3 sm:grid-cols-2">
                   <Field
-                    label="Direccion"
-                    value={shipping.addressLine}
-                    onChange={(v) => setShipping((s) => ({ ...s, addressLine: v }))}
+                    label="Ciudad"
+                    value={shipping.city}
+                    onChange={(v) => setShipping((s) => ({ ...s, city: v }))}
                   />
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field
-                      label="Ciudad"
-                      value={shipping.city}
-                      onChange={(v) => setShipping((s) => ({ ...s, city: v }))}
-                    />
-                    <Field
-                      label="Codigo Postal"
-                      value={shipping.zip}
-                      onChange={(v) => setShipping((s) => ({ ...s, zip: v }))}
-                    />
-                  </div>
-                </>
-              )}
+                  <Field
+                    label="Codigo Postal"
+                    value={shipping.zip}
+                    onChange={(v) => setShipping((s) => ({ ...s, zip: v }))}
+                  />
+                </div>
+              </>
 
               <div>
                 <label className="text-sm text-zinc-300">Provincia</label>
@@ -798,9 +855,13 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                         className="mt-1"
                       />
                       <div>
-                        <div className="text-sm font-medium">Envio a domicilio (E-pick)</div>
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src="/images/epick.png" alt="" className="h-7 w-7 rounded-full object-contain" />
+                          <span>Envio a domicilio (E-pick)</span>
+                        </div>
                         <div className="text-xs text-zinc-500">
-                          {quoteLoading
+                          {deliveryDaysLabel("epick")} · {quoteLoading
                             ? "Cotizando..."
                             : shippingQuote?.price || shippingQuote?.total
                               ? shippingEstimateLabel(Number(shippingQuote.price ?? shippingQuote.total), epickFreeShipping)
@@ -853,9 +914,13 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                           className="mt-1"
                         />
                         <div>
-                        <div className="text-sm font-medium">Correo Argentino</div>
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src="/images/correo-argentino.png" alt="" className="h-7 w-7 rounded-full object-contain" />
+                          <span>Correo Argentino</span>
+                        </div>
                         <div className="text-xs text-zinc-500">
-                          {correoLoading
+                          {deliveryDaysLabel("correo")} · {correoLoading
                             ? "Cotizando..."
                             : correoBranchNeedsAgency
                               ? "Selecciona una sucursal para cotizar"
@@ -942,7 +1007,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                             <option value="">
                               {correoAgenciesLoading ? "Cargando sucursales..." : "Seleccionar sucursal"}
                             </option>
-                            {sortedCorreoAgencies.map((agency) => (
+                            {sortedCorreoAgencies.slice(0, 4).map((agency) => (
                               <option key={agency.code} value={agency.code}>
                                 {agency.name} - {agency.city} ({agency.zip})
                               </option>
@@ -1257,7 +1322,7 @@ function ManualPaymentConfirmation({
   const title = paymentMethod === "transfer" ? "Un paso más." : "Pedido creado.";
   const paymentLabel = manualPaymentMethod?.label || paymentLabelFor(paymentMethod, "Pago manual");
   const baseInstructions = manualPaymentMethod?.instructions || "La tienda te contactará para coordinar el pago.";
-  const instructions = paymentMethod === "transfer" ? transferInstructionsWithBankDetails(baseInstructions) : baseInstructions;
+  const instructions = paymentMethod === "transfer" ? transferInstructionsWithBankDetails(baseInstructions, manualPaymentMethod?.bankDetails) : baseInstructions;
 
   return (
     <div className="mt-4 space-y-4">

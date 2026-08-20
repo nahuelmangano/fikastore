@@ -116,7 +116,7 @@ export default async function PayPendingPage({
     provider === "mercadopago"
       ? "Podés completar el pago desde el botón de abajo."
       : manualMethod?.instructions || "La tienda te contactará para coordinar el pago.";
-  const paymentInstructions = provider === "transfer" ? transferInstructionsWithBankDetails(baseInstructions) : baseInstructions;
+  const paymentInstructions = provider === "transfer" ? transferInstructionsWithBankDetails(baseInstructions, manualMethod?.bankDetails) : baseInstructions;
   const subtotal = order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
   const shippingAmount = Number(order.shippingAmount || 0);
   const discount = Math.max(0, subtotal + shippingAmount - Number(order.total));

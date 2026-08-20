@@ -17,7 +17,8 @@ type Carrier = {
   custom: boolean;
   description: string;
   flatRate: number;
-  pricingMode: "fixed" | "agreement";
+  pricingMode: "fixed" | "agreement" | "free";
+  deliveryDays: string | null;
   configured: boolean;
   requiredCount: number;
   completedCount: number;
@@ -43,7 +44,7 @@ export default function AdminPaqueteria({
   const [customName, setCustomName] = useState("");
   const [customDescription, setCustomDescription] = useState("");
   const [customFlatRate, setCustomFlatRate] = useState("");
-  const [customPricingMode, setCustomPricingMode] = useState<"fixed" | "agreement">("fixed");
+  const [customPricingMode, setCustomPricingMode] = useState<"fixed" | "agreement" | "free">("fixed");
   const [creatingCustom, setCreatingCustom] = useState(false);
 
   const summary = useMemo(() => {
@@ -153,6 +154,7 @@ export default function AdminPaqueteria({
         description: patch.description ?? carrier.description,
         flatRate: patch.flatRate ?? carrier.flatRate,
         pricingMode: patch.pricingMode ?? carrier.pricingMode,
+        ...(typeof patch.deliveryDays === "string" ? { deliveryDays: patch.deliveryDays } : {}),
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -233,7 +235,7 @@ export default function AdminPaqueteria({
                 onChange={(event) => setCustomFlatRate(event.target.value.replace(/[^\d.]/g, ""))}
                 placeholder="2500"
                 inputMode="decimal"
-                disabled={customPricingMode === "agreement"}
+                disabled={customPricingMode !== "fixed"}
                 className="admin-input mt-2"
               />
             </label>
@@ -327,7 +329,9 @@ function ProviderCard({
   const [customName, setCustomName] = useState(carrier.name);
   const [customDescription, setCustomDescription] = useState(carrier.description);
   const [customFlatRate, setCustomFlatRate] = useState(String(carrier.flatRate || 0));
-  const [customPricingMode, setCustomPricingMode] = useState<"fixed" | "agreement">(carrier.pricingMode);
+  const [customPricingMode, setCustomPricingMode] = useState<"fixed" | "agreement" | "free">(carrier.pricingMode);
+  const [deliveryDays, setDeliveryDays] = useState(carrier.deliveryDays ?? "");
+  const supportsDeliveryDays = carrier.key === "epick" || carrier.key === "correo";
 
   return (
     <article className="rounded-3xl border border-[var(--admin-border)] bg-[var(--admin-background)] p-5 xl:p-4 transition duration-150 hover:-translate-y-0.5 hover:shadow-[var(--admin-shadow)]">
@@ -422,6 +426,19 @@ function ProviderCard({
         ) : null}
       </div>
 
+      {supportsDeliveryDays && (
+        <div className="mt-5 rounded-2xl border border-[var(--admin-border)] bg-white/60 p-4">
+          <div className="text-sm font-semibold text-[var(--admin-text)]">Tiempo estimado de entrega</div>
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+            <label className="block max-w-xs flex-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Días hábiles luego de ser despachado</span>
+              <input value={deliveryDays} onChange={(event) => setDeliveryDays(event.target.value)} placeholder="Ej. 3-6" className="admin-input mt-2" />
+            </label>
+            <button type="button" disabled={busy || !deliveryDays.trim()} onClick={() => onSaveCustom({ deliveryDays: deliveryDays.trim() })} className="inline-flex min-h-[44px] items-center justify-center rounded-2xl bg-[var(--admin-primary)] px-5 py-2 text-sm font-semibold text-white disabled:opacity-60">Guardar días</button>
+          </div>
+        </div>
+      )}
+
       {carrier.custom ? (
         <div className="mt-5 rounded-2xl border border-[var(--admin-border)] bg-white/60 p-4">
           <div className="text-sm font-semibold text-[var(--admin-text)]">Configuración personalizada</div>
@@ -438,11 +455,12 @@ function ProviderCard({
               <span className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Modo</span>
               <select
                 value={customPricingMode}
-                onChange={(event) => setCustomPricingMode(event.target.value === "agreement" ? "agreement" : "fixed")}
+                onChange={(event) => setCustomPricingMode(event.target.value === "agreement" ? "agreement" : event.target.value === "free" ? "free" : "fixed")}
                 className="admin-input mt-2"
               >
                 <option value="fixed">Precio fijo</option>
                 <option value="agreement">A convenir</option>
+                <option value="free">Gratis</option>
               </select>
             </label>
             <label className="block">

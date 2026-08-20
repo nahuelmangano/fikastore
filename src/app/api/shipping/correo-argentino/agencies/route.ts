@@ -7,6 +7,7 @@ export const runtime = "nodejs";
 
 type Body = {
   provinceCode?: string;
+  postalCode?: string;
 };
 
 type AgencyResponse = {
@@ -38,6 +39,7 @@ async function requireCustomerId() {
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as Body | null;
   const provinceCode = body?.provinceCode?.trim().toUpperCase();
+  const postalCode = body?.postalCode?.trim();
   if (!provinceCode) {
     return NextResponse.json({ ok: false, error: "provinceCode requerido." }, { status: 400 });
   }
@@ -50,6 +52,7 @@ export async function POST(req: Request) {
     const params = new URLSearchParams();
     params.set("customerId", await requireCustomerId());
     params.set("provinceCode", provinceCode);
+    if (postalCode) params.set("postalCode", postalCode);
     params.set("services", "pickup_availability");
 
     const data = await correoArgentinoRequest<AgencyResponse[]>(`/agencies?${params.toString()}`);
