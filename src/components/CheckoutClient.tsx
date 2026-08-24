@@ -163,7 +163,7 @@ function ShippingAmount({ amount, freeShipping }: { amount: number; freeShipping
         <span className="text-xs font-medium text-zinc-500 line-through">
           ${amount.toLocaleString("es-AR")}
         </span>
-        <span className="text-emerald-300">Gratis</span>
+        <span className="text-zinc-100">Gratis</span>
       </span>
     );
   }
@@ -886,7 +886,10 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                         className="mt-1"
                       />
                       <div>
-                        <div className="text-sm font-medium">Envio a domicilio (Andreani)</div>
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <ShippingMethodLogo method="andreani" />
+                          <span>Envio a domicilio (Andreani)</span>
+                        </div>
                         <div className="text-xs text-zinc-500">
                           {andreaniLoading
                             ? "Cotizando..."
@@ -954,7 +957,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                           {correoHomeFreeShipping ? (
                             <span>
                               <span className="line-through">${correoHomeAmount.toLocaleString("es-AR")}</span>{" "}
-                              <span className="font-semibold text-emerald-600">Gratis</span>
+                              <span className="font-semibold text-zinc-100">Gratis</span>
                             </span>
                           ) : correoHomeAmount > 0 ? (
                             `$${correoHomeAmount.toLocaleString("es-AR")}`
@@ -984,7 +987,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                               ? (
                                   <span>
                                     <span className="line-through">${correoBranchAmount.toLocaleString("es-AR")}</span>{" "}
-                                    <span className="font-semibold text-emerald-600">Gratis</span>
+                                    <span className="font-semibold text-white">Gratis</span>
                                   </span>
                                 )
                               : correoBranchAmount > 0
@@ -1046,7 +1049,10 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                         className="mt-1"
                       />
                       <div>
-                        <div className="text-sm font-medium">Retiro en comercio</div>
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <ShippingMethodLogo method="pickup" />
+                          <span>Retiro en comercio</span>
+                        </div>
                         <div className="text-xs text-zinc-500">Sin costo de envio</div>
                       </div>
                     </div>
@@ -1069,7 +1075,10 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                           className="mt-1"
                         />
                         <div>
-                          <div className="text-sm font-medium">{carrier.name}</div>
+                          <div className="flex items-center gap-2 text-sm font-medium">
+                            <ShippingMethodLogo method={carrier.key} />
+                            <span>{carrier.name}</span>
+                          </div>
                           <div className="text-xs text-zinc-500">
                             {isAgreement ? "Coordinamos el costo después de la compra." : carrier.description || "Método de entrega personalizado"}
                           </div>
@@ -1399,6 +1408,29 @@ function shippingMethodLabel(method: ShippingMethod) {
   if (method === "correo") return "Correo Argentino";
   if (method === "pickup") return "Retiro en comercio";
   return "Envío personalizado";
+}
+
+const SHIPPING_LOGO_BASE_URL = "https://dk0k1i3js6c49.cloudfront.net/iconos-envio";
+
+function shippingLogoUrl(method: string) {
+  if (method === "epick") return "/images/epick.png";
+  if (method === "correo") return "/images/correo-argentino.png";
+  if (method === "andreani") return `${SHIPPING_LOGO_BASE_URL}/andreani.png`;
+  if (method === "pickup") return `${SHIPPING_LOGO_BASE_URL}/acordar.png`;
+  return `${SHIPPING_LOGO_BASE_URL}/personalizado.png`;
+}
+
+function ShippingMethodLogo({ method }: { method: string }) {
+  return (
+    <Image
+      src={shippingLogoUrl(method)}
+      alt=""
+      width={28}
+      height={28}
+      unoptimized
+      className="h-7 w-7 rounded-full object-contain"
+    />
+  );
 }
 
 function paymentIconFor(method: PaymentMethod): LucideIcon {

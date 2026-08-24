@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   CartItem,
@@ -54,6 +55,15 @@ type ShippingOption = {
 type PickupAgency = { code: string; name: string; addressLine: string; city: string; province: string; zip: string };
 
 const SELECTED_SHIPPING_KEY = "fika:selected-shipping";
+const SHIPPING_LOGO_BASE_URL = "https://dk0k1i3js6c49.cloudfront.net/iconos-envio";
+
+function shippingLogoUrl(method: string) {
+  if (method === "epick") return "/images/epick.png";
+  if (method === "correo") return "/images/correo-argentino.png";
+  if (method === "andreani") return `${SHIPPING_LOGO_BASE_URL}/andreani.png`;
+  if (method === "pickup") return `${SHIPPING_LOGO_BASE_URL}/acordar.png`;
+  return `${SHIPPING_LOGO_BASE_URL}/personalizado.png`;
+}
 
 function provinceCodeFromPostalCode(postalCode: string) {
   const value = Number(postalCode.replace(/\D/g, ""));
@@ -398,13 +408,13 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
         ))}
       </div>
 
-      <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
+      <div className="mt-6 rounded-2xl border border-zinc-800 bg-[var(--surface)] p-4">
         <div className="mb-4 divide-y divide-zinc-800 border-y border-zinc-800">
           <section>
             <button
               type="button"
               onClick={() => setShippingOpen((open) => !open)}
-              className="flex w-full items-center justify-between py-4 text-left text-sm text-zinc-300"
+              className="flex w-full items-center justify-between py-4 text-left text-sm text-zinc-100"
             >
               <span>Calculá el costo de envío</span>
               <ChevronDown className={["h-4 w-4 transition-transform", shippingOpen ? "rotate-180" : ""].join(" ")} aria-hidden="true" />
@@ -435,34 +445,38 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
                 </div>
                 {shippingError && <div className="mt-2 text-xs text-amber-300">{shippingError}</div>}
                 {shippingOptions.length > 0 && (
-                  <div className="mt-3 space-y-1 rounded-xl border border-zinc-800">
+                  <div className="mt-3 grid gap-3">
                     {shippingOptions.map((option) => {
                       const id = `${option.key}:${option.deliveryType ?? ""}`;
                       const selected = selectedShipping === id;
                       return (
                         <Fragment key={id}>
-                        <label className="flex cursor-pointer items-start justify-between gap-3 border-b border-zinc-800 p-3 last:border-b-0">
+                        <label className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-zinc-800 bg-[var(--surface)] p-3">
                           <span className="flex gap-2">
                             <input type="radio" name="cartShipping" checked={selected} onChange={() => {
                               setSelectedShipping(id);
                               if (option.key === "correo" && option.deliveryType === "S") void loadCorreoAgencies();
                               localStorage.setItem(SELECTED_SHIPPING_KEY, JSON.stringify({ key: option.key, deliveryType: option.deliveryType, postalCode: shippingPostalCode.trim() }));
                               window.dispatchEvent(new Event("shipping:changed"));
-                            }} />
+                            }} className="mt-1" />
                             <span className="flex items-start gap-2">
-                              {(option.key === "correo" || option.key === "epick") && (
-                                /* eslint-disable-next-line @next/next/no-img-element */
-                                <img src={option.key === "correo" ? "/images/correo-argentino.png" : "/images/epick.png"} alt="" className="mt-0.5 h-5 w-5 rounded-full object-contain" />
-                              )}
-                              <span><span className="block text-sm text-zinc-300">{option.label}</span>{option.description && <span className="block text-xs text-zinc-500">{option.description}</span>}</span>
+                              <Image
+                                src={shippingLogoUrl(option.key)}
+                                alt=""
+                                width={28}
+                                height={28}
+                                unoptimized
+                                className="mt-0.5 h-7 w-7 rounded-full object-contain"
+                              />
+                              <span><span className="block text-sm font-medium text-zinc-100">{option.label}</span>{option.description && <span className="block text-xs text-zinc-500">{option.description}</span>}</span>
                             </span>
                           </span>
-                          <span className="shrink-0 text-sm font-semibold">{option.agreement ? "A convenir" : option.freeShipping || option.amount <= 0 ? "Gratis" : `$${option.amount.toLocaleString("es-AR")}`}</span>
+                          <span className="shrink-0 text-sm font-semibold text-zinc-100">{option.agreement ? "A convenir" : option.freeShipping || option.amount <= 0 ? "Gratis" : `$${option.amount.toLocaleString("es-AR")}`}</span>
                         </label>
                         {selected && option.key === "correo" && option.deliveryType === "S" && (
-                          <div className="border-b border-zinc-800 px-3 pb-3">
+                          <div className="-mt-1 rounded-xl border border-zinc-800 bg-[var(--surface)] p-3">
                             <div className="mb-2 text-xs text-zinc-400">Elegí una sucursal cercana</div>
-                            <div className="rounded-xl border border-zinc-800">
+                            <div className="rounded-xl border border-zinc-800 bg-[var(--surface)]">
                               {correoAgenciesLoading && (
                                 <div className="flex items-center gap-2 p-3 text-xs text-zinc-500">
                                   <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-zinc-600 border-t-transparent" aria-hidden="true" />

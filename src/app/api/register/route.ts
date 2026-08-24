@@ -29,12 +29,12 @@ export async function POST(req: Request) {
     const body = await req.json();
     const email = String(body.email || "").toLowerCase().trim();
     const password = String(body.password || "");
-    const name = body.name ? String(body.name).trim() : null;
+    const name = String(body.name || "").trim().slice(0, 100);
     const birthDate = parseBirthDate(body.birthDate);
 
-    if (!email || !password) {
+    if (!email || !password || !name) {
       return NextResponse.json(
-        { ok: false, error: "Email y password son obligatorios." },
+        { ok: false, error: "Nombre, email y password son obligatorios." },
         { status: 400 }
       );
     }

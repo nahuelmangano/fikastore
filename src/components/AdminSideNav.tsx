@@ -1,18 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   BadgePercent,
   BarChart3,
   CreditCard,
+  ChevronDown,
+  FileText,
   FolderTree,
+  Globe,
   Home,
+  LayoutGrid,
   LogOut,
   Mail,
+  Monitor,
   Package,
+  Paintbrush,
   RefreshCw,
+  Share2,
   Settings,
   ShoppingBag,
   Store,
@@ -20,6 +27,7 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
+import { useState } from "react";
 
 type AdminSideNavProps = {
   isAdmin: boolean;
@@ -30,6 +38,8 @@ type NavItem = {
   label: string;
   icon: LucideIcon;
   newTab?: boolean;
+  query?: string;
+  children?: NavItem[];
 };
 
 type NavGroup = {
@@ -42,8 +52,31 @@ function isActivePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+function navHref(item: NavItem) {
+  return item.query ? `${item.href}?tab=${item.query}` : item.href;
+}
+
 export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [settingsOpen, setSettingsOpen] = useState(pathname.startsWith("/admin/settings"));
+
+  const isItemActive = (item: NavItem) =>
+    item.query
+      ? pathname === item.href && searchParams.get("tab") === item.query
+      : isActivePath(pathname, item.href);
+
+  const settingsChildren: NavItem[] = [
+    { href: "/admin/settings", query: "appearance", label: "Apariencia", icon: Paintbrush },
+    { href: "/admin/settings", query: "home", label: "Inicio", icon: Home },
+    { href: "/admin/settings", query: "content", label: "Contenido", icon: Monitor },
+    { href: "/admin/settings", query: "pages", label: "Páginas", icon: FileText },
+    { href: "/admin/settings", query: "categories", label: "Categorías", icon: LayoutGrid },
+    { href: "/admin/settings", query: "payments", label: "Medios de pago", icon: CreditCard },
+    { href: "/admin/settings", query: "social", label: "Redes", icon: Share2 },
+    { href: "/admin/settings", query: "domain", label: "Dominio", icon: Globe },
+    { href: "/admin/settings", query: "analytics", label: "Analíticas", icon: BarChart3 },
+  ];
 
   const groups: NavGroup[] = [
     {
@@ -74,26 +107,26 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
       label: "Sistema",
       items: [
         { href: "/admin/mailing", label: "Mailing", icon: Mail },
-        { href: "/admin/settings", label: "Configuracion", icon: Settings },
+        { href: "/admin/settings", label: "Configuracion", icon: Settings, children: settingsChildren },
         { href: "/", label: "Ver Tienda", icon: Store, newTab: true },
         ...(isAdmin ? [{ href: "/admin/users/new", label: "Alta merchant", icon: CreditCard }] : []),
       ],
     },
   ];
 
-  const items = groups.flatMap((group) => group.items);
+  const items = groups.flatMap((group) => group.items.flatMap((item) => [item, ...(item.children || [])]));
 
   return (
     <>
       <div className="sticky top-0 z-40 border-b border-[#E5D7C8] bg-[#FAF8F5]/95 px-3 py-3 text-[#8B5A2B] backdrop-blur md:hidden">
         <div className="flex gap-2 overflow-x-auto">
           {items.map((item) => {
-            const active = isActivePath(pathname, item.href);
+            const active = isItemActive(item);
             const Icon = item.icon;
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                href={navHref(item)}
                 target={item.newTab ? "_blank" : undefined}
                 rel={item.newTab ? "noopener noreferrer" : undefined}
                 className={[
@@ -138,16 +171,15 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
               </div>
               <div className="space-y-1.5">
                 {group.items.map((item) => {
-                  const active = isActivePath(pathname, item.href);
+                  const active = isItemActive(item);
                   const Icon = item.icon;
-                  return (
+                  const itemLink = (
                     <Link
-                      key={item.href}
-                      href={item.href}
+                      href={navHref(item)}
                       target={item.newTab ? "_blank" : undefined}
                       rel={item.newTab ? "noopener noreferrer" : undefined}
                       className={[
-                        "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] transition duration-150",
+                        "group relative flex flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] transition duration-150",
                         active
                           ? "bg-[#8B5A2B] font-semibold text-white shadow-sm"
                           : "text-[#7B522E] hover:translate-x-1 hover:bg-[#F2ECE5]",
@@ -157,6 +189,46 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
                       <Icon className="h-4.5 w-4.5 shrink-0" aria-hidden="true" />
                       <span>{item.label}</span>
                     </Link>
+                  );
+
+                  if (!item.children) return <div key={item.href}>{itemLink}</div>;
+
+                  return (
+                    <div key={item.href}>
+                      <div className="flex items-center gap-1">
+                        {itemLink}
+                        <button
+                          type="button"
+                          aria-label={settingsOpen ? "Ocultar submenú de configuración" : "Mostrar submenú de configuración"}
+                          aria-expanded={settingsOpen}
+                          onClick={() => setSettingsOpen((open) => !open)}
+                          className="rounded-lg p-2 text-[#7B522E] hover:bg-[#F2ECE5]"
+                        >
+                          <ChevronDown className={["h-4 w-4 transition-transform", settingsOpen ? "rotate-180" : ""].join(" ")} aria-hidden="true" />
+                        </button>
+                      </div>
+                      {settingsOpen ? (
+                        <div className="ml-5 mt-1 space-y-1 border-l border-[#E5D7C8] pl-2">
+                          {item.children.map((child) => {
+                            const childActive = isItemActive(child);
+                            const ChildIcon = child.icon;
+                            return (
+                              <Link
+                                key={child.query}
+                                href={navHref(child)}
+                                className={[
+                                  "flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition duration-150",
+                                  childActive ? "bg-[#8B5A2B] font-semibold text-white" : "text-[#8F6A49] hover:bg-[#F2ECE5]",
+                                ].join(" ")}
+                              >
+                                <ChildIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                                <span>{child.label}</span>
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
                   );
                 })}
               </div>

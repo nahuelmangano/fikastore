@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { signIn } from "next-auth/react";
+import { Eye, EyeOff } from "lucide-react";
 
 export default function RegisterPage() {
   return (
@@ -24,6 +25,7 @@ function RegisterForm() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,12 +84,13 @@ function RegisterForm() {
           }}
         >
           <div>
-            <label className="text-sm text-zinc-300">Nombre (opcional)</label>
+            <label className="text-sm text-zinc-300">Nombre</label>
             <input
               className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoComplete="name"
+              required
             />
           </div>
 
@@ -117,38 +120,24 @@ function RegisterForm() {
 
           <div>
             <label className="text-sm text-zinc-300">Contraseña</label>
-            <input
-              type={showPassword ? "text" : "password"}
-              className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="new-password"
-              required
-            />
+            <div className="relative mt-2">
+              <input type={showPassword ? "text" : "password"} className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 pr-11" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required />
+              <button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-zinc-400 hover:text-zinc-100">
+                {showPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+              </button>
+            </div>
             <p className="mt-2 text-xs text-zinc-500">Mínimo 6 caracteres.</p>
           </div>
 
           <div>
             <label className="text-sm text-zinc-300">Repetir contraseña</label>
-            <input
-              type={showPassword ? "text" : "password"}
-              className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              autoComplete="new-password"
-              required
-            />
+            <div className="relative mt-2">
+              <input type={showConfirmPassword ? "text" : "password"} className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 pr-11" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" required />
+              <button type="button" onClick={() => setShowConfirmPassword((value) => !value)} aria-label={showConfirmPassword ? "Ocultar confirmación de contraseña" : "Mostrar confirmación de contraseña"} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-zinc-400 hover:text-zinc-100">
+                {showConfirmPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+              </button>
+            </div>
           </div>
-
-          <label className="flex items-center gap-2 text-sm text-zinc-300">
-            <input
-              type="checkbox"
-              checked={showPassword}
-              onChange={(e) => setShowPassword(e.target.checked)}
-              className="h-4 w-4 rounded border-zinc-700 bg-zinc-900"
-            />
-            Mostrar contraseña
-          </label>
 
           {error && (
             <div className="rounded-xl border border-amber-700/40 bg-amber-50 p-3 text-sm text-amber-900">

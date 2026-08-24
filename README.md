@@ -86,7 +86,7 @@ Mailing
 
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` funcionan como fallback si no hay SMTP configurado desde el admin.
 - `MAILING_ENCRYPTION_KEY` es requerida para guardar contrasenas SMTP desde el panel admin. Debe ser un secreto estable en produccion.
-- `INTERNAL_CRON_SECRET` protege el procesador interno de emails automaticos. Debe configurarse siempre en produccion.
+- `INTERNAL_CRON_SECRET` protege el procesador interno de emails automaticos. Si no se define, el procesador usa `CRON_SECRET` como fallback para compatibilidad.
 
 ### Emails automaticos
 
@@ -118,6 +118,8 @@ curl -X POST http://localhost:3000/api/internal/email-jobs/process \
 ```
 
 El procesador es idempotente, trabaja por lotes y reserva trabajos antes de enviarlos para reducir duplicados en multiples instancias.
+
+En `docker compose` se levanta ademas el servicio `email-jobs-cron`, que llama automaticamente a este endpoint cada `EMAIL_JOBS_CRON_INTERVAL_SECONDS` segundos.
 
 Para Docker/cron, ejecutarlo con la frecuencia deseada desde el host o un contenedor cron. Ejemplo cada 10 minutos:
 

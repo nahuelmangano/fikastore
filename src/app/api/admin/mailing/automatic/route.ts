@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isAdminRole, isStaffRole } from "@/lib/roles";
 import { sanitizeRichText, stripRichText } from "@/lib/richText";
-import { getEmailJobSettings, getMailingSettings, setEmailJobSettings } from "@/lib/storeSettings";
+import { getEmailJobSettings, getMailingSettings, getManualPaymentSettings, setEmailJobSettings } from "@/lib/storeSettings";
 import {
   ensureDefaultEmailTemplates,
   processPendingEmailNotifications,
@@ -15,11 +15,37 @@ import { publicBaseUrl } from "@/lib/publicUrl";
 import { orderPaidTemplate } from "@/lib/email-templates";
 import { sendMail } from "@/lib/mailer";
 import { emailProductRowsHtml } from "@/lib/emailProductRows";
+import { transferInstructionsWithBankDetails } from "@/lib/manualPaymentInstructions";
 import type { EmailTemplateKey } from "@/lib/emailNotificationTemplates";
 
-function samplePayload(req: Request) {
+function paymentDetailsHtmlFromInstructions(instructions: string) {
+  const lines = instructions
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) return "";
+
+  return `
+    <div style="margin:16px 0;">
+      <p style="margin:0 0 8px;color:#111;font-weight:700;">Datos para transferencia</p>
+      <div style="border:1px solid #ddd;padding:14px 16px;color:#444;font-size:13px;line-height:1.6;">
+        ${lines.map((line) => `<div>${line}</div>`).join("")}
+      </div>
+    </div>
+  `;
+}
+
+async function samplePayload(req: Request) {
   const baseUrl = publicBaseUrl(req);
   const sampleImageUrl = `${baseUrl}/fika-logo.svg`;
+  const manualMethods = await getManualPaymentSettings();
+  const transferMethod = manualMethods.find((method) => method.key === "transfer");
+  const transferInstructions = transferInstructionsWithBankDetails(
+    transferMethod?.instructions || "Enviá el comprobante por WhatsApp.",
+    transferMethod?.bankDetails
+  );
+
   return {
     customerName: "Cliente de prueba",
     orderNumber: "#1001",
@@ -29,16 +55,7 @@ function samplePayload(req: Request) {
     rejectionReason: "Fondos insuficientes",
     retryPaymentUrl: `${baseUrl}/pay/pending?orderId=test-order`,
     paymentInstructions: "Completá el pago desde el enlace.",
-    paymentDetailsHtml: `
-      <div style="margin:16px 0;">
-        <p style="margin:0 0 8px;color:#111;font-weight:700;">Datos para transferencia</p>
-        <div style="border:1px solid #ddd;padding:14px 16px;color:#444;font-size:13px;line-height:1.6;">
-          <div>CBU: 0000000000000000000000</div>
-          <div>Alias: FIKAPIJAMAS</div>
-          <div>Enviá el comprobante por WhatsApp.</div>
-        </div>
-      </div>
-    `,
+    paymentDetailsHtml: paymentDetailsHtmlFromInstructions(transferInstructions),
     shippingMethod: "Acordar envío",
     shippingInstructions: "Comunicate con nosotros para coordinar el envío.",
     shippingDetailsHtml: `
@@ -106,7 +123,7 @@ function samplePayload(req: Request) {
 async function detailedPaymentApprovedPreview(req: Request) {
   const baseUrl = publicBaseUrl(req);
   const mailing = await getMailingSettings();
-  const rendered = await renderEmailTemplate("payment-approved", samplePayload(req));
+  const rendered = await renderEmailTemplate("payment-approved", await samplePayload(req));
 
   return {
     subject: rendered.subject,
@@ -237,7 +254,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, preview });
     }
 
-    const preview = await renderEmailTemplate(key, samplePayload(req));
+    const preview = await renderEmailTemplate(key, await samplePayload(req));
     return NextResponse.json({ ok: true, preview: { subject: preview.subject, html: preview.html, text: preview.text } });
   }
 
@@ -262,7 +279,7 @@ export async function POST(req: Request) {
         to,
         idempotencyKey: `admin-test:${key}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
         isTest: true,
-        payload: samplePayload(req),
+        payload: await samplePayload(req),
       });
     }
     return NextResponse.json({ ok: true });

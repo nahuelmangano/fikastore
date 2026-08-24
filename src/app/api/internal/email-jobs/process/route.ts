@@ -4,7 +4,7 @@ import { processScheduledEmailJobs } from "@/lib/emailNotificationJobs";
 export const runtime = "nodejs";
 
 function isAuthorized(req: Request) {
-  const secret = process.env.INTERNAL_CRON_SECRET;
+  const secret = process.env.INTERNAL_CRON_SECRET || process.env.CRON_SECRET;
   if (!secret) return false;
   const header = req.headers.get("authorization") || "";
   return header === `Bearer ${secret}`;

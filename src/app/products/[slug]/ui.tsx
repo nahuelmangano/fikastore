@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -26,6 +27,16 @@ function money(n: number) {
 
 function moneyWithCents(n: number) {
   return `$${n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+const SHIPPING_LOGO_BASE_URL = "https://dk0k1i3js6c49.cloudfront.net/iconos-envio";
+
+function shippingLogoUrl(method: string) {
+  if (method === "epick") return "/images/epick.png";
+  if (method === "correo") return "/images/correo-argentino.png";
+  if (method === "andreani") return `${SHIPPING_LOGO_BASE_URL}/andreani.png`;
+  if (method === "pickup") return `${SHIPPING_LOGO_BASE_URL}/acordar.png`;
+  return `${SHIPPING_LOGO_BASE_URL}/personalizado.png`;
 }
 
 function splitProductName(name: string) {
@@ -648,8 +659,8 @@ export default function ProductDetailClient({
                 * En el checkout validamos stock nuevamente al crear la orden.
               </p>
 
-              <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/20 p-4">
-                <div className="text-sm font-medium">Calculá el costo de envío</div>
+              <div className="mt-4 rounded-2xl border border-zinc-800 bg-[var(--surface)] p-4">
+                <div className="text-sm font-semibold text-zinc-100">Calculá el costo de envío</div>
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                   <input
                     value={postalCode}
@@ -675,25 +686,31 @@ export default function ProductDetailClient({
                 {quoteError && <div className="mt-3 text-xs text-amber-300">{quoteError}</div>}
 
                 {quoteRows.length > 0 && (
-                  <div className="mt-3 space-y-2 text-sm">
-                    {quoteRows.map((row, idx) => (
+                  <div className="mt-3 grid gap-3 text-sm">
+                    {quoteRows.map((row) => (
                       <div
                         key={row.label}
-                        className={[
-                          "flex items-center justify-between rounded-xl border px-3 py-2",
-                          idx === 0 ? "border-amber-700/40 bg-amber-50/10" : "border-zinc-800 bg-zinc-900/20",
-                        ].join(" ")}
+                        className="flex items-start justify-between gap-3 rounded-xl border border-zinc-800 bg-[var(--surface)] p-3"
                       >
-                        <span className="text-zinc-300">
-                          <span>{row.label}</span>
+                        <span className="flex items-start gap-2">
+                          <Image
+                            src={shippingLogoUrl(row.carrierKey)}
+                            alt=""
+                            width={28}
+                            height={28}
+                            unoptimized
+                            className="mt-0.5 h-7 w-7 rounded-full object-contain"
+                          />
+                          <span className="text-zinc-100">
+                            <span className="font-medium">{row.label}</span>
                           {row.description && (
                             <span className="mt-0.5 block text-xs text-zinc-500">{row.description}</span>
                           )}
-                          {idx === 0 && <span className="ml-2 text-xs text-amber-300">Más conveniente</span>}
+                          </span>
                         </span>
-                        <span className="font-semibold">
+                        <span className="shrink-0 font-semibold text-zinc-100">
                           {row.pricingMode === "agreement" ? (
-                            <span className="text-amber-300">Acordar</span>
+                            <span>Acordar</span>
                           ) : row.freeShipping || row.amount === 0 ? (
                             <span className="inline-flex items-center gap-2">
                               {row.amount > 0 && (
@@ -701,7 +718,7 @@ export default function ProductDetailClient({
                                   ${row.amount.toLocaleString("es-AR")}
                                 </span>
                               )}
-                              <span className="text-emerald-300">Gratis</span>
+                              <span className={row.deliveryType === "S" ? "text-white" : "text-zinc-100"}>Gratis</span>
                             </span>
                           ) : (
                             `$${row.amount.toLocaleString("es-AR")}`

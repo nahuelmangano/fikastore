@@ -221,24 +221,26 @@ export default function AdminPaqueteria({
               <span className="text-sm font-semibold text-[var(--admin-text)]">Modo</span>
               <select
                 value={customPricingMode}
-                onChange={(event) => setCustomPricingMode(event.target.value === "agreement" ? "agreement" : "fixed")}
+                onChange={(event) => setCustomPricingMode(event.target.value === "agreement" ? "agreement" : event.target.value === "free" ? "free" : "fixed")}
                 className="admin-input mt-2"
               >
                 <option value="fixed">Precio fijo</option>
                 <option value="agreement">A convenir</option>
+                <option value="free">Gratis</option>
               </select>
             </label>
-            <label className="block">
-              <span className="text-sm font-semibold text-[var(--admin-text)]">Precio</span>
-              <input
-                value={customFlatRate}
-                onChange={(event) => setCustomFlatRate(event.target.value.replace(/[^\d.]/g, ""))}
-                placeholder="2500"
-                inputMode="decimal"
-                disabled={customPricingMode !== "fixed"}
-                className="admin-input mt-2"
-              />
-            </label>
+            {customPricingMode === "fixed" ? (
+              <label className="block">
+                <span className="text-sm font-semibold text-[var(--admin-text)]">Precio</span>
+                <input
+                  value={customFlatRate}
+                  onChange={(event) => setCustomFlatRate(event.target.value.replace(/[^\d.]/g, ""))}
+                  placeholder="2500"
+                  inputMode="decimal"
+                  className="admin-input mt-2"
+                />
+              </label>
+            ) : null}
             <div className="flex items-end">
               <button
                 type="button"
@@ -354,6 +356,8 @@ function ProviderCard({
               <div className="mt-2 text-xs font-semibold text-[var(--admin-primary)]">
                 {carrier.pricingMode === "agreement"
                   ? "Precio a convenir"
+                  : carrier.pricingMode === "free"
+                    ? "Envío gratis"
                   : `Precio fijo: $${carrier.flatRate.toLocaleString("es-AR")}`}
               </div>
             ) : null}
@@ -463,16 +467,17 @@ function ProviderCard({
                 <option value="free">Gratis</option>
               </select>
             </label>
-            <label className="block">
-              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Precio</span>
-              <input
-                value={customFlatRate}
-                onChange={(event) => setCustomFlatRate(event.target.value.replace(/[^\d.]/g, ""))}
-                inputMode="decimal"
-                disabled={customPricingMode === "agreement"}
-                className="admin-input mt-2"
-              />
-            </label>
+            {customPricingMode === "fixed" ? (
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Precio</span>
+                <input
+                  value={customFlatRate}
+                  onChange={(event) => setCustomFlatRate(event.target.value.replace(/[^\d.]/g, ""))}
+                  inputMode="decimal"
+                  className="admin-input mt-2"
+                />
+              </label>
+            ) : null}
             <div className="flex justify-end sm:col-span-2">
               <button
                 type="button"

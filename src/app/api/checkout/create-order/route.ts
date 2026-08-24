@@ -330,34 +330,48 @@ export async function POST(req: Request) {
         ...shippingAddressLines,
       ];
 
-      queueAndSendEmailNotification({
-        templateKey: "payment-pending",
-        to: createdOrder.user.email,
-        recipientUserId: createdOrder.user.id,
-        orderId: createdOrder.id,
-        paymentId: payment?.id,
-        idempotencyKey: `payment-pending:${payment?.id || createdOrder.id}`,
-        payload: {
-          customerName: createdOrder.user.name || createdOrder.user.email,
-          orderNumber: `#${createdOrder.orderNumber}`,
-          productsHtml: emailOrderItemsHtml(createdOrder.items, baseUrl, { subtotal: itemsSubtotal, shipping: createdOrder.shippingAmount, total: createdOrder.total }),
-          productsText: emailOrderItemsText(createdOrder.items, { subtotal: itemsSubtotal, shipping: createdOrder.shippingAmount, total: createdOrder.total }),
-          paymentAmount: `$${Number(createdOrder.total).toLocaleString("es-AR")}`,
-          paymentMethod: paymentLabel,
-          paymentInstructions,
-          paymentDetailsHtml:
-            paymentMethod === "mercadopago"
-              ? ""
-              : emailInfoBox(paymentMethod === "transfer" ? "Datos para transferencia" : paymentLabel, textLines(paymentInstructions)),
-          shippingMethod: shippingLabel,
-          shippingInstructions: shippingInstructions.join(". "),
-          shippingDetailsHtml: emailInfoBox("Envío", shippingInstructions),
-          paymentDueDate: "No informada",
-          paymentUrl: `${baseUrl}/pay/pending?orderId=${createdOrder.id}`,
-          storeName: "FikaStore",
-          storeUrl: baseUrl,
-        },
-      }).catch((error) => console.error("payment pending email queue failed", error instanceof Error ? error.message : error));
+      if (paymentMethod === "mercadopago" && payment?.id) {
+        scheduleEmailJob({
+          type: "payment-pending-initial",
+          runAt: new Date(Date.now() + 20 * 60 * 1000),
+          idempotencyKey: `payment-pending:${payment.id}`,
+          orderId: createdOrder.id,
+          paymentId: payment.id,
+          payload: {
+            paymentId: payment.id,
+            orderId: createdOrder.id,
+          },
+        }).catch((error) => console.error("initial mercadopago pending email scheduling failed", error instanceof Error ? error.message : error));
+      } else {
+        queueAndSendEmailNotification({
+          templateKey: "payment-pending",
+          to: createdOrder.user.email,
+          recipientUserId: createdOrder.user.id,
+          orderId: createdOrder.id,
+          paymentId: payment?.id,
+          idempotencyKey: `payment-pending:${payment?.id || createdOrder.id}`,
+          payload: {
+            customerName: createdOrder.user.name || createdOrder.user.email,
+            orderNumber: `#${createdOrder.orderNumber}`,
+            productsHtml: emailOrderItemsHtml(createdOrder.items, baseUrl, { subtotal: itemsSubtotal, shipping: createdOrder.shippingAmount, total: createdOrder.total }),
+            productsText: emailOrderItemsText(createdOrder.items, { subtotal: itemsSubtotal, shipping: createdOrder.shippingAmount, total: createdOrder.total }),
+            paymentAmount: `$${Number(createdOrder.total).toLocaleString("es-AR")}`,
+            paymentMethod: paymentLabel,
+            paymentInstructions,
+            paymentDetailsHtml:
+              paymentMethod === "mercadopago"
+                ? ""
+                : emailInfoBox(paymentMethod === "transfer" ? "Datos para transferencia" : paymentLabel, textLines(paymentInstructions)),
+            shippingMethod: shippingLabel,
+            shippingInstructions: shippingInstructions.join(". "),
+            shippingDetailsHtml: emailInfoBox("Envío", shippingInstructions),
+            paymentDueDate: "No informada",
+            paymentUrl: `${baseUrl}/pay/pending?orderId=${createdOrder.id}`,
+            storeName: "FikaStore",
+            storeUrl: baseUrl,
+          },
+        }).catch((error) => console.error("payment pending email queue failed", error instanceof Error ? error.message : error));
+      }
 
       getEmailJobSettings()
         .then((emailJobSettings) => {

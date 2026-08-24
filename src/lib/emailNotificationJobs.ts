@@ -10,6 +10,7 @@ import {
 } from "@/lib/emailNotificationService";
 import { publicBaseUrl } from "@/lib/publicUrl";
 import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows";
+import { getShippingCarriers } from "@/lib/shippingCarriers";
 
 function workerId() {
   return `${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
@@ -17,6 +18,128 @@ function workerId() {
 
 function money(value: number) {
   return `$${value.toLocaleString("es-AR")}`;
+}
+
+function textLines(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function emailInfoBox(title: string, lines: string[]) {
+  const cleanLines = lines.map((line) => line.trim()).filter(Boolean);
+  if (cleanLines.length === 0) return "";
+
+  return `
+    <div style="margin:16px 0;">
+      <p style="margin:0 0 8px;color:#111;font-weight:700;">${escapeHtml(title)}</p>
+      <div style="border:1px solid #ddd;padding:14px 16px;color:#444;font-size:13px;line-height:1.6;">
+        ${cleanLines.map((line) => `<div>${escapeHtml(line)}</div>`).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function emailShippingLabel(method: string, carrierName?: string | null, deliveryType?: string | null) {
+  if (method === "epick") return "E-pick";
+  if (method === "andreani") return "Andreani";
+  if (method === "correo") return deliveryType === "S" ? "Correo Argentino - Sucursal" : "Correo Argentino - Domicilio";
+  if (method === "pickup") return "Retiro en comercio";
+  return carrierName || "Acordar envío";
+}
+
+async function processInitialMercadoPagoPending(payload: Record<string, unknown>, req: Request) {
+  const paymentId = String(payload.paymentId || "");
+  const orderId = String(payload.orderId || "");
+  if (!paymentId || !orderId) return { skipped: true };
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      user: true,
+      payments: { where: { id: paymentId }, take: 1 },
+      items: {
+        include: {
+          product: {
+            include: {
+              images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }], take: 1 },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const payment = order?.payments[0];
+  if (!order || !order.user.email || !payment || payment.status !== "pending" || order.status !== "pending_payment") {
+    return { skipped: true };
+  }
+
+  const checkoutCarriers = await getShippingCarriers({ visibleToMerchantOnly: true });
+  const selectedCarrier = checkoutCarriers.find((carrier) => carrier.key === (order.shippingMethod || "") && carrier.enabled);
+  const baseUrl = publicBaseUrl(req);
+  const itemsSubtotal = order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
+  const shippingLabel = emailShippingLabel(order.shippingMethod || "", selectedCarrier?.name, order.shippingDeliveryType);
+  const shippingAddressLines =
+    order.shippingMethod === "pickup"
+      ? ["Retiro en comercio.", "Te vamos a contactar cuando el pedido esté listo para retirar."]
+      : order.shippingMethod === "correo" && order.shippingDeliveryType === "S"
+        ? [
+            order.shippingBranchName ? `Sucursal: ${order.shippingBranchName}` : "Retiro en sucursal de Correo Argentino.",
+            order.shippingAddressLine,
+            [order.shippingCity, order.shippingProvince].filter(Boolean).join(", "),
+            order.shippingZip ? `CP ${order.shippingZip}` : "",
+          ]
+        : [
+            `Destinatario: ${order.shippingName}`,
+            order.shippingPhone ? `Teléfono: ${order.shippingPhone}` : "",
+            order.shippingAddressLine,
+            [order.shippingCity, order.shippingProvince].filter(Boolean).join(", "),
+            order.shippingZip ? `CP ${order.shippingZip}` : "",
+          ];
+  const shippingInstructions = [
+    `Método de envío: ${shippingLabel}`,
+    ...(selectedCarrier?.description ? textLines(selectedCarrier.description) : []),
+    ...shippingAddressLines,
+  ];
+
+  await queueAndSendEmailNotification({
+    templateKey: "payment-pending",
+    to: order.user.email,
+    recipientUserId: order.userId,
+    orderId: order.id,
+    paymentId: payment.id,
+    idempotencyKey: `payment-pending:${payment.id}`,
+    payload: {
+      customerName: order.user.name || order.user.email,
+      orderNumber: `#${order.orderNumber}`,
+      productsHtml: emailOrderItemsHtml(order.items, baseUrl, { subtotal: itemsSubtotal, shipping: order.shippingAmount, total: order.total }),
+      productsText: emailOrderItemsText(order.items, { subtotal: itemsSubtotal, shipping: order.shippingAmount, total: order.total }),
+      paymentAmount: money(Number(order.total)),
+      paymentMethod: "Mercado Pago",
+      paymentInstructions: "Podés completar el pago desde el enlace de tu pedido.",
+      paymentDetailsHtml: "",
+      shippingMethod: shippingLabel,
+      shippingInstructions: shippingInstructions.join(". "),
+      shippingDetailsHtml: emailInfoBox("Envío", shippingInstructions),
+      paymentDueDate: "No informada",
+      paymentUrl: `${baseUrl}/pay/pending?orderId=${order.id}`,
+      storeName: "FikaStore",
+      storeUrl: baseUrl,
+    },
+  });
+
+  return { sent: true };
 }
 
 function addDays(date: Date, days: number) {
@@ -291,6 +414,7 @@ export async function processScheduledEmailJobs(req: Request, limit = 25) {
 
     try {
       const payload = JSON.parse(candidate.payloadJson || "{}") as Record<string, unknown>;
+      if (candidate.type === "payment-pending-initial") await processInitialMercadoPagoPending(payload, req);
       if (candidate.type === "payment-reminder") await processPaymentReminder(payload, req);
       if (candidate.type === "review-request") await processReviewRequest(payload, req);
 

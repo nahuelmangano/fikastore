@@ -64,6 +64,7 @@ services:
       MP_OAUTH_CLIENT_SECRET: ${MP_OAUTH_CLIENT_SECRET:-}
       APP_SECRET_ENCRYPTION_KEY: ${APP_SECRET_ENCRYPTION_KEY:-}
       CRON_SECRET: ${CRON_SECRET:-}
+      INTERNAL_CRON_SECRET: ${INTERNAL_CRON_SECRET:-${CRON_SECRET:-}}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
@@ -95,6 +96,30 @@ services:
     volumes:
       - ${UPLOADS_DIR:-./data/uploads}:/app/public/uploads
     command: ["sh", "-c", "npx prisma migrate deploy && npm run start"]
+    restart: unless-stopped
+
+  email-jobs-cron:
+    image: curlimages/curl:8.10.1
+    container_name: fikastore-email-jobs-cron
+    depends_on:
+      app:
+        condition: service_started
+    environment:
+      INTERNAL_CRON_SECRET: ${INTERNAL_CRON_SECRET:-${CRON_SECRET:-}}
+      EMAIL_JOBS_CRON_INTERVAL_SECONDS: ${EMAIL_JOBS_CRON_INTERVAL_SECONDS:-60}
+    command:
+      - sh
+      - -c
+      - |
+        if [ -z "$$INTERNAL_CRON_SECRET" ]; then
+          echo "INTERNAL_CRON_SECRET no configurado; no se inicia el procesador de emails."
+          exit 1
+        fi
+        while true; do
+          curl -fsS -X POST http://app:3000/api/internal/email-jobs/process \
+            -H "Authorization: Bearer $$INTERNAL_CRON_SECRET" || true
+          sleep "$$EMAIL_JOBS_CRON_INTERVAL_SECONDS"
+        done
     restart: unless-stopped
 
 volumes:

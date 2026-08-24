@@ -280,6 +280,8 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
   });
 
   if (paymentRowId && mpStatus !== "pending" && mpStatus !== "unknown") {
+    await cancelScheduledEmailJobs({ paymentId: paymentRowId, type: "payment-pending-initial" }).catch(() => {});
+    await cancelScheduledEmailJobs({ orderId, type: "payment-pending-initial" }).catch(() => {});
     await cancelScheduledEmailJobs({ paymentId: paymentRowId, type: "payment-reminder" }).catch(() => {});
     await cancelScheduledEmailJobs({ orderId, type: "payment-reminder" }).catch(() => {});
   }

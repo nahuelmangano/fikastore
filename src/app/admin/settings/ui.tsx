@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
@@ -275,7 +276,10 @@ export default function AdminSettingsPage({
   informationSections: InformationSection[];
   categories: CategoryOption[];
 }) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
+  const searchParams = useSearchParams();
+  const requestedTab = searchParams.get("tab") as SettingsTab | null;
+  const initialTab = requestedTab && tabs.some((tab) => tab.key === requestedTab) ? requestedTab : "appearance";
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [text, setText] = useState(announcementText);
   const [logo, setLogo] = useState(logoUrl);
   const [title, setTitle] = useState(siteTitle);
@@ -308,6 +312,10 @@ export default function AdminSettingsPage({
   const [domainLoading, setDomainLoading] = useState(false);
   const [domainVerifyLoading, setDomainVerifyLoading] = useState(false);
   const [logoLoading, setLogoLoading] = useState(false);
+
+  useEffect(() => {
+    if (requestedTab && tabs.some((tab) => tab.key === requestedTab)) setActiveTab(requestedTab);
+  }, [requestedTab]);
   const [homeBannerLoading, setHomeBannerLoading] = useState(false);
   const [tilesLoading, setTilesLoading] = useState(false);
   const [sectionsLoading, setSectionsLoading] = useState(false);
