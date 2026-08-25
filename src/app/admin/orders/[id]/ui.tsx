@@ -58,6 +58,7 @@ type AdminOrder = {
   total: PriceValue;
   createdAt: string | Date;
   shippedAt?: string | Date | null;
+  deliveredAt?: string | Date | null;
   shippingName?: string | null;
   shippingPhone?: string | null;
   shippingAddressLine?: string | null;
@@ -79,10 +80,11 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
   const [status, setStatus] = useState<string>(order.status);
   const [paymentStatus, setPaymentStatus] = useState<string>(order.payments?.[0]?.status ?? "—");
   const [shippedAt, setShippedAt] = useState<string | null>(order.shippedAt ? String(order.shippedAt) : null);
-  const [loading, setLoading] = useState(false);
+  const [deliveredAt, setDeliveredAt] = useState<string | null>(order.deliveredAt ? String(order.deliveredAt) : null);
   const [paidLoading, setPaidLoading] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [shipLoading, setShipLoading] = useState(false);
+  const [deliverLoading, setDeliverLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [epick, setEpick] = useState<EPickShipmentState | null>(order.epickShipment ?? null);
   const [epickMsg, setEpickMsg] = useState<string | null>(null);
@@ -170,6 +172,11 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
               {shippedAt && (
                 <div className="mt-1 text-xs text-zinc-400">
                   Enviado: {new Date(shippedAt).toLocaleString("es-AR")}
+                </div>
+              )}
+              {deliveredAt && (
+                <div className="mt-1 text-xs text-zinc-400">
+                  Entregado: {new Date(deliveredAt).toLocaleString("es-AR")}
                 </div>
               )}
             </div>
@@ -267,15 +274,15 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
             </button>
 
             <button
-              disabled={loading || status !== "paid"}
+              disabled={shipLoading || status !== "paid"}
               onClick={async () => {
                 setMsg(null);
-                setLoading(true);
+                setShipLoading(true);
 
                 const res = await fetch(`/api/admin/orders/${order.id}/ship`, { method: "POST" });
                 const data = await res.json().catch(() => ({}));
 
-                setLoading(false);
+                setShipLoading(false);
 
                 if (!res.ok) {
                   setMsg(data?.error || "No se pudo marcar como enviado.");
@@ -290,7 +297,32 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
               }}
               className="w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50 sm:w-auto"
             >
-              {loading ? "Marcando..." : "Marcar como enviado"}
+              {shipLoading ? "Marcando..." : "Marcar como enviado"}
+            </button>
+
+            <button
+              disabled={deliverLoading || !["paid", "shipped"].includes(status)}
+              onClick={async () => {
+                setMsg(null);
+                setDeliverLoading(true);
+
+                const res = await fetch(`/api/admin/orders/${order.id}/deliver`, { method: "POST" });
+                const data = await res.json().catch(() => ({}));
+
+                setDeliverLoading(false);
+
+                if (!res.ok) {
+                  setMsg(data?.error || "No se pudo marcar como entregado.");
+                  return;
+                }
+
+                setStatus(data.order.status);
+                setDeliveredAt(data.order.deliveredAt ? String(data.order.deliveredAt) : new Date().toISOString());
+                setMsg("✅ Pedido marcado como entregado.");
+              }}
+              className="w-full rounded-2xl bg-amber-100 px-4 py-3 text-sm font-semibold text-amber-900 hover:bg-amber-50 disabled:opacity-50 sm:w-auto"
+            >
+              {deliverLoading ? "Marcando..." : "Marcar como entregado"}
             </button>
 
             <button
@@ -328,9 +360,9 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
             </Link>
           </div>
 
-          {status !== "paid" && (
+          {(status !== "paid" || !["paid", "shipped"].includes(status)) && (
             <p className="mt-3 text-xs text-zinc-500">
-              * Solo se puede marcar “enviado” si el pedido está en estado <b>paid</b>.
+              * “Marcar como enviado” requiere estado <b>paid</b>. “Marcar como entregado” permite <b>paid</b> o <b>shipped</b>.
             </p>
           )}
 

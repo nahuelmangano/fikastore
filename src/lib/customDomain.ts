@@ -142,6 +142,21 @@ export async function getCustomDomainSettings(): Promise<CustomDomainSettings> {
   };
 }
 
+export async function getCustomDomainOrigin() {
+  const row = await prisma.storeCustomDomain.findUnique({
+    where: { storeKey: STORE_KEY },
+    select: { customDomain: true, domainStatus: true },
+  });
+
+  const customDomain = stripTrailingDot(String(row?.customDomain || ""));
+  const status = normalizeDomainStatus(row?.domainStatus);
+
+  if (!customDomain) return null;
+  if (status !== "ACTIVE" && status !== "VERIFIED") return null;
+
+  return `https://${customDomain}`;
+}
+
 export async function setCustomDomain(value: string) {
   if (!value.trim()) {
     await prisma.storeCustomDomain.upsert({

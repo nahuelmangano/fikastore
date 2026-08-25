@@ -93,6 +93,12 @@ function LoginForm() {
             </div>
           </div>
 
+          <div className="-mt-1 text-right">
+            <Link href="/forgot-password" className="text-sm text-zinc-400 hover:text-zinc-200">
+              Olvidé mi contraseña
+            </Link>
+          </div>
+
           {error && (
             <div className="rounded-xl border border-amber-700/40 bg-amber-50 p-3 text-sm text-amber-900">
               {error}

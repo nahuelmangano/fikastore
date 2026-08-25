@@ -1,11 +1,14 @@
 import PayResultClient from "../ui";
 
-export default function PayFailurePage({
+type SearchParams = { orderId?: string } | Promise<{ orderId?: string }>;
+
+export default async function PayFailurePage({
   searchParams,
 }: {
-  searchParams: { orderId?: string };
+  searchParams: SearchParams;
 }) {
-  const orderId = searchParams.orderId;
+  const resolvedSearchParams = await Promise.resolve(searchParams);
+  const orderId = String(resolvedSearchParams.orderId || "").trim();
   if (!orderId) {
     return (
       <main className="min-h-screen bg-zinc-950 text-zinc-100">

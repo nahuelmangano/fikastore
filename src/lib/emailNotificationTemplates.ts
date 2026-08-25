@@ -3,6 +3,7 @@
   | "payment-rejected"
   | "payment-pending"
   | "payment-pending-reminder"
+  | "order-delivered"
   | "review-request"
   | "birthday-coupon"
   | "return-confirmation"
@@ -110,6 +111,21 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefault[] = [
        <p style="margin:18px 0 0;"><a href="{{paymentUrl}}" style="display:inline-block;background:#111;color:#fff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:700;">Completar pago</a></p>`
     ),
     text: "Recordatorio {{reminderNumber}}. El pago del pedido {{orderNumber}} sigue pendiente. Productos: {{productsText}}. Total: {{paymentAmount}}. Completar: {{paymentUrl}}",
+  },
+  {
+    key: "order-delivered",
+    name: "Pedido entregado",
+    category: "Pedidos",
+    subject: "{{storeName}} · Tu pedido fue entregado",
+    enabled: true,
+    variables: ["customerName", "orderNumber", "orderUrl", "storeName", "storeUrl"],
+    html: layout(
+      "Tu pedido fue entregado",
+      `<p style="margin:0 0 18px;color:#444;">Hola {{customerName}}, tu pedido {{orderNumber}} figura como entregado.</p>
+       <p style="margin:0 0 18px;color:#444;">Si necesitás revisar el detalle o hacernos una consulta, podés hacerlo desde tu cuenta.</p>
+       <p style="margin:18px 0 0;"><a href="{{orderUrl}}" style="display:inline-block;background:#111;color:#fff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:700;">Ver pedido</a></p>`
+    ),
+    text: "Hola {{customerName}}, tu pedido {{orderNumber}} fue entregado. Ver pedido: {{orderUrl}}",
   },
   {
     key: "review-request",

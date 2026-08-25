@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRef } from "react";
+import { signOut, useSession } from "next-auth/react";
 import CartLink from "@/components/CartLink";
 import StoreSearch from "@/components/StoreSearch";
 
@@ -26,6 +27,8 @@ type MobileStoreNavProps = {
 
 export default function MobileStoreNav({ logoUrl, categoryOptions, informationSections }: MobileStoreNavProps) {
   const menuRef = useRef<HTMLDetailsElement | null>(null);
+  const { data: session } = useSession();
+  const isMerchant = session?.user?.role === "merchant";
 
   function closeMenu() {
     if (menuRef.current) {
@@ -80,9 +83,37 @@ export default function MobileStoreNav({ logoUrl, categoryOptions, informationSe
                 {section.title}
               </Link>
             ))}
-            <Link href="/login" onClick={closeMenu} className="px-2 py-3 text-sm uppercase text-black hover:bg-zinc-50">
-              Cuenta
-            </Link>
+            {session?.user?.email ? (
+              <div className="border-t border-zinc-200 pt-2">
+                <div className="px-2 py-2 text-xs uppercase text-zinc-500">Cuenta</div>
+                <div className="px-2 pb-2 text-sm text-zinc-700">{session.user.email}</div>
+                <Link href="/account/profile" onClick={closeMenu} className="block px-2 py-3 text-sm uppercase text-black hover:bg-zinc-50">
+                  Mi perfil
+                </Link>
+                <Link href="/account/orders" onClick={closeMenu} className="block px-2 py-3 text-sm uppercase text-black hover:bg-zinc-50">
+                  Mis pedidos
+                </Link>
+                {isMerchant ? (
+                  <Link href="/admin" onClick={closeMenu} className="block px-2 py-3 text-sm uppercase text-black hover:bg-zinc-50">
+                    Admin de tienda
+                  </Link>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeMenu();
+                    void signOut({ callbackUrl: "/" });
+                  }}
+                  className="block w-full px-2 py-3 text-left text-sm uppercase text-black hover:bg-zinc-50"
+                >
+                  Cerrar sesión
+                </button>
+              </div>
+            ) : (
+              <Link href="/login" onClick={closeMenu} className="px-2 py-3 text-sm uppercase text-black hover:bg-zinc-50">
+                Cuenta
+              </Link>
+            )}
             <Link href="/register" onClick={closeMenu} className="px-2 py-3 text-sm uppercase text-black hover:bg-zinc-50">
               Contacto
             </Link>

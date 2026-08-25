@@ -319,7 +319,7 @@ export default function ProductDetailClient({
       const sucursal = rates.find((r) => r?.deliveredType === "S");
       const domicilioAmount = Number(domicilio?.price ?? 0);
       const sucursalAmount = Number(sucursal?.price ?? 0);
-      if (Number.isFinite(domicilioAmount) && domicilioAmount > 0) {
+      if (Number.isFinite(domicilioAmount) && domicilioAmount >= 0) {
         rows.push({
           label: "Correo Argentino (domicilio)",
           amount: domicilioAmount,
@@ -329,7 +329,7 @@ export default function ProductDetailClient({
           pricingMode: "fixed",
         });
       }
-      if (Number.isFinite(sucursalAmount) && sucursalAmount > 0) {
+      if (Number.isFinite(sucursalAmount) && sucursalAmount >= 0) {
         rows.push({
           label: "Correo Argentino (sucursal)",
           amount: sucursalAmount,
@@ -718,7 +718,7 @@ export default function ProductDetailClient({
                                   ${row.amount.toLocaleString("es-AR")}
                                 </span>
                               )}
-                              <span className={row.deliveryType === "S" ? "text-white" : "text-zinc-100"}>Gratis</span>
+                              <span className="text-zinc-100">Gratis</span>
                             </span>
                           ) : (
                             `$${row.amount.toLocaleString("es-AR")}`

@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { queueAndSendEmailNotification } from "@/lib/emailNotificationService";
 import { prisma } from "@/lib/prisma";
+import { publicBaseUrl } from "@/lib/publicUrl";
 import { isStaffRole } from "@/lib/roles";
 import { scheduleReviewRequestForOrder } from "@/lib/emailNotificationJobs";
 
-export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   const role = (session?.user as { role?: string } | undefined)?.role;
   if (!isStaffRole(role)) {
@@ -12,7 +14,10 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   }
 
   const { id } = await params;
-  const order = await prisma.order.findUnique({ where: { id } });
+  const order = await prisma.order.findUnique({
+    where: { id },
+    include: { user: { select: { id: true, email: true, name: true } } },
+  });
   if (!order) return NextResponse.json({ ok: false, error: "Pedido no encontrado." }, { status: 404 });
 
   if (order.status !== "shipped" && order.status !== "paid") {
@@ -26,6 +31,26 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       deliveredAt: order.deliveredAt || new Date(),
     },
   });
+
+  if (order.user?.email) {
+    const baseUrl = publicBaseUrl(req);
+    await queueAndSendEmailNotification({
+      templateKey: "order-delivered",
+      to: order.user.email,
+      recipientUserId: order.user.id,
+      orderId: order.id,
+      idempotencyKey: `order-delivered:${order.id}`,
+      payload: {
+        customerName: order.user.name || order.user.email,
+        orderNumber: `#${order.orderNumber}`,
+        orderUrl: `${baseUrl}/account/orders/${order.id}`,
+        storeName: "FikaStore",
+        storeUrl: baseUrl,
+      },
+    }).catch((error) => {
+      console.error("order delivered email failed", error instanceof Error ? error.message : error);
+    });
+  }
 
   await scheduleReviewRequestForOrder(updated.id).catch((error) => {
     console.error("review request scheduling failed", error instanceof Error ? error.message : error);

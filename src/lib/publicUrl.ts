@@ -2,7 +2,7 @@ function trimTrailingSlash(value: string) {
   return value.replace(/\/$/, "");
 }
 
-function isPrivateOrLocalHost(hostname: string) {
+export function isPrivateOrLocalHost(hostname: string) {
   const host = hostname.toLowerCase();
 
   if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true;
