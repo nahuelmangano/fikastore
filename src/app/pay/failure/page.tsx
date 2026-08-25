@@ -1,6 +1,6 @@
 import PayResultClient from "../ui";
 
-type SearchParams = { orderId?: string } | Promise<{ orderId?: string }>;
+type SearchParams = { orderId?: string; email?: string } | Promise<{ orderId?: string; email?: string }>;
 
 export default async function PayFailurePage({
   searchParams,
@@ -9,6 +9,7 @@ export default async function PayFailurePage({
 }) {
   const resolvedSearchParams = await Promise.resolve(searchParams);
   const orderId = String(resolvedSearchParams.orderId || "").trim();
+  const email = String(resolvedSearchParams.email || "").trim().toLowerCase();
   if (!orderId) {
     return (
       <main className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -27,6 +28,7 @@ export default async function PayFailurePage({
       title="Pago rechazado ❌"
       subtitle="No se pudo completar el pago. Podés intentar nuevamente desde el checkout."
       orderId={orderId}
+      accessEmail={email || undefined}
       hint="Si el pedido estaba pendiente, el stock queda reservado. Podés reintentar el pago."
     />
   );

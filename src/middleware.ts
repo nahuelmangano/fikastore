@@ -7,7 +7,7 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Rutas que requieren login
-  const protectedPaths = ["/checkout", "/account", "/admin"];
+  const protectedPaths = ["/account", "/admin"];
   const isProtected = protectedPaths.some((p) => pathname === p || pathname.startsWith(p + "/"));
 
   if (!isProtected) return NextResponse.next();
@@ -51,5 +51,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/checkout/:path*", "/account/:path*", "/admin/:path*"],
+  matcher: ["/account/:path*", "/admin/:path*"],
 };

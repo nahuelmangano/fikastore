@@ -41,12 +41,14 @@ export default function PayResultClient({
   title,
   subtitle,
   orderId,
+  accessEmail,
   hint,
   trackPurchase = false,
 }: {
   title: string;
   subtitle: string;
   orderId: string;
+  accessEmail?: string;
   hint?: string;
   trackPurchase?: boolean;
 }) {
@@ -61,7 +63,9 @@ export default function PayResultClient({
 
     async function load() {
       setLoading(true);
-      const res = await fetch(`/api/orders/${orderId}`, { cache: "no-store" });
+      const params = new URLSearchParams();
+      if (accessEmail) params.set("email", accessEmail);
+      const res = await fetch(`/api/orders/${orderId}${params.size ? `?${params.toString()}` : ""}`, { cache: "no-store" });
       const json = (await res.json().catch(() => null)) as OrderResp | null;
       if (!alive) return;
       setData(json ?? { ok: false, error: "Respuesta inválida." });
@@ -81,7 +85,7 @@ export default function PayResultClient({
       clearTimeout(t2);
       clearTimeout(t3);
     };
-  }, [orderId]);
+  }, [accessEmail, orderId]);
 
   const order = ok ? data.order : null;
 
@@ -197,10 +201,10 @@ export default function PayResultClient({
             </Link>
 
             <Link
-              href="/account/orders"
+              href={accessEmail ? `/pedido?orderId=${encodeURIComponent(orderId)}&email=${encodeURIComponent(accessEmail)}` : "/account/orders"}
               className="rounded-xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60"
             >
-              Ver mis pedidos
+              {accessEmail ? "Ver pedido" : "Ver mis pedidos"}
             </Link>
           </div>
         </div>

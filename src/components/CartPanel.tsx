@@ -604,6 +604,14 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
 
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-zinc-800 px-4 py-2 text-center text-sm hover:bg-zinc-900/60"
+          >
+            Seguir comprando
+          </button>
+
+          <button
             onClick={() => clearCart()}
             className="rounded-xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60"
           >

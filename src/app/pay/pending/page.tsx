@@ -2,12 +2,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Clock3, Mail } from "lucide-react";
+import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { getOrderContactEmail, normalizeOrderEmail } from "@/lib/orderAccess";
+import { isStaffRole } from "@/lib/roles";
 import { getCheckoutPaymentSettings } from "@/lib/storeSettings";
 import { transferInstructionsWithBankDetails } from "@/lib/manualPaymentInstructions";
 import PayPendingButton from "@/components/PayPendingButton";
 
-type SearchParams = { orderId?: string } | Promise<{ orderId?: string }>;
+type SearchParams = { orderId?: string; email?: string } | Promise<{ orderId?: string; email?: string }>;
 
 function money(value: unknown) {
   return `$${Number(value || 0).toLocaleString("es-AR")}`;
@@ -72,6 +75,7 @@ export default async function PayPendingPage({
 }) {
   const resolvedSearchParams = await Promise.resolve(searchParams);
   const orderId = String(resolvedSearchParams.orderId || "").trim();
+  const accessEmail = normalizeOrderEmail(resolvedSearchParams.email);
 
   if (!orderId) {
     return (
@@ -85,6 +89,10 @@ export default async function PayPendingPage({
       </main>
     );
   }
+
+  const session = await auth();
+  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const role = (session?.user as { role?: string } | undefined)?.role;
 
   const [order, paymentSettings] = await Promise.all([
     prisma.order.findUnique({
@@ -106,7 +114,11 @@ export default async function PayPendingPage({
     getCheckoutPaymentSettings(),
   ]);
 
-  if (!order) return notFound();
+  const canAccess = order
+    ? isStaffRole(role) || (userId && order.userId === userId) || (accessEmail && getOrderContactEmail(order) === accessEmail)
+    : false;
+
+  if (!order || !canAccess) return notFound();
 
   const payment = order.payments[0] || null;
   const provider = payment?.provider || "mercadopago";
@@ -126,9 +138,9 @@ export default async function PayPendingPage({
     <main className="min-h-screen bg-white text-[#7A451C]">
       <div className="mx-auto max-w-5xl px-4 py-10">
         <h1 className="text-2xl font-semibold tracking-tight">Checkout</h1>
-        {order.user?.email ? (
+        {order.contactEmail || order.user?.email ? (
           <p className="mt-2 text-[#A97D58]">
-            Pedido asociado a <span className="text-[#8B4D20]">{order.user.email}</span>
+            Pedido asociado a <span className="text-[#8B4D20]">{order.contactEmail || order.user?.email}</span>
           </p>
         ) : null}
 
@@ -199,7 +211,7 @@ export default async function PayPendingPage({
               </div>
               {isMercadoPago ? (
                 <div className="mt-5">
-                  <PayPendingButton orderId={order.id} />
+                  <PayPendingButton orderId={order.id} accessEmail={order.contactEmail || order.user?.email} />
                 </div>
               ) : null}
             </div>
@@ -209,7 +221,7 @@ export default async function PayPendingPage({
               <div className="mt-5 grid gap-5 text-sm sm:grid-cols-2">
                 <InfoItem label="Método de envío" value={shippingLabel(order)} />
                 <InfoItem label="Estado del envío" value="Pendiente" />
-                <InfoItem label="Destinatario" value={`${order.shippingName}${order.shippingPhone ? `\nTel: ${order.shippingPhone}` : ""}`} />
+                <InfoItem label="Destinatario" value={`${order.shippingName}${order.contactEmail ? `\nEmail: ${order.contactEmail}` : ""}${order.shippingPhone ? `\nTel: ${order.shippingPhone}` : ""}`} />
                 <InfoItem label="Método de pago" value={label} />
                 <InfoItem label="Domicilio" value={shippingAddress(order)} />
               </div>

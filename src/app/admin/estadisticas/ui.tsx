@@ -31,7 +31,7 @@ type SalesOrder = {
   orderNumber: number;
   total: number;
   status: string;
-  userId: string;
+  userId: string | null;
   createdAt: string;
   items: {
     id: string;

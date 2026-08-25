@@ -18,6 +18,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/checkout";
+  const isCheckoutRedirect = next === "/checkout";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,7 +31,9 @@ function LoginForm() {
       <div className="mx-auto max-w-md px-4 py-12">
         <h1 className="text-2xl font-semibold">Iniciar sesión</h1>
         <p className="mt-2 text-sm text-zinc-400">
-          Para pagar necesitás tener una cuenta.
+          {isCheckoutRedirect
+            ? "Si ya tenés cuenta, podés iniciar sesión. Si no, también podés comprar como invitado desde el checkout."
+            : "Ingresá con tu cuenta para continuar."}
         </p>
 
         <form
@@ -55,7 +58,7 @@ function LoginForm() {
 
             const session = await getSession();
             const role = (session?.user as { role?: string } | undefined)?.role;
-            const destination = role === "admin" || role === "merchant" ? "/admin" : "/";
+            const destination = role === "admin" || role === "merchant" ? "/admin" : next;
             router.push(destination);
           }}
         >

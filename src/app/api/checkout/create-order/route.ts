@@ -10,6 +10,7 @@ import { queueAndSendEmailNotification, scheduleEmailJob } from "@/lib/emailNoti
 import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows";
 import { getShippingCarriers } from "@/lib/shippingCarriers";
 import { transferInstructionsWithBankDetails } from "@/lib/manualPaymentInstructions";
+import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName, normalizeOrderEmail } from "@/lib/orderAccess";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,7 @@ type Body = {
   items: { productId: string; quantity: number }[];
   shipping: {
     name: string;
+    email: string;
     phone: string;
     addressLine: string;
     city: string;
@@ -86,7 +88,6 @@ function emailShippingLabel(method: string, carrierName?: string | null, deliver
 export async function POST(req: Request) {
   const session = await auth();
   const userId = (session?.user as { id?: string } | undefined)?.id;
-  if (!userId) return bad("Tenes que iniciar sesion para continuar.", 401);
 
   const temporaryShutdown = await getTemporaryShutdownSettings();
   if (temporaryShutdown.isShutdown) {
@@ -103,10 +104,14 @@ export async function POST(req: Request) {
   const shippingDeliveryType = String(body.shippingDeliveryType || "").trim().toUpperCase();
   const shippingBranch = body.shippingBranch;
   const notes = String(body.notes || "").replace(/\s+/g, " ").trim().slice(0, 1000);
+  const contactEmail = normalizeOrderEmail(shipping?.email);
 
   if (items.length === 0) return bad("El carrito esta vacio.");
-  if (!shipping?.name?.trim() || !shipping?.phone?.trim()) {
-    return bad("Completa los datos del destinatario.");
+  if (!shipping?.name?.trim() || !contactEmail || !shipping?.phone?.trim()) {
+    return bad("Completa nombre, email y telefono del destinatario.");
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+    return bad("Ingresá un email válido.");
   }
 
   const isPickup = shippingMethod === "pickup";
@@ -239,7 +244,8 @@ export async function POST(req: Request) {
 
       const order = await tx.order.create({
         data: {
-          userId,
+          userId: userId || null,
+          contactEmail,
           status: "pending_payment",
           total: total.add(new Prisma.Decimal(shippingAmount || 0)),
           shippingName: shipping.name.trim(),
@@ -294,9 +300,11 @@ export async function POST(req: Request) {
       },
     });
 
-    if (createdOrder?.user.email) {
+    const orderEmail = createdOrder ? getOrderContactEmail(createdOrder) : "";
+    if (createdOrder && orderEmail) {
       const payment = createdOrder.payments[0];
       const baseUrl = publicBaseUrl(req);
+      const publicOrderUrl = buildPublicOrderUrl(baseUrl, createdOrder);
       const itemsSubtotal = createdOrder.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
       const paymentLabel = paymentMethod === "mercadopago" ? "Mercado Pago" : manualPaymentMethod?.label || "Pago manual";
       const basePaymentInstructions =
@@ -345,13 +353,13 @@ export async function POST(req: Request) {
       } else {
         queueAndSendEmailNotification({
           templateKey: "payment-pending",
-          to: createdOrder.user.email,
-          recipientUserId: createdOrder.user.id,
+          to: orderEmail,
+          recipientUserId: createdOrder.user?.id,
           orderId: createdOrder.id,
           paymentId: payment?.id,
           idempotencyKey: `payment-pending:${payment?.id || createdOrder.id}`,
           payload: {
-            customerName: createdOrder.user.name || createdOrder.user.email,
+            customerName: getOrderCustomerName(createdOrder),
             orderNumber: `#${createdOrder.orderNumber}`,
             productsHtml: emailOrderItemsHtml(createdOrder.items, baseUrl, { subtotal: itemsSubtotal, shipping: createdOrder.shippingAmount, total: createdOrder.total }),
             productsText: emailOrderItemsText(createdOrder.items, { subtotal: itemsSubtotal, shipping: createdOrder.shippingAmount, total: createdOrder.total }),
@@ -366,7 +374,7 @@ export async function POST(req: Request) {
             shippingInstructions: shippingInstructions.join(". "),
             shippingDetailsHtml: emailInfoBox("Envío", shippingInstructions),
             paymentDueDate: "No informada",
-            paymentUrl: `${baseUrl}/pay/pending?orderId=${createdOrder.id}`,
+            paymentUrl: publicOrderUrl,
             storeName: "FikaStore",
             storeUrl: baseUrl,
           },

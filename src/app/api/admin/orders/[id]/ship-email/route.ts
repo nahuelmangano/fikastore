@@ -6,6 +6,7 @@ import { isStaffRole } from "@/lib/roles";
 import { publicBaseUrl } from "@/lib/publicUrl";
 import { renderEmailTemplate } from "@/lib/emailNotificationService";
 import { sendMail } from "@/lib/mailer";
+import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName } from "@/lib/orderAccess";
 
 export const runtime = "nodejs";
 
@@ -73,7 +74,8 @@ async function orderPayload(req: Request, id: string, customMessage: string) {
   });
 
   if (!order) return { error: NextResponse.json({ ok: false, error: "Order not found" }, { status: 404 }) };
-  if (!order.user?.email) {
+  const orderEmail = getOrderContactEmail(order);
+  if (!orderEmail) {
     return { error: NextResponse.json({ ok: false, error: "El pedido no tiene email de cliente." }, { status: 400 }) };
   }
   if (order.status !== "shipped") {
@@ -82,16 +84,16 @@ async function orderPayload(req: Request, id: string, customMessage: string) {
 
   const baseUrl = publicBaseUrl(req);
   const payload = {
-    customerName: order.user.name || order.user.email,
+    customerName: getOrderCustomerName(order),
     orderNumber: order.orderNumber ? `#${order.orderNumber}` : order.id,
-    orderUrl: `${baseUrl}/account/orders/${order.id}`,
+    orderUrl: buildPublicOrderUrl(baseUrl, order),
     storeName: "FikaStore",
     storeUrl: baseUrl,
     customMessageHtml: customMessageHtml(customMessage),
     customMessageText: customMessage.trim(),
   };
 
-  return { order, user: order.user, payload };
+  return { order, recipientEmail: orderEmail, recipientUserId: order.user?.id, payload };
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -110,7 +112,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const rendered = injectCustomMessage(await renderEmailTemplate("order-shipped", data.payload), customMessage);
     return NextResponse.json({
       ok: true,
-      to: data.user.email,
+      to: data.recipientEmail,
       subject: rendered.subject,
       html: rendered.html,
       text: rendered.text,
@@ -119,7 +121,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const rendered = injectCustomMessage(await renderEmailTemplate("order-shipped", data.payload), customMessage);
   await sendMail({
-    to: data.user.email,
+    to: data.recipientEmail,
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,
@@ -129,8 +131,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const notification = await prisma.emailNotification.create({
     data: {
       templateKey: "order-shipped",
-      recipientEmail: data.user.email,
-      recipientUserId: data.user.id,
+      recipientEmail: data.recipientEmail,
+      recipientUserId: data.recipientUserId,
       orderId: data.order.id,
       idempotencyKey,
       status: "sent",

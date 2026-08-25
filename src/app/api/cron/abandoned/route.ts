@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publicBaseUrl } from "@/lib/publicUrl";
+import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName } from "@/lib/orderAccess";
 import { queueAndSendEmailNotification } from "@/lib/emailNotificationService";
 import { absoluteImageUrl, emailOrderItemsHtml, emailOrderItemsText, emailProductRowsHtml } from "@/lib/emailProductRows";
 
@@ -160,17 +161,20 @@ export async function POST(req: Request) {
 
   for (const payment of payments) {
     const order = payment.order;
+    const orderEmail = getOrderContactEmail(order);
+    if (!orderEmail) continue;
     const itemsSubtotal = order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
+    const publicOrderUrl = buildPublicOrderUrl(baseUrl, order);
 
     await queueAndSendEmailNotification({
       templateKey: "payment-pending-reminder",
-      to: order.user.email,
+      to: orderEmail,
       recipientUserId: order.userId,
       orderId: order.id,
       paymentId: payment.id,
       idempotencyKey: `payment-reminder:${payment.id}:legacy`,
       payload: {
-        customerName: order.user.name || order.user.email,
+        customerName: getOrderCustomerName(order),
         orderNumber: order.orderNumber ? `#${order.orderNumber}` : order.id,
         productsHtml: emailOrderItemsHtml(order.items, baseUrl, {
           subtotal: itemsSubtotal,
@@ -184,7 +188,7 @@ export async function POST(req: Request) {
         }),
         paymentAmount: money(Number(order.total)),
         reminderNumber: "1",
-        paymentUrl: `${baseUrl}/pay/pending?orderId=${order.id}`,
+        paymentUrl: publicOrderUrl,
         storeName: "FikaStore",
         storeUrl: baseUrl,
       },

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { queueAndSendEmailNotification } from "@/lib/emailNotificationService";
+import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName } from "@/lib/orderAccess";
 import { prisma } from "@/lib/prisma";
 import { publicBaseUrl } from "@/lib/publicUrl";
 import { isStaffRole } from "@/lib/roles";
@@ -69,19 +70,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return { order: updatedOrder, payment };
   });
 
-  if (order.user?.email) {
+  const orderEmail = getOrderContactEmail(order);
+  if (orderEmail) {
     const baseUrl = publicBaseUrl(req);
     await queueAndSendEmailNotification({
       templateKey: "payment-approved",
-      to: order.user.email,
-      recipientUserId: order.user.id,
+      to: orderEmail,
+      recipientUserId: order.user?.id,
       orderId: order.id,
       paymentId: updated.payment?.id || paymentId || undefined,
       idempotencyKey: `manual-payment-approved:${order.id}`,
       payload: {
-        customerName: order.user.name || order.user.email,
+        customerName: getOrderCustomerName(order),
         orderNumber: `#${order.orderNumber}`,
-        orderUrl: `${baseUrl}/account/orders/${order.id}`,
+        orderUrl: buildPublicOrderUrl(baseUrl, order),
         storeName: "FikaStore",
         storeUrl: baseUrl,
       },

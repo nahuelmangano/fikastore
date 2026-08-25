@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getOrderContactEmail } from "@/lib/orderAccess";
 
 export const runtime = "nodejs";
 
@@ -101,7 +102,7 @@ export async function POST(req: Request) {
     },
   });
 
-  const emailMatches = order ? normalizeEmail(order.user.email) === email : false;
+  const emailMatches = order ? getOrderContactEmail(order) === email : false;
   const phoneMatches = order ? normalizePhone(order.shippingPhone) === phone : false;
   const contactMatches = Boolean((email && emailMatches) || (phone && phoneMatches));
 

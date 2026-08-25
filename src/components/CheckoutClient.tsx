@@ -12,6 +12,7 @@ import { transferInstructionsWithBankDetails } from "@/lib/manualPaymentInstruct
 
 type Shipping = {
   name: string;
+  email: string;
   phone: string;
   addressLine: string;
   city: string;
@@ -176,6 +177,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
   const [orderItems, setOrderItems] = useState<CartItem[]>([]);
   const [shipping, setShipping] = useState<Shipping>({
     name: "",
+    email: "",
     phone: "",
     addressLine: "",
     city: "",
@@ -600,6 +602,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
     items.length > 0 &&
     hasPaymentMethods &&
     shipping.name.trim() &&
+    shipping.email.trim() &&
     shipping.phone.trim() &&
     shipping.provinceCode.trim() &&
     (requiresAddress
@@ -783,6 +786,12 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                 label="Nombre y apellido"
                 value={shipping.name}
                 onChange={(v) => setShipping((s) => ({ ...s, name: v }))}
+              />
+              <Field
+                label="Email"
+                type="email"
+                value={shipping.email}
+                onChange={(v) => setShipping((s) => ({ ...s, email: v }))}
               />
               <Field
                 label="Telefono"
@@ -1219,7 +1228,7 @@ function PayBlock({
       const res = await fetch("/api/shipping/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId }),
+        body: JSON.stringify({ orderId, email: shipping.email || undefined }),
       });
       const data = await res.json().catch(() => ({}));
       if (cancelled) return;
@@ -1233,7 +1242,7 @@ function PayBlock({
     return () => {
       cancelled = true;
     };
-  }, [orderId, shippingMethod, epickCreated]);
+  }, [orderId, shipping.email, shippingMethod, epickCreated]);
 
   if (paymentMethod !== "mercadopago") {
     return (
@@ -1277,7 +1286,7 @@ function PayBlock({
           const res = await fetch("/api/payments/mercadopago/create-preference", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ orderId }),
+            body: JSON.stringify({ orderId, email: shipping.email || undefined }),
           });
 
           const data = await res.json().catch(() => ({}));
@@ -1366,7 +1375,7 @@ function ManualPaymentConfirmation({
         <div className="mt-5 grid gap-5 text-sm sm:grid-cols-2">
           <InfoItem label="Método de envío" value={shippingMethodLabel(shippingMethod)} />
           <InfoItem label="Estado del envío" value="Pendiente" />
-          <InfoItem label="Destinatario" value={`${shipping.name}${shipping.phone ? `\nTel: ${shipping.phone}` : ""}`} />
+          <InfoItem label="Destinatario" value={`${shipping.name}${shipping.email ? `\nEmail: ${shipping.email}` : ""}${shipping.phone ? `\nTel: ${shipping.phone}` : ""}`} />
           <InfoItem label="Método de pago" value={paymentLabel} />
           <InfoItem
             label="Domicilio"
@@ -1532,10 +1541,12 @@ function MercadoPagoLogos() {
 
 function Field({
   label,
+  type = "text",
   value,
   onChange,
 }: {
   label: string;
+  type?: string;
   value: string;
   onChange: (v: string) => void;
 }) {
@@ -1543,6 +1554,7 @@ function Field({
     <div>
       <label className="text-sm text-zinc-300">{label}</label>
       <input
+        type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"

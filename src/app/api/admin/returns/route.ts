@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { isStaffRole } from "@/lib/roles";
 import { queueAndSendEmailNotification } from "@/lib/emailNotificationService";
 import { absoluteImageUrl, emailProductRowsHtml } from "@/lib/emailProductRows";
+import { getOrderContactEmail, getOrderCustomerName } from "@/lib/orderAccess";
 import { publicBaseUrl } from "@/lib/publicUrl";
 
 function returnCode() {
@@ -43,6 +44,9 @@ export async function POST(req: Request) {
   if (returnItems.length === 0) {
     return NextResponse.json({ ok: false, error: "Indicá productos válidos del pedido." }, { status: 400 });
   }
+  if (!order.userId) {
+    return NextResponse.json({ ok: false, error: "Las devoluciones automáticas requieren una orden asociada a un usuario." }, { status: 400 });
+  }
 
   const returnRequest = await prisma.returnRequest.create({
     data: {
@@ -80,15 +84,18 @@ export async function POST(req: Request) {
     }))
   );
 
+  const orderEmail = getOrderContactEmail(order);
+  if (!orderEmail) return NextResponse.json({ ok: true, returnRequest });
+
   await queueAndSendEmailNotification({
     templateKey: "return-confirmation",
-    to: order.user.email,
+    to: orderEmail,
     recipientUserId: order.userId,
     orderId: order.id,
     returnRequestId: returnRequest.id,
     idempotencyKey: `return-confirmation:${returnRequest.id}:${returnRequest.status}`,
     payload: {
-      customerName: order.user.name || order.user.email,
+      customerName: getOrderCustomerName(order),
       orderNumber: order.orderNumber ? `#${order.orderNumber}` : order.id,
       returnCode: returnRequest.code,
       returnStatus: returnRequest.status,

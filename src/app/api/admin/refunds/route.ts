@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isStaffRole } from "@/lib/roles";
 import { queueAndSendEmailNotification } from "@/lib/emailNotificationService";
+import { getOrderContactEmail, getOrderCustomerName } from "@/lib/orderAccess";
 import { publicBaseUrl } from "@/lib/publicUrl";
 
 function money(value: number) {
@@ -42,17 +43,20 @@ export async function POST(req: Request) {
     },
   });
 
+  const orderEmail = getOrderContactEmail(order);
+  if (!orderEmail) return NextResponse.json({ ok: true, refund });
+
   const baseUrl = publicBaseUrl(req);
   await queueAndSendEmailNotification({
     templateKey: "refund-completed",
-    to: order.user.email,
+    to: orderEmail,
     recipientUserId: order.userId,
     orderId: order.id,
     paymentId: refund.paymentId,
     refundId: refund.id,
     idempotencyKey: `refund-completed:${refund.id}`,
     payload: {
-      customerName: order.user.name || order.user.email,
+      customerName: getOrderCustomerName(order),
       orderNumber: order.orderNumber ? `#${order.orderNumber}` : order.id,
       refundAmount: money(Number(refund.amount)),
       paymentMethod: order.payments[0]?.provider || refund.provider,

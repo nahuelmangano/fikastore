@@ -1,6 +1,6 @@
 import PayResultClient from "../ui";
 
-type SearchParams = { orderId?: string } | Promise<{ orderId?: string }>;
+type SearchParams = { orderId?: string; email?: string } | Promise<{ orderId?: string; email?: string }>;
 
 export default async function PaySuccessPage({
   searchParams,
@@ -9,6 +9,7 @@ export default async function PaySuccessPage({
 }) {
   const resolvedSearchParams = await Promise.resolve(searchParams);
   const orderId = String(resolvedSearchParams.orderId || "").trim();
+  const email = String(resolvedSearchParams.email || "").trim().toLowerCase();
   if (!orderId) {
     return (
       <main className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -27,6 +28,7 @@ export default async function PaySuccessPage({
       title="Pago realizado ✅"
       subtitle="Si el pedido todavía figura como pendiente, en unos segundos debería actualizarse cuando llegue el webhook."
       orderId={orderId}
+      accessEmail={email || undefined}
       hint="Tip: esta pantalla refresca el estado automáticamente unos segundos."
       trackPurchase
     />

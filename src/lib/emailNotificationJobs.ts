@@ -11,6 +11,7 @@ import {
 import { publicBaseUrl } from "@/lib/publicUrl";
 import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows";
 import { getShippingCarriers } from "@/lib/shippingCarriers";
+import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName } from "@/lib/orderAccess";
 
 function workerId() {
   return `${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
@@ -81,13 +82,15 @@ async function processInitialMercadoPagoPending(payload: Record<string, unknown>
   });
 
   const payment = order?.payments[0];
-  if (!order || !order.user.email || !payment || payment.status !== "pending" || order.status !== "pending_payment") {
+  const orderEmail = order ? getOrderContactEmail(order) : "";
+  if (!order || !orderEmail || !payment || payment.status !== "pending" || order.status !== "pending_payment") {
     return { skipped: true };
   }
 
   const checkoutCarriers = await getShippingCarriers({ visibleToMerchantOnly: true });
   const selectedCarrier = checkoutCarriers.find((carrier) => carrier.key === (order.shippingMethod || "") && carrier.enabled);
   const baseUrl = publicBaseUrl(req);
+  const publicOrderUrl = buildPublicOrderUrl(baseUrl, order);
   const itemsSubtotal = order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
   const shippingLabel = emailShippingLabel(order.shippingMethod || "", selectedCarrier?.name, order.shippingDeliveryType);
   const shippingAddressLines =
@@ -115,13 +118,13 @@ async function processInitialMercadoPagoPending(payload: Record<string, unknown>
 
   await queueAndSendEmailNotification({
     templateKey: "payment-pending",
-    to: order.user.email,
+    to: orderEmail,
     recipientUserId: order.userId,
     orderId: order.id,
     paymentId: payment.id,
     idempotencyKey: `payment-pending:${payment.id}`,
     payload: {
-      customerName: order.user.name || order.user.email,
+      customerName: getOrderCustomerName(order),
       orderNumber: `#${order.orderNumber}`,
       productsHtml: emailOrderItemsHtml(order.items, baseUrl, { subtotal: itemsSubtotal, shipping: order.shippingAmount, total: order.total }),
       productsText: emailOrderItemsText(order.items, { subtotal: itemsSubtotal, shipping: order.shippingAmount, total: order.total }),
@@ -133,7 +136,7 @@ async function processInitialMercadoPagoPending(payload: Record<string, unknown>
       shippingInstructions: shippingInstructions.join(". "),
       shippingDetailsHtml: emailInfoBox("Envío", shippingInstructions),
       paymentDueDate: "No informada",
-      paymentUrl: `${baseUrl}/pay/pending?orderId=${order.id}`,
+      paymentUrl: publicOrderUrl,
       storeName: "FikaStore",
       storeUrl: baseUrl,
     },
@@ -204,22 +207,25 @@ async function processPaymentReminder(payload: Record<string, unknown>, req: Req
   }
 
   const baseUrl = publicBaseUrl(req);
+  const orderEmail = getOrderContactEmail(payment.order);
+  if (!orderEmail) return { skipped: true };
+  const publicOrderUrl = buildPublicOrderUrl(baseUrl, payment.order);
   const itemsSubtotal = payment.order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
   await queueAndSendEmailNotification({
     templateKey: "payment-pending-reminder",
-    to: payment.order.user.email,
+    to: orderEmail,
     recipientUserId: payment.order.userId,
     orderId: payment.orderId,
     paymentId: payment.id,
     idempotencyKey: `payment-reminder:${payment.id}:${reminderNumber}`,
     payload: {
-      customerName: payment.order.user.name || payment.order.user.email,
+      customerName: getOrderCustomerName(payment.order),
       orderNumber: payment.order.orderNumber ? `#${payment.order.orderNumber}` : payment.order.id,
       productsHtml: emailOrderItemsHtml(payment.order.items, baseUrl, { subtotal: itemsSubtotal, shipping: payment.order.shippingAmount, total: payment.order.total }),
       productsText: emailOrderItemsText(payment.order.items, { subtotal: itemsSubtotal, shipping: payment.order.shippingAmount, total: payment.order.total }),
       paymentAmount: money(Number(payment.order.total)),
       reminderNumber: String(reminderNumber),
-      paymentUrl: `${baseUrl}/pay/pending?orderId=${payment.order.id}`,
+      paymentUrl: publicOrderUrl,
       storeName: "FikaStore",
       storeUrl: baseUrl,
     },
@@ -253,6 +259,8 @@ async function processReviewRequest(payload: Record<string, unknown>, req: Reque
   if (!order || order.status === "refunded" || order.refunds.some((refund) => refund.status === "processed") || order.returnRequests.some((returnRequest) => returnRequest.status === "COMPLETED")) {
     return { skipped: true };
   }
+  if (!order.userId || !order.user?.email) return { skipped: true };
+  const userId = order.userId;
 
   const existing = await prisma.emailNotification.findUnique({ where: { idempotencyKey: `review-request:${order.id}` } });
   if (existing?.status === "sent") return { skipped: true };
@@ -264,14 +272,14 @@ async function processReviewRequest(payload: Record<string, unknown>, req: Reque
       await prisma.productReviewToken.upsert({
         where: {
           userId_orderId_productId: {
-            userId: order.userId,
+            userId,
             orderId: order.id,
             productId: item.productId,
           },
         },
         create: {
           tokenHash: hashToken(token),
-          userId: order.userId,
+          userId,
           orderId: order.id,
           productId: item.productId,
           expiresAt: addDays(new Date(), 30),
@@ -303,7 +311,7 @@ async function processReviewRequest(payload: Record<string, unknown>, req: Reque
       customerName: order.user.name || order.user.email,
       orderNumber: order.orderNumber ? `#${order.orderNumber}` : order.id,
       productsHtml,
-      orderUrl: `${baseUrl}/account/orders/${order.id}`,
+      orderUrl: buildPublicOrderUrl(baseUrl, order),
       storeName: "FikaStore",
       storeUrl: baseUrl,
     },

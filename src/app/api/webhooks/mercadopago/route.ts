@@ -8,6 +8,7 @@ import { cancelScheduledEmailJobs, queueAndSendEmailNotification, renderEmailTem
 import { orderPaidTemplate } from "@/lib/email-templates";
 import { sendMail } from "@/lib/mailer";
 import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows";
+import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName } from "@/lib/orderAccess";
 
 type MpWebhookBody = any;
 
@@ -80,17 +81,19 @@ async function sendDetailedPaidEmail(input: {
     },
   });
 
-  if (!order?.user.email) return;
+  const orderEmail = order ? getOrderContactEmail(order) : "";
+  if (!order || !orderEmail) return;
 
   const baseUrl = publicBaseUrl(input.req);
+  const publicOrderUrl = buildPublicOrderUrl(baseUrl, order);
   const subtotal = order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
   const shippingAmount = Number(order.shippingAmount);
   const paymentAmount = Number(input.payment.transaction_amount || order.total);
   const paymentMethod = input.payment.payment_method_id ? String(input.payment.payment_method_id) : "";
   const subjectPayload = {
-    customerName: order.user.name || order.shippingName || order.user.email,
+    customerName: getOrderCustomerName(order),
     orderNumber: order.orderNumber ? `#${order.orderNumber}` : order.id,
-    orderUrl: `${baseUrl}/account/orders/${order.id}`,
+    orderUrl: publicOrderUrl,
     storeName: "FikaStore",
     storeUrl: baseUrl,
   };
@@ -102,10 +105,10 @@ async function sendDetailedPaidEmail(input: {
   if (!renderedTemplate.template.enabled) return;
 
   await sendMail({
-    to: order.user.email,
+    to: orderEmail,
     subject: renderedTemplate.subject,
     html: orderPaidTemplate({
-      customerName: order.user.name || order.shippingName || order.user.email,
+      customerName: getOrderCustomerName(order),
       orderId: order.id,
       orderNumber: order.orderNumber,
       orderDate: order.createdAt,
@@ -175,7 +178,7 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
   // Datos para notificar fuera de la transacción.
   let shouldSendPaidEmail = false;
   let shouldSendRejectedEmail = false;
-  let emailTo: string | null = null;
+      let emailTo: string | null = null;
   let emailName = "";
   let orderTotal = 0;
   let orderNumber: number | undefined;
@@ -213,7 +216,7 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
 
     const order = await tx.order.findUnique({
       where: { id: orderId },
-      include: { items: true },
+      include: { items: true, user: { select: { email: true, name: true } } },
     });
     if (!order) return;
 
@@ -225,15 +228,11 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
           data: { status: "paid" },
         });
 
-        const user = await tx.user.findUnique({
-          where: { id: order.userId },
-          select: { email: true, name: true },
-        });
-
-        if (user?.email) {
+        const orderEmail = getOrderContactEmail(order);
+        if (orderEmail) {
           shouldSendPaidEmail = true;
-          emailTo = user.email;
-          emailName = user.name ?? "";
+          emailTo = orderEmail;
+          emailName = order.user?.name ?? order.shippingName ?? order.contactEmail ?? "";
           orderTotal = Number(order.total);
           orderNumber = order.orderNumber ?? undefined;
         }
@@ -242,14 +241,11 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
     }
 
     if (mpStatus === "rejected" || mpStatus === "cancelled" || mpStatus === "refunded") {
-      const user = await tx.user.findUnique({
-        where: { id: order.userId },
-        select: { email: true, name: true },
-      });
-      if (mpStatus === "rejected" && user?.email) {
+      const orderEmail = getOrderContactEmail(order);
+      if (mpStatus === "rejected" && orderEmail) {
         shouldSendRejectedEmail = true;
-        emailTo = user.email;
-        emailName = user.name ?? "";
+        emailTo = orderEmail;
+        emailName = order.user?.name ?? order.shippingName ?? order.contactEmail ?? "";
         orderTotal = Number(order.total);
         orderNumber = order.orderNumber ?? undefined;
       }

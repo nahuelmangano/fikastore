@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { epickRequest, mapEpickStatus, splitEpickAddressLine } from "@/lib/epick";
+import { getOrderContactEmail, normalizeOrderEmail } from "@/lib/orderAccess";
 import { isStaffRole } from "@/lib/roles";
 import { getProviderConfigValue } from "@/lib/shippingProviderConfig";
 
@@ -9,7 +10,67 @@ export const runtime = "nodejs";
 
 type Body = {
   orderId: string;
+  email?: string;
 };
+
+type SessionUser = {
+  id?: string;
+  role?: string;
+};
+
+type EpickCreatePayload = {
+  info: {
+    webhook: string;
+  };
+  package: {
+    long: number;
+    width: number;
+    height: number;
+    weight: number;
+    value: number;
+  };
+  sender: {
+    postal_code: string;
+    name: string;
+    phone: string;
+    email: string;
+    street: string;
+    number: string;
+    city: string;
+    province: string;
+    extra: string | null;
+    info: string | null;
+  };
+  addressee: {
+    postal_code: string;
+    name: string;
+    phone: string;
+    email: string;
+    street: string;
+    number: string;
+    city: string;
+    province: string;
+    extra: string;
+    info: string;
+  };
+};
+
+type EpickCreateResponse = {
+  id?: unknown;
+  order_id?: unknown;
+  sender_code?: unknown;
+  senderCode?: unknown;
+  status_name?: unknown;
+  status?: unknown;
+  mp_url?: unknown;
+  cho_url?: unknown;
+  preference_id?: unknown;
+  qr_image?: unknown;
+};
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
 
 async function envNumber(name: string, def: number) {
   const v = Number(await getProviderConfigValue("epick", name, String(def)));
@@ -24,23 +85,25 @@ async function requireEnv(name: string) {
 
 export async function POST(req: Request) {
   const session = await auth();
-  const userId = (session?.user as any)?.id as string | undefined;
-  const role = (session?.user as any)?.role as string | undefined;
-  if (!userId) {
-    return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
-  }
+  const user = session?.user as SessionUser | undefined;
+  const userId = user?.id;
+  const role = user?.role;
 
   const body = (await req.json().catch(() => null)) as Body | null;
   const orderId = body?.orderId?.trim();
+  const accessEmail = normalizeOrderEmail(body?.email);
   if (!orderId) {
     return NextResponse.json({ ok: false, error: "orderId requerido." }, { status: 400 });
   }
 
   const order = await prisma.order.findFirst({
-    where: isStaffRole(role) ? { id: orderId } : { id: orderId, userId },
+    where: { id: orderId },
     include: { user: true },
   });
-  if (!order) {
+  const canAccess = order
+    ? isStaffRole(role) || (userId && order.userId === userId) || (accessEmail && getOrderContactEmail(order) === accessEmail)
+    : false;
+  if (!order || !canAccess) {
     return NextResponse.json({ ok: false, error: "Orden no encontrada." }, { status: 404 });
   }
 
@@ -55,7 +118,7 @@ export async function POST(req: Request) {
     );
   }
 
-  let payload: any;
+  let payload: EpickCreatePayload;
   try {
     const long = await envNumber("EPICK_PKG_LONG", 30);
     const width = await envNumber("EPICK_PKG_WIDTH", 20);
@@ -90,7 +153,7 @@ export async function POST(req: Request) {
         postal_code: order.shippingZip,
         name: order.shippingName,
         phone: order.shippingPhone,
-        email: order.user?.email || (await requireEnv("EPICK_SENDER_EMAIL")),
+        email: order.contactEmail || order.user?.email || (await requireEnv("EPICK_SENDER_EMAIL")),
         street: addresseeAddress.street,
         number: addresseeAddress.number,
         city: order.shippingCity,
@@ -99,11 +162,11 @@ export async function POST(req: Request) {
         info: "",
       },
     };
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ ok: false, error: errorMessage(error) }, { status: 500 });
   }
 
-  let placeholder: any;
+  let placeholder: Awaited<ReturnType<typeof prisma.ePickShipment.create>>;
   try {
     placeholder = await prisma.ePickShipment.create({
       data: {
@@ -111,20 +174,21 @@ export async function POST(req: Request) {
         status: "PENDING",
       },
     });
-  } catch (e: any) {
-    const code = e?.code || e?.meta?.cause;
+  } catch (error: unknown) {
+    const prismaError = error as { code?: string; meta?: { cause?: string } };
+    const code = prismaError.code || prismaError.meta?.cause;
     if (code === "P2002") {
       const existingNow = await prisma.ePickShipment.findUnique({ where: { orderId } });
       return NextResponse.json({ ok: true, shipment: existingNow, reused: true });
     }
     return NextResponse.json(
-      { ok: false, error: "No se pudo reservar el envío.", details: String(e?.message || e) },
+      { ok: false, error: "No se pudo reservar el envío.", details: errorMessage(error) },
       { status: 500 }
     );
   }
 
   try {
-    const data = await epickRequest<any>("/api/orders/integrations/confirm-order", {
+    const data = await epickRequest<EpickCreateResponse>("/api/orders/integrations/confirm-order", {
       method: "POST",
       body: JSON.stringify(payload),
     });
@@ -134,7 +198,7 @@ export async function POST(req: Request) {
       data: {
         epickOrderId: String(data?.id || data?.order_id || ""),
         senderCode: String(data?.sender_code || data?.senderCode || ""),
-        status: mapEpickStatus(data?.status_name || data?.status),
+        status: mapEpickStatus(String(data?.status_name || data?.status || "")),
         mpUrl: data?.mp_url ? String(data.mp_url) : undefined,
         choUrl: data?.cho_url ? String(data.cho_url) : undefined,
         preferenceId: data?.preference_id ? String(data.preference_id) : undefined,
@@ -144,10 +208,10 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({ ok: true, shipment, reused: false });
-  } catch (e: any) {
+  } catch (error: unknown) {
     await prisma.ePickShipment.delete({ where: { id: placeholder.id } }).catch(() => {});
     return NextResponse.json(
-      { ok: false, error: "No se pudo crear el envío.", details: String(e?.message || e) },
+      { ok: false, error: "No se pudo crear el envío.", details: errorMessage(error) },
       { status: 502 }
     );
   }
