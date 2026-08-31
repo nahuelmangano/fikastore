@@ -125,7 +125,7 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
             const Icon = item.icon;
             return (
               <Link
-                key={item.href}
+                key={navHref(item)}
                 href={navHref(item)}
                 target={item.newTab ? "_blank" : undefined}
                 rel={item.newTab ? "noopener noreferrer" : undefined}

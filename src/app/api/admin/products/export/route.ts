@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import * as XLSX from "xlsx";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -19,16 +20,16 @@ export async function GET(req: Request) {
   const sort = (searchParams.get("sort") ?? "newest").toLowerCase();
   const category = (searchParams.get("category") ?? "all").trim();
 
-  const where: {
-    OR?: Array<{ name?: { contains: string }; slug?: { contains: string }; description?: { contains: string } }>;
-    isActive?: boolean;
-    stock?: number;
-    categoryId?: string | null;
-    category?: { slug: string };
-  } = {};
+  const where: Prisma.ProductWhereInput = {};
 
   if (q) {
-    where.OR = [{ name: { contains: q } }, { slug: { contains: q } }, { description: { contains: q } }];
+    where.OR = [
+      { name: { contains: q } },
+      { slug: { contains: q } },
+      { sku: { contains: q } },
+      { description: { contains: q } },
+      { variants: { some: { sku: { contains: q } } } },
+    ];
   }
 
   if (status === "active") where.isActive = true;

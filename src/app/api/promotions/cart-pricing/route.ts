@@ -4,7 +4,7 @@ import { priceCartItems } from "@/lib/promotions";
 export const runtime = "nodejs";
 
 type Body = {
-  items?: { productId: string; quantity: number }[];
+  items?: { productId: string; productVariantId?: string | null; lineKey?: string; quantity: number }[];
   promoCode?: string | null;
   paymentMethod?: string | null;
   deliveryType?: string | null;

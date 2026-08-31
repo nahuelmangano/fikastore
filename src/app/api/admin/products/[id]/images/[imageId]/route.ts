@@ -42,7 +42,10 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
   });
   if (!img) return NextResponse.json({ ok: false, error: "Imagen no existe" }, { status: 404 });
 
-  await prisma.productImage.delete({ where: { id: img.id } });
+  await prisma.$transaction([
+    prisma.productVariantImage.deleteMany({ where: { imageId: img.id } }),
+    prisma.productImage.delete({ where: { id: img.id } }),
+  ]);
 
   const remainingUses = await prisma.productImage.count({ where: { url: img.url } });
   if (remainingUses === 0 && img.url.startsWith("/uploads/")) {

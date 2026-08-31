@@ -209,6 +209,7 @@ export default function AdminPromotions({ products }: { products: ProductOption[
   const [shippingCarrierOptions, setShippingCarrierOptions] = useState<ShippingCarrierOption[]>([]);
   const [submitting, setSubmitting] = useState<ActiveTab | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const activeForm =
     activeTab === "global"
@@ -398,6 +399,24 @@ export default function AdminPromotions({ products }: { products: ProductOption[
     setPromotions((prev) =>
       prev.map((p) => (p.id === id ? { ...p, isActive: data.promotion.isActive } : p))
     );
+  }
+
+  async function deletePromotion(id: string) {
+    setError(null);
+    setMsg(null);
+    setDeletingId(id);
+    const res = await fetch(`/api/admin/promotions/${id}`, {
+      method: "DELETE",
+    });
+    const data = await res.json().catch(() => ({}));
+    setDeletingId(null);
+    if (!res.ok) {
+      setError(data?.error || "No se pudo eliminar la promoción.");
+      return;
+    }
+    setPromotions((prev) => prev.filter((promotion) => promotion.id !== id));
+    if (editingId === id) cancelEdit();
+    setMsg(`Promoción eliminada: ${data?.deleted?.name || ""}`);
   }
 
   async function submitActiveForm() {
@@ -799,9 +818,18 @@ export default function AdminPromotions({ products }: { products: ProductOption[
                               <button
                                 type="button"
                                 onClick={() => togglePromotion(p.id, p.isActive)}
+                                disabled={deletingId === p.id}
                                 className="rounded-xl border border-[#E5D7C8] px-3 py-1.5 text-xs font-semibold text-[#8B5A2B] hover:bg-[#F2ECE5]"
                               >
                                 {p.isActive ? "Desactivar" : "Activar"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deletePromotion(p.id)}
+                                disabled={deletingId === p.id}
+                                className="rounded-xl border border-red-800 bg-red-700 px-3 py-1.5 text-xs font-semibold !text-white shadow-sm transition duration-150 hover:bg-red-800 disabled:border-red-400 disabled:bg-red-500 disabled:!text-white disabled:opacity-60"
+                              >
+                                {deletingId === p.id ? "Eliminando..." : "Eliminar"}
                               </button>
                             </div>
                           </td>

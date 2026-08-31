@@ -1,5 +1,7 @@
 "use client";
 
+import { buildMetaPurchaseEventId, buildMetaPurchasePayload } from "@/lib/meta/purchase";
+
 type MetaPixelContent = {
   id: string;
   quantity?: number;
@@ -24,6 +26,8 @@ type MetaPixelOptions = {
   eventID?: string;
 };
 
+export type MetaPixelTrackResult = "sent" | "waiting";
+
 type MetaPixelWindow = Window & {
   fbq?: (
     command: "track",
@@ -38,6 +42,10 @@ const CURRENCY = "ARS";
 function fbq() {
   if (typeof window === "undefined") return null;
   return (window as MetaPixelWindow).fbq ?? null;
+}
+
+export function hasMetaPixelFbq() {
+  return typeof fbq() === "function";
 }
 
 function moneyValue(value: number) {
@@ -116,24 +124,41 @@ export function trackMetaPurchase(order: {
     quantity: number;
     unitPrice: number;
   }>;
-}) {
-  const contents = normalizeContents(order.items.map((item, index) => ({
-    id: item.id || item.name || `${order.id}-${index}`,
-    quantity: item.quantity,
-    itemPrice: item.unitPrice,
-  })));
+}): MetaPixelTrackResult {
+  const tracker = fbq();
+  if (!tracker) {
+    console.info(`[Meta Pixel] Purchase waiting: fbq unavailable order=${order.id}`);
+    return "waiting";
+  }
 
-  fbq()?.(
+  console.info(`[Meta Pixel] fbq available order=${order.id}`);
+
+  const purchasePayload = buildMetaPurchasePayload({
+    id: order.id,
+    total: order.total,
+    items: order.items.map((item) => ({
+      id: item.id,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+    })),
+  });
+
+  const params: MetaPixelParams = {
+    content_ids: purchasePayload.content_ids,
+    content_type: purchasePayload.content_type,
+    contents: purchasePayload.contents,
+    currency: purchasePayload.currency,
+    num_items: purchasePayload.num_items,
+    value: purchasePayload.value,
+  };
+
+  tracker(
     "track",
     "Purchase",
-    {
-      content_ids: contents.map((item) => item.id),
-      content_type: "product",
-      contents,
-      currency: CURRENCY,
-      num_items: order.items.reduce((acc, item) => acc + item.quantity, 0),
-      value: moneyValue(order.total),
-    },
-    { eventID: `purchase:${order.id}` },
+    params,
+    { eventID: buildMetaPurchaseEventId(order.id) },
   );
+
+  console.info(`[Meta Pixel] Purchase sent order=${order.id}`);
+  return "sent";
 }

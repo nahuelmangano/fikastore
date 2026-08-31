@@ -44,6 +44,8 @@ export async function GET() {
       flatRate: c.flatRate,
       pricingMode: c.pricingMode,
       deliveryDays: c.deliveryDays,
+      shippingSurcharge: c.shippingSurcharge,
+      freeShippingMinimumSubtotal: c.freeShippingMinimumSubtotal,
     })),
   });
 }
@@ -59,6 +61,8 @@ export async function POST(req: Request) {
     flatRate?: number;
     pricingMode?: "fixed" | "agreement" | "free";
     deliveryDays?: string;
+    shippingSurcharge?: number;
+    freeShippingMinimumSubtotal?: number;
   } | null;
 
   try {
@@ -92,6 +96,8 @@ export async function PATCH(req: Request) {
     flatRate?: number;
     pricingMode?: "fixed" | "agreement" | "free";
     deliveryDays?: string;
+    shippingSurcharge?: number;
+    freeShippingMinimumSubtotal?: number;
   } | null;
   const key = String(body?.key || "").trim();
   const enabled = body?.enabled;
@@ -101,6 +107,8 @@ export async function PATCH(req: Request) {
   const flatRate = body?.flatRate;
   const pricingMode = body?.pricingMode;
   const deliveryDays = body?.deliveryDays;
+  const shippingSurcharge = body?.shippingSurcharge;
+  const freeShippingMinimumSubtotal = body?.freeShippingMinimumSubtotal;
 
   if (
     !canTargetCarrierKey(key) ||
@@ -109,6 +117,8 @@ export async function PATCH(req: Request) {
       typeof name !== "string" &&
       typeof description !== "string" &&
       typeof flatRate !== "number" &&
+      typeof shippingSurcharge !== "number" &&
+      typeof freeShippingMinimumSubtotal !== "number" &&
       typeof deliveryDays !== "string" &&
       pricingMode !== "fixed" &&
       pricingMode !== "agreement" &&
@@ -139,11 +149,43 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: false, error: "Ingresá un día o rango válido, por ejemplo 3-6." }, { status: 400 });
   }
 
+  if (typeof shippingSurcharge === "number" && (!Number.isFinite(shippingSurcharge) || shippingSurcharge < 0)) {
+    return NextResponse.json({ ok: false, error: "Ingresá un recargo válido mayor o igual a 0." }, { status: 400 });
+  }
+
+  if (
+    typeof freeShippingMinimumSubtotal === "number" &&
+    (!Number.isFinite(freeShippingMinimumSubtotal) || freeShippingMinimumSubtotal < 0)
+  ) {
+    return NextResponse.json({ ok: false, error: "Ingresá un monto mínimo válido mayor o igual a 0." }, { status: 400 });
+  }
+
   if (typeof deliveryDays === "string") {
     await prisma.shippingProviderSetting.upsert({
       where: { provider_key: { provider: key, key: "DELIVERY_DAYS" } },
       create: { provider: key, key: "DELIVERY_DAYS", value: deliveryDays.trim(), isSecret: false },
       update: { value: deliveryDays.trim(), isSecret: false },
+    });
+  }
+
+  if (typeof shippingSurcharge === "number") {
+    await prisma.shippingProviderSetting.upsert({
+      where: { provider_key: { provider: key, key: "SHIPPING_SURCHARGE" } },
+      create: { provider: key, key: "SHIPPING_SURCHARGE", value: String(Math.round(shippingSurcharge * 100) / 100), isSecret: false },
+      update: { value: String(Math.round(shippingSurcharge * 100) / 100), isSecret: false },
+    });
+  }
+
+  if (typeof freeShippingMinimumSubtotal === "number") {
+    await prisma.shippingProviderSetting.upsert({
+      where: { provider_key: { provider: key, key: "FREE_SHIPPING_MIN_SUBTOTAL" } },
+      create: {
+        provider: key,
+        key: "FREE_SHIPPING_MIN_SUBTOTAL",
+        value: String(Math.round(freeShippingMinimumSubtotal * 100) / 100),
+        isSecret: false,
+      },
+      update: { value: String(Math.round(freeShippingMinimumSubtotal * 100) / 100), isSecret: false },
     });
   }
 
@@ -198,6 +240,8 @@ export async function PATCH(req: Request) {
       description: found.description,
       flatRate: found.flatRate,
       pricingMode: found.pricingMode,
+      shippingSurcharge: found.shippingSurcharge,
+      freeShippingMinimumSubtotal: found.freeShippingMinimumSubtotal,
     },
   });
 }

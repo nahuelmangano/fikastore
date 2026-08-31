@@ -11,6 +11,7 @@ type ProductGroup = {
   id: string;
   sortOrder?: number;
   name: string;
+  sku: string | null;
   description: string | null;
   slug: string;
   price: number;
@@ -136,6 +137,7 @@ export default function AdminProductsTable({
                 />
               </th>
               <th className="px-4 py-4 xl:py-2.5">Producto</th>
+              <th className="w-36 px-4 py-4 xl:py-2.5">SKU</th>
               <th className="w-44 px-4 py-4 xl:py-2.5">Categoría</th>
               <th className="w-32 px-4 py-4 xl:py-2.5">Precio</th>
               <th className="w-36 px-4 py-4 xl:py-2.5">Stock</th>
@@ -175,8 +177,8 @@ export default function AdminProductsTable({
                     await persistOrder(nextProducts);
                   }}
                 >
-                  {showTopHint && <td colSpan={7} className="absolute inset-x-0 top-0 h-1 bg-[var(--admin-primary)] p-0" />}
-                  {showBottomHint && <td colSpan={7} className="absolute inset-x-0 bottom-0 h-1 bg-[var(--admin-primary)] p-0" />}
+                  {showTopHint && <td colSpan={8} className="absolute inset-x-0 top-0 h-1 bg-[var(--admin-primary)] p-0" />}
+                  {showBottomHint && <td colSpan={8} className="absolute inset-x-0 bottom-0 h-1 bg-[var(--admin-primary)] p-0" />}
                   <td className="px-4 py-4 xl:py-2.5">
                     <div className="flex items-center gap-2">
                       {manualOrder && (
@@ -224,6 +226,12 @@ export default function AdminProductsTable({
                           {variantsCount > 1 ? " agrupadas" : ""}
                         </div>
                       </div>
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-4 xl:py-2.5">
+                    <div className="truncate text-sm text-[var(--admin-text)]" title={p.sku || undefined}>
+                      {p.sku === "multiple" ? "Varios SKU" : p.sku || "—"}
                     </div>
                   </td>
 
@@ -277,7 +285,7 @@ export default function AdminProductsTable({
 
             {products.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-12 xl:py-8">
+                <td colSpan={8} className="px-4 py-12 xl:py-8">
                   <EmptyState
                     icon={PackagePlus}
                     title="No encontramos productos con esos filtros."

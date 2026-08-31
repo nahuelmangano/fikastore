@@ -16,7 +16,9 @@ import {
 import { ChevronDown } from "lucide-react";
 
 type CartPricingItem = {
+  lineKey: string;
   productId: string;
+  productVariantId: string | null;
   basePrice: number;
   finalPrice: number;
   autoPercent: number;
@@ -167,7 +169,12 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              items: items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+              items: items.map((item) => ({
+                productId: item.productId,
+                productVariantId: item.productVariantId ?? null,
+                lineKey: item.lineKey,
+                quantity: item.quantity,
+              })),
               promoCode,
               deliveryType: option.deliveryType,
               carrierKey: option.key,
@@ -272,7 +279,12 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          items: items.map((it) => ({ productId: it.productId, quantity: it.quantity })),
+          items: items.map((it) => ({
+            productId: it.productId,
+            productVariantId: it.productVariantId ?? null,
+            lineKey: it.lineKey,
+            quantity: it.quantity,
+          })),
           promoCode,
         }),
       });
@@ -294,7 +306,7 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
 
   const pricingById = useMemo(() => {
     const m = new Map<string, CartPricingItem>();
-    for (const it of pricing?.items ?? []) m.set(it.productId, it);
+    for (const it of pricing?.items ?? []) m.set(it.lineKey, it);
     return m;
   }, [pricing]);
 
@@ -329,7 +341,7 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
       <div className="space-y-4">
         {items.map((it) => (
           <div
-            key={it.productId}
+            key={it.lineKey}
             className="flex gap-4 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4"
           >
             <div className="h-20 w-20 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
@@ -349,9 +361,10 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
               >
                 {it.name}
               </Link>
+              {it.variantLabel ? <div className="mt-1 text-xs text-zinc-500">{it.variantLabel}</div> : null}
               <div className="mt-1 text-sm text-zinc-400">
                 {(() => {
-                  const pi = pricingById.get(it.productId);
+                  const pi = pricingById.get(it.lineKey);
                   const base = Number(pi?.basePrice ?? it.price);
                   return <span>${base.toLocaleString("es-AR")}</span>;
                 })()}
@@ -362,7 +375,7 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
                   className="h-9 w-9 rounded-xl border border-zinc-800 hover:bg-zinc-900/60"
                   onClick={() => {
                     const next = Math.max(1, it.quantity - 1);
-                    setQuantity(it.productId, next);
+                    setQuantity(it.lineKey, next);
                   }}
                 >
                   −
@@ -372,7 +385,7 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
                   value={it.quantity}
                   onChange={(e) => {
                     const n = Number(e.target.value || "1");
-                    setQuantity(it.productId, n);
+                    setQuantity(it.lineKey, n);
                   }}
                   className="h-9 w-16 rounded-xl border border-zinc-800 bg-zinc-950 px-2 text-center"
                   inputMode="numeric"
@@ -382,7 +395,7 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
                   className="h-9 w-9 rounded-xl border border-zinc-800 hover:bg-zinc-900/60"
                   onClick={() => {
                     const next = Math.min(it.stock, it.quantity + 1);
-                    setQuantity(it.productId, next);
+                    setQuantity(it.lineKey, next);
                   }}
                 >
                   +
@@ -394,12 +407,12 @@ export default function CartPanel({ onClose }: { onClose?: () => void }) {
 
             <div className="flex flex-col items-end justify-between">
               <div className="text-sm text-zinc-300">
-                ${Number((pricingById.get(it.productId)?.basePrice ?? it.price) * it.quantity).toLocaleString("es-AR")}
+                ${Number((pricingById.get(it.lineKey)?.basePrice ?? it.price) * it.quantity).toLocaleString("es-AR")}
               </div>
 
               <button
                 className="text-xs text-zinc-400 hover:text-zinc-200"
-                onClick={() => removeFromCart(it.productId)}
+                onClick={() => removeFromCart(it.lineKey)}
               >
                 Quitar
               </button>

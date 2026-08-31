@@ -226,9 +226,6 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
           <div className="font-semibold text-[var(--admin-primary)]">
             #{order.orderNumber}
           </div>
-          <div className="mt-1 max-w-32 truncate text-xs text-[var(--admin-muted)]" title={order.id}>
-            {order.id}
-          </div>
         </OrderTableCellLink>
       ),
     },

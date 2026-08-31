@@ -41,6 +41,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     ok: true,
     order: {
       id: order.id,
+      orderNumber: order.orderNumber,
       status: order.status,
       total: Number(order.total),
       createdAt: order.createdAt,

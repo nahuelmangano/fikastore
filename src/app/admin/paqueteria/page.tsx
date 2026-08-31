@@ -46,6 +46,8 @@ export default async function AdminPaqueteriaPage() {
           flatRate: c.flatRate,
           pricingMode: c.pricingMode,
           deliveryDays: c.deliveryDays,
+          shippingSurcharge: c.shippingSurcharge,
+          freeShippingMinimumSubtotal: c.freeShippingMinimumSubtotal,
           configured: config?.configured ?? true,
           requiredCount: config?.requiredCount ?? 0,
           completedCount: config?.completedCount ?? 0,

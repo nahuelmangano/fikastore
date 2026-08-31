@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMailingSettings } from "@/lib/storeSettings";
 import { sendMail } from "@/lib/mailer";
+import { resolveNotificationEmail } from "@/lib/notificationEmail";
 
 export const runtime = "nodejs";
 
@@ -75,12 +76,12 @@ export async function POST(req: Request) {
   });
 
   const mailing = await getMailingSettings().catch(() => null);
-  const notifyTo =
-    process.env.REGRET_REQUEST_NOTIFY_EMAIL ||
-    process.env.SUPPORT_EMAIL ||
-    mailing?.smtpReplyTo ||
-    mailing?.smtpFrom ||
-    "";
+  const notifyTo = resolveNotificationEmail({
+    smtpUser: mailing?.smtpUser,
+    smtpFrom: mailing?.smtpFrom,
+    smtpReplyTo: mailing?.smtpReplyTo,
+    customNotifyEmail: process.env.REGRET_REQUEST_NOTIFY_EMAIL,
+  });
 
   if (notifyTo) {
     const subject = `Solicitud de arrepentimiento #${orderNumber}`;

@@ -9,6 +9,9 @@ import { orderPaidTemplate } from "@/lib/email-templates";
 import { sendMail } from "@/lib/mailer";
 import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows";
 import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName } from "@/lib/orderAccess";
+import { sendMerchantOrderNotification } from "@/lib/merchantOrderNotifications";
+import { syncMetaPurchaseForOrder } from "@/lib/meta/conversionsApi";
+import { markOrderPaidIfPending } from "@/lib/orderPaymentTransition";
 
 type MpWebhookBody = any;
 
@@ -222,11 +225,8 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
 
     if (mpStatus === "approved") {
       // Solo si cambia de estado, enviamos mail (idempotente)
-      if (order.status !== "paid") {
-        await tx.order.update({
-          where: { id: order.id },
-          data: { status: "paid" },
-        });
+      const paidTransition = await markOrderPaidIfPending(tx, order.id);
+      if (paidTransition.changed) {
 
         const orderEmail = getOrderContactEmail(order);
         if (orderEmail) {
@@ -257,6 +257,13 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
             select: { stock: true },
           });
 
+          if (it.productVariantId) {
+            await tx.productVariant.update({
+              where: { id: it.productVariantId },
+              data: { stock: { increment: it.quantity } },
+            });
+          }
+
           const updatedProduct = await tx.product.update({
             where: { id: it.productId },
             data: { stock: { increment: it.quantity } },
@@ -285,6 +292,16 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
   // Notificaciones fuera de la transacción.
   if (shouldSendPaidEmail && emailTo) {
     await sendDetailedPaidEmail({ orderId, paymentRowId, payment, req }).catch(() => {});
+    await sendMerchantOrderNotification({
+      orderId,
+      trigger: "paid",
+      paymentLabel: "Mercado Pago",
+      req,
+    }).catch(() => {});
+  }
+
+  if (mpStatus === "approved") {
+    await syncMetaPurchaseForOrder(orderId, { req });
   }
 
   if (shouldSendRejectedEmail && emailTo) {

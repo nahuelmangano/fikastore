@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { flattenCategories } from "@/lib/categories";
 import { notFound } from "next/navigation";
-import AdminProductEditor from "./ui";
+import LegacyAdminProductEditor from "./legacy-ui";
+import ModernProductEditor from "@/components/admin/products/ModernProductEditor";
 import type { Prisma } from "@prisma/client";
 
 function splitProductName(name: string) {
@@ -38,6 +39,7 @@ function toEditorProduct(product: ProductForEditor) {
     categoryId: product.categoryId,
     category: product.category ? { id: product.category.id, name: product.category.name } : null,
     name: product.name,
+    sku: product.sku,
     slug: product.slug,
     description: product.description,
     price: Number(product.price),
@@ -67,9 +69,34 @@ export default async function AdminProductEditPage({
   const rawReturnTo = resolvedSearchParams.returnTo?.trim();
   const backHref = rawReturnTo?.startsWith("/admin/products") ? rawReturnTo : "/admin/products";
 
-  const product = await prisma.product.findUnique({
+const product = await prisma.product.findUnique({
     where: { id },
-    include: { images: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }, category: true },
+    include: {
+      images: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
+      category: true,
+      options: {
+        orderBy: { position: "asc" },
+        include: {
+          values: { orderBy: { position: "asc" } },
+        },
+      },
+      variants: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          images: {
+            orderBy: [{ sortOrder: "asc" }, { imageId: "asc" }],
+            include: {
+              image: true,
+            },
+          },
+          values: {
+            include: {
+              optionValue: true,
+            },
+          },
+        },
+      },
+    },
   });
 
   if (!product) return notFound();
@@ -88,10 +115,43 @@ export default async function AdminProductEditPage({
     select: { id: true, parentId: true, name: true, slug: true },
   });
 
+  const isLegacyGroupedProduct = !product.hasVariants && variants.length > 1;
+
+  if (isLegacyGroupedProduct) {
+    return (
+      <LegacyAdminProductEditor
+        product={toEditorProduct(product)}
+        variants={sortVariantsBySize(variants.length > 0 ? variants : [product]).map(toEditorProduct)}
+        categories={flattenCategories(categories)}
+        backHref={backHref}
+      />
+    );
+  }
+
   return (
-    <AdminProductEditor
-      product={toEditorProduct(product)}
-      variants={sortVariantsBySize(variants.length > 0 ? variants : [product]).map(toEditorProduct)}
+    <ModernProductEditor
+      mode="edit"
+      product={{
+        ...toEditorProduct(product),
+        hasVariants: product.hasVariants,
+      }}
+      initialOptions={product.options.map((option) => ({
+        id: option.id,
+        name: option.name,
+        values: option.values.map((value) => ({
+          id: value.id,
+          value: value.value,
+        })),
+      }))}
+      initialVariants={product.variants.map((variant) => ({
+        id: variant.id,
+        label: variant.label,
+        sku: variant.sku,
+        stock: variant.stock,
+        priceOverride: variant.priceOverride ? Number(variant.priceOverride) : null,
+        optionValueIds: variant.values.map((value) => value.optionValueId),
+        imageIds: variant.images.map((image) => image.imageId),
+      }))}
       categories={flattenCategories(categories)}
       backHref={backHref}
     />

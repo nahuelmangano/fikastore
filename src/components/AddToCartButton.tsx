@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { addToCart } from "@/lib/cart";
 import { trackMetaAddToCart } from "@/lib/metaPixelEvents";
+import { lineItemKey } from "@/lib/productVariants";
 
 type Props = {
   product: {
@@ -27,8 +28,11 @@ export default function AddToCartButton({ product }: Props) {
         addToCart(
           {
             productId: product.id,
+            productVariantId: null,
+            lineKey: lineItemKey(product.id, null),
             slug: product.slug,
             name: product.name,
+            variantLabel: null,
             price: product.price,
             stock: product.stock,
             imageUrl: product.imageUrl,

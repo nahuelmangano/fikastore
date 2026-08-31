@@ -276,7 +276,7 @@ export default async function ProductsPage({
                         </div>
 
                         <div className="min-w-0 px-3 pb-3 pt-3">
-                          <h2 className="truncate text-sm font-semibold leading-5 text-zinc-900">{p.name}</h2>
+                          <h2 className="truncate text-sm font-semibold leading-5 text-[#4F2D16]">{p.name}</h2>
 
                           <div className="mt-3 text-xl font-semibold leading-6 text-zinc-950">
                             {moneyNoCents(basePrice)}

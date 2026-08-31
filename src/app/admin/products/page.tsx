@@ -1,9 +1,8 @@
 import Link from "next/link";
-import { Download, FileUp, PackagePlus } from "lucide-react";
+import { ArrowLeft, Boxes, Download, Ellipsis, FileUp, Package, PackagePlus, Store, TriangleAlert } from "lucide-react";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { flattenCategories, getCategoryAndDescendantIds } from "@/lib/categories";
-import AdminPageHeader from "@/components/admin/layout/AdminPageHeader";
 import PageToolbar from "@/components/admin/layout/PageToolbar";
 import SectionCard from "@/components/admin/cards/SectionCard";
 import StatCard from "@/components/admin/cards/StatCard";
@@ -57,6 +56,7 @@ type ProductGroup = {
   id: string;
   sortOrder?: number;
   name: string;
+  sku: string | null;
   description: string | null;
   slug: string;
   price: number;
@@ -81,6 +81,7 @@ function groupProducts(products: ListedProduct[]) {
       groups.set(key, {
         id: product.id,
         name: baseName,
+        sku: product.sku,
         description: product.description,
         slug: product.slug,
         price,
@@ -99,6 +100,7 @@ function groupProducts(products: ListedProduct[]) {
     existing.price = Math.min(existing.price, price);
     existing.createdAt = existing.createdAt > product.createdAt ? existing.createdAt : product.createdAt;
     existing.isActive = existing.isActive || product.isActive;
+    if (existing.sku !== product.sku) existing.sku = existing.sku && product.sku ? "multiple" : existing.sku || product.sku || null;
     if (product.category && !existing.categories.some((category) => category.slug === product.category?.slug)) {
       existing.categories.push({ name: product.category.name, slug: product.category.slug });
     }
@@ -149,7 +151,13 @@ export default async function AdminProductsPage({
   const where: Prisma.ProductWhereInput = {};
 
   if (q) {
-    where.OR = [{ name: { contains: q } }, { slug: { contains: q } }, { description: { contains: q } }];
+    where.OR = [
+      { name: { contains: q } },
+      { slug: { contains: q } },
+      { sku: { contains: q } },
+      { description: { contains: q } },
+      { variants: { some: { sku: { contains: q } } } },
+    ];
   }
   if (status === "active") where.isActive = true;
   if (status === "inactive") where.isActive = false;
@@ -218,43 +226,81 @@ export default async function AdminProductsPage({
   return (
     <main className="min-h-screen bg-[var(--admin-background)] text-[var(--admin-text-soft)]">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 xl:py-6">
-        <AdminPageHeader
-          eyebrow="Admin · Catálogo"
-          title="Productos"
-          subtitle={`Administrá el catálogo, precios, variantes y stock de tu tienda. ${catalogSummary.products} productos · ${catalogSummary.variants} variantes · ${catalogSummary.outOfStock} sin stock.`}
-          backHref="/admin"
-          actions={
-            <>
-              <Link
-                href="/admin/products/import"
-                className="inline-flex items-center gap-2 rounded-2xl border border-[var(--admin-border)] bg-white/70 px-4 py-2.5 xl:py-2 text-sm font-semibold text-[var(--admin-primary)] shadow-sm transition duration-150 hover:bg-[var(--admin-surface-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--admin-primary)]/30"
-              >
-                <FileUp className="h-4 w-4" aria-hidden="true" />
-                Importar XLSX
-              </Link>
-              <a
-                href={exportHref}
-                className="inline-flex items-center gap-2 rounded-2xl border border-[var(--admin-border)] bg-white/70 px-4 py-2.5 xl:py-2 text-sm font-semibold text-[var(--admin-primary)] shadow-sm transition duration-150 hover:bg-[var(--admin-surface-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--admin-primary)]/30"
-              >
-                <Download className="h-4 w-4" aria-hidden="true" />
-                Exportar XLSX
-              </a>
-              <Link
-                href="/admin/products/new"
-                className="inline-flex items-center gap-2 rounded-2xl bg-[var(--admin-primary)] px-4 py-2.5 xl:py-2 text-sm font-semibold text-white shadow-sm transition duration-150 hover:bg-[var(--admin-primary-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--admin-primary)]/30"
-              >
-                <PackagePlus className="h-4 w-4" aria-hidden="true" />
-                Nuevo producto
-              </Link>
-            </>
-          }
-        />
+        <section className="rounded-[2rem] border border-[var(--admin-border)] bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.98),rgba(255,249,242,0.92)_45%,rgba(255,255,255,0.98)_100%)] p-5 shadow-[var(--admin-shadow)] xl:p-4">
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="text-sm font-medium text-[var(--admin-muted-2)] xl:text-xs">Admin › Catálogo</div>
+                <h1 className="mt-2 text-4xl font-semibold tracking-tight text-[var(--admin-text)] xl:text-3xl">Productos</h1>
+                <p className="mt-2 text-sm text-[var(--admin-muted)] xl:text-xs">
+                  Administrá el catálogo, precios, variantes y stock de tu tienda.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Link
+                  href="/admin"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-[var(--admin-border)] bg-white/80 px-4 py-2.5 text-sm font-semibold text-[var(--admin-primary)] shadow-sm transition duration-150 hover:bg-[var(--admin-surface-muted)]"
+                >
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                  Volver
+                </Link>
+                <Link
+                  href="/admin/products/new"
+                  className="inline-flex items-center gap-2 rounded-2xl bg-[var(--admin-primary)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition duration-150 hover:bg-[var(--admin-primary-hover)]"
+                >
+                  <PackagePlus className="h-4 w-4" aria-hidden="true" />
+                  Nuevo producto
+                </Link>
+                <details className="relative">
+                  <summary className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-2xl border border-[var(--admin-border)] bg-white/80 text-[var(--admin-primary)] shadow-sm transition duration-150 hover:bg-[var(--admin-surface-muted)] [&::-webkit-details-marker]:hidden">
+                    <Ellipsis className="h-5 w-5" aria-hidden="true" />
+                    <span className="sr-only">Más acciones</span>
+                  </summary>
+                  <div className="absolute right-0 top-full z-10 mt-2 min-w-52 overflow-hidden rounded-2xl border border-[var(--admin-border)] bg-white shadow-xl">
+                    <Link
+                      href="/admin/products/import"
+                      className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-[var(--admin-primary)] transition hover:bg-[var(--admin-surface-muted)]"
+                    >
+                      <FileUp className="h-4 w-4" aria-hidden="true" />
+                      Importar XLSX
+                    </Link>
+                    <a
+                      href={exportHref}
+                      className="flex items-center gap-3 border-t border-[var(--admin-border)] px-4 py-3 text-sm font-medium text-[var(--admin-primary)] transition hover:bg-[var(--admin-surface-muted)]"
+                    >
+                      <Download className="h-4 w-4" aria-hidden="true" />
+                      Exportar XLSX
+                    </a>
+                  </div>
+                </details>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 text-sm text-[var(--admin-muted)]">
+              <div className="inline-flex items-center gap-2">
+                <Package className="h-4 w-4 text-[var(--admin-primary)]" aria-hidden="true" />
+                <span><strong className="text-[var(--admin-text)]">{catalogSummary.products}</strong> productos</span>
+              </div>
+              <span className="text-[var(--admin-border-strong)]">•</span>
+              <div className="inline-flex items-center gap-2">
+                <Boxes className="h-4 w-4 text-[var(--admin-primary)]" aria-hidden="true" />
+                <span><strong className="text-[var(--admin-text)]">{catalogSummary.variants}</strong> variantes</span>
+              </div>
+              <span className="text-[var(--admin-border-strong)]">•</span>
+              <div className="inline-flex items-center gap-2">
+                <TriangleAlert className="h-4 w-4 text-[#d95f43]" aria-hidden="true" />
+                <span><strong className="text-[var(--admin-text)]">{catalogSummary.outOfStock}</strong> sin stock</span>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <section className="mt-8 xl:mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard title="Productos" value={catalogSummary.products} description="Total del catálogo" icon={PackagePlus} />
-          <StatCard title="Activos" value={catalogSummary.active} description="Publicados en la tienda" icon={PackagePlus} />
-          <StatCard title="Sin stock" value={catalogSummary.outOfStock} description="Necesitan reposición" icon={PackagePlus} />
-          <StatCard title="Variantes" value={catalogSummary.variants} description="Talles y opciones" icon={PackagePlus} />
+          <StatCard title="Productos" value={catalogSummary.products} description="Total del catálogo" icon={Package} />
+          <StatCard title="Activos" value={catalogSummary.active} description="Publicados en la tienda" icon={Store} />
+          <StatCard title="Sin stock" value={catalogSummary.outOfStock} description="Necesitan reposición" icon={TriangleAlert} />
+          <StatCard title="Variantes" value={catalogSummary.variants} description="Talles y opciones" icon={Boxes} />
         </section>
 
         <SectionCard className="mt-8 xl:mt-6">

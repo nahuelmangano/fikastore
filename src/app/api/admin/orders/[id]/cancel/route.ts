@@ -47,6 +47,13 @@ export async function POST(
           select: { stock: true },
         });
 
+        if (it.productVariantId) {
+          await tx.productVariant.update({
+            where: { id: it.productVariantId },
+            data: { stock: { increment: it.quantity } },
+          });
+        }
+
         const updatedProduct = await tx.product.update({
           where: { id: it.productId },
           data: { stock: { increment: it.quantity } },

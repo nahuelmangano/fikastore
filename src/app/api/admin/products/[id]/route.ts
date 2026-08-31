@@ -6,6 +6,8 @@ import { slugify } from "@/lib/slug";
 import { isStaffRole } from "@/lib/roles";
 import { sanitizeRichText } from "@/lib/richText";
 import { notifyBackInStock } from "@/lib/stockNotifications";
+import { syncProductVariants } from "@/lib/productVariantPersistence";
+import type { ProductOptionInput, ProductVariantInput } from "@/lib/productVariants";
 
 export const runtime = "nodejs";
 
@@ -28,7 +30,7 @@ export async function PATCH(
 
   const currentProduct = await prisma.product.findUnique({
     where: { id },
-    select: { id: true, name: true, stock: true },
+    select: { id: true, name: true, stock: true, hasVariants: true },
   });
   if (!currentProduct) return NextResponse.json({ ok: false, error: "Producto no existe" }, { status: 404 });
 
@@ -37,11 +39,30 @@ export async function PATCH(
   let priceForVariants: string | null = null;
   let categoryIdForVariants: string | null | undefined;
   let descriptionForVariants: string | null | undefined;
+  const hasVariants = body.hasVariants === true;
+  const modernOptions = Array.isArray(body.options) ? (body.options as ProductOptionInput[]) : [];
+  const modernVariantCombinations = Array.isArray(body.variantCombinations) ? (body.variantCombinations as ProductVariantInput[]) : [];
 
   if (body.name !== undefined) {
     const name = String(body.name || "").trim();
     if (!name) return NextResponse.json({ ok: false, error: "Nombre invalido" }, { status: 400 });
     data.name = name;
+  }
+
+  if (body.sku !== undefined) {
+    const sku = String(body.sku || "").trim();
+    if (!sku) {
+      data.sku = null;
+    } else {
+      const other = await prisma.product.findFirst({
+        where: { sku },
+        select: { id: true },
+      });
+      if (other && other.id !== id) {
+        return NextResponse.json({ ok: false, error: `El SKU "${sku}" ya está en uso.` }, { status: 409 });
+      }
+      data.sku = sku;
+    }
   }
 
   if (body.slug !== undefined) {
@@ -68,7 +89,7 @@ export async function PATCH(
     data.price = priceForVariants;
   }
 
-  if (body.stock !== undefined) {
+  if (body.stock !== undefined && !hasVariants) {
     const stock = Number(body.stock);
     if (!Number.isFinite(stock) || stock < 0) return NextResponse.json({ ok: false, error: "Stock invalido" }, { status: 400 });
     data.stock = stock;
@@ -96,11 +117,24 @@ export async function PATCH(
     : [];
   const baseName = splitProductName(currentProduct.name);
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const { updatedProduct, syncedVariants } = await prisma.$transaction(async (tx) => {
     const updatedProduct = await tx.product.update({
       where: { id },
-      data,
+      data: {
+        ...data,
+        hasVariants,
+      },
     });
+
+    let syncResult: Awaited<ReturnType<typeof syncProductVariants>> | null = null;
+    if (hasVariants || currentProduct.hasVariants) {
+      syncResult = await syncProductVariants(tx, {
+        productId: id,
+        enabled: hasVariants,
+        options: modernOptions,
+        variants: modernVariantCombinations,
+      });
+    }
 
     if ((priceForVariants || categoryIdForVariants !== undefined || descriptionForVariants !== undefined || body.isActive !== undefined) && variantIds.length > 0) {
       const variantData: Prisma.ProductUncheckedUpdateManyInput = {};
@@ -118,14 +152,17 @@ export async function PATCH(
       });
     }
 
-    return updatedProduct;
+    return {
+      updatedProduct,
+      syncedVariants: syncResult?.variants ?? [],
+    };
   });
 
-  if (currentProduct.stock <= 0 && updated.stock > 0) {
-    await notifyBackInStock(updated.id, req);
+  if (currentProduct.stock <= 0 && updatedProduct.stock > 0) {
+    await notifyBackInStock(updatedProduct.id, req);
   }
 
-  return NextResponse.json({ ok: true, product: updated });
+  return NextResponse.json({ ok: true, product: updatedProduct, variants: syncedVariants });
 }
 
 export async function DELETE(
@@ -191,6 +228,7 @@ export async function DELETE(
 
   try {
     await prisma.$transaction([
+      prisma.productVariantImage.deleteMany({ where: { image: { productId: { in: targetIds } } } }),
       prisma.productImage.deleteMany({ where: { productId: { in: targetIds } } }),
       prisma.product.deleteMany({ where: { id: { in: targetIds } } }),
     ]);

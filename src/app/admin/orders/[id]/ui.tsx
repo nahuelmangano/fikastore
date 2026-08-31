@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { Check, PackageCheck, Truck, Undo2, X } from "lucide-react";
+import { useState, type ReactNode } from "react";
 
 function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
@@ -75,6 +76,31 @@ type AdminOrder = {
 };
 
 const CANCELLABLE_STATUSES = new Set(["pending_payment", "paid", "shipped", "delivered"]);
+
+function translateOrderStatus(status: string) {
+  const map: Record<string, string> = {
+    pending_payment: "Pendiente de pago",
+    paid: "Pagado",
+    shipped: "Enviado",
+    delivered: "Entregado",
+    cancelled: "Cancelado",
+    refunded: "Reembolsado",
+  };
+  return map[status] ?? status;
+}
+
+function translatePaymentStatus(status?: string | null) {
+  const map: Record<string, string> = {
+    pending: "Pendiente",
+    approved: "Aprobado",
+    rejected: "Rechazado",
+    cancelled: "Cancelado",
+    refunded: "Reembolsado",
+    unknown: "Sin confirmar",
+  };
+  if (!status) return "Sin pago";
+  return map[status] ?? status;
+}
 
 export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
   const [status, setStatus] = useState<string>(order.status);
@@ -155,19 +181,18 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h1 className="text-xl font-semibold">Pedido #{order.orderNumber}</h1>
-              <div className="mt-2 font-mono text-sm text-zinc-300">{order.id}</div>
               <div className="mt-2 text-xs text-zinc-500">
                 {new Date(order.createdAt).toLocaleString("es-AR")}
               </div>
             </div>
 
             <div className="text-right">
-              <Badge label={`Orden: ${status}`} />
+              <Badge label={`Orden: ${translateOrderStatus(status)}`} />
               <div className="mt-2 text-sm text-zinc-300">
                 Total: <span className="font-semibold">{money(Number(order.total))}</span>
               </div>
               <div className="mt-1 text-xs text-zinc-400">
-                Pago: {paymentStatus} {lastPayment?.paymentId ? `(${lastPayment.paymentId})` : ""}
+                Pago: {translatePaymentStatus(paymentStatus)} {lastPayment?.paymentId ? `(${lastPayment.paymentId})` : ""}
               </div>
               {shippedAt && (
                 <div className="mt-1 text-xs text-zinc-400">
@@ -247,8 +272,12 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
             </div>
           )}
 
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <button
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <ActionCardButton
+              title={paidLoading ? "Marcando..." : "Marcar como pagado"}
+              description="El pedido fue pagado correctamente."
+              icon={<Check className="h-4 w-4" />}
+              tone="success"
               disabled={paidLoading || status !== "pending_payment"}
               onClick={async () => {
                 setMsg(null);
@@ -268,12 +297,13 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
                 setPaymentStatus(data.payment?.status || "approved");
                 setMsg("✅ Pedido marcado como pagado.");
               }}
-              className="w-full rounded-2xl bg-emerald-100 px-4 py-3 text-sm font-semibold text-emerald-900 hover:bg-emerald-50 disabled:opacity-50 sm:w-auto"
-            >
-              {paidLoading ? "Marcando..." : "Marcar como pagado"}
-            </button>
+            />
 
-            <button
+            <ActionCardButton
+              title={shipLoading ? "Marcando..." : "Marcar como enviado"}
+              description="El pedido fue enviado al cliente."
+              icon={<Truck className="h-4 w-4" />}
+              tone="sand"
               disabled={shipLoading || status !== "paid"}
               onClick={async () => {
                 setMsg(null);
@@ -295,12 +325,13 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
                 setShipEmailOpen(true);
                 await loadShipEmailPreview("");
               }}
-              className="w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50 sm:w-auto"
-            >
-              {shipLoading ? "Marcando..." : "Marcar como enviado"}
-            </button>
+            />
 
-            <button
+            <ActionCardButton
+              title={deliverLoading ? "Marcando..." : "Marcar como entregado"}
+              description="El pedido fue entregado al cliente."
+              icon={<PackageCheck className="h-4 w-4" />}
+              tone="warning"
               disabled={deliverLoading || !["paid", "shipped"].includes(status)}
               onClick={async () => {
                 setMsg(null);
@@ -320,12 +351,13 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
                 setDeliveredAt(data.order.deliveredAt ? String(data.order.deliveredAt) : new Date().toISOString());
                 setMsg("✅ Pedido marcado como entregado.");
               }}
-              className="w-full rounded-2xl bg-amber-100 px-4 py-3 text-sm font-semibold text-amber-900 hover:bg-amber-50 disabled:opacity-50 sm:w-auto"
-            >
-              {deliverLoading ? "Marcando..." : "Marcar como entregado"}
-            </button>
+            />
 
-            <button
+            <ActionCardButton
+              title={cancelLoading ? "Cancelando..." : "Cancelar pedido"}
+              description="Cancelá el pedido y registrá el motivo."
+              icon={<X className="h-4 w-4" />}
+              tone="danger"
               disabled={cancelLoading || !CANCELLABLE_STATUSES.has(status)}
               onClick={async () => {
                 const ok = window.confirm("¿Cancelar este pedido? Se restaurará el stock de sus productos.");
@@ -347,22 +379,19 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
                 setStatus(data.order.status);
                 setMsg("✅ Pedido cancelado.");
               }}
-              className="w-full rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50 sm:w-auto"
-            >
-              {cancelLoading ? "Cancelando..." : "Cancelar pedido"}
-            </button>
+            />
 
-            <Link
+            <ActionCardLink
               href="/admin/orders"
-              className="w-full rounded-2xl border border-zinc-800 px-4 py-3 text-center text-sm hover:bg-zinc-900/60 sm:w-auto"
-            >
-              Volver a pedidos
-            </Link>
+              title="Volver a pedidos"
+              description="Regresá al listado de pedidos."
+              icon={<Undo2 className="h-4 w-4" />}
+            />
           </div>
 
           {(status !== "paid" || !["paid", "shipped"].includes(status)) && (
             <p className="mt-3 text-xs text-zinc-500">
-              * “Marcar como enviado” requiere estado <b>paid</b>. “Marcar como entregado” permite <b>paid</b> o <b>shipped</b>.
+              * “Marcar como enviado” requiere estado <b>Pagado</b>. “Marcar como entregado” permite <b>Pagado</b> o <b>Enviado</b>.
             </p>
           )}
 
@@ -692,5 +721,85 @@ function Badge({ label }: { label: string }) {
     <span className="inline-flex rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs text-zinc-200">
       {label}
     </span>
+  );
+}
+
+type ActionCardTone = "success" | "sand" | "warning" | "danger" | "neutral";
+
+function actionCardToneClasses(tone: ActionCardTone) {
+  const map: Record<ActionCardTone, string> = {
+    success: "border-emerald-200 bg-emerald-50/80 text-emerald-900",
+    sand: "border-stone-300 bg-stone-100/90 text-stone-800",
+    warning: "border-amber-200 bg-amber-50/80 text-amber-800",
+    danger: "border-red-300 bg-red-50/80 text-red-700",
+    neutral: "border-zinc-200 bg-zinc-50 text-zinc-700",
+  };
+  return map[tone];
+}
+
+function actionCardIconToneClasses(tone: ActionCardTone) {
+  const map: Record<ActionCardTone, string> = {
+    success: "bg-emerald-100 text-emerald-700",
+    sand: "bg-stone-200 text-stone-700",
+    warning: "bg-amber-100 text-amber-700",
+    danger: "bg-red-100 text-red-600",
+    neutral: "bg-zinc-200 text-zinc-600",
+  };
+  return map[tone];
+}
+
+function ActionCardButton({
+  title,
+  description,
+  icon,
+  tone,
+  disabled,
+  onClick,
+}: {
+  title: string;
+  description: string;
+  icon: ReactNode;
+  tone: ActionCardTone;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex min-h-24 w-full flex-col items-center justify-start rounded-2xl border px-3 py-2.5 text-center transition duration-150 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0 ${actionCardToneClasses(tone)}`}
+    >
+      <span className={`inline-flex h-10 w-10 items-center justify-center rounded-full ${actionCardIconToneClasses(tone)}`}>
+        {icon}
+      </span>
+      <span className="mt-2.5 text-sm font-semibold">{title}</span>
+      <span className="mt-1.5 text-xs leading-4 text-current/70">{description}</span>
+    </button>
+  );
+}
+
+function ActionCardLink({
+  href,
+  title,
+  description,
+  icon,
+}: {
+  href: string;
+  title: string;
+  description: string;
+  icon: ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`flex min-h-24 w-full flex-col items-center justify-start rounded-2xl border px-3 py-2.5 text-center transition duration-150 hover:-translate-y-0.5 ${actionCardToneClasses("neutral")}`}
+    >
+      <span className={`inline-flex h-10 w-10 items-center justify-center rounded-full ${actionCardIconToneClasses("neutral")}`}>
+        {icon}
+      </span>
+      <span className="mt-2.5 text-sm font-semibold">{title}</span>
+      <span className="mt-1.5 text-xs leading-4 text-current/70">{description}</span>
+    </Link>
   );
 }

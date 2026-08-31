@@ -72,6 +72,7 @@ export async function POST(req: Request) {
   }
 
   const site = baseUrl(req);
+  const shippingAmount = Number(order.shippingAmount || 0);
 
   const items = order.items.map((it) => ({
     title: it.nameSnapshot,
@@ -79,6 +80,15 @@ export async function POST(req: Request) {
     unit_price: Number(it.unitPrice),
     currency_id: "ARS",
   }));
+
+  if (shippingAmount > 0) {
+    items.push({
+      title: "Envio",
+      quantity: 1,
+      unit_price: shippingAmount,
+      currency_id: "ARS",
+    });
+  }
 
   const body: {
     items: typeof items;

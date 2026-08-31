@@ -10,12 +10,14 @@ import { queueAndSendEmailNotification, scheduleEmailJob } from "@/lib/emailNoti
 import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows";
 import { getShippingCarriers } from "@/lib/shippingCarriers";
 import { transferInstructionsWithBankDetails } from "@/lib/manualPaymentInstructions";
+import { getMetaTrackingContext } from "@/lib/meta/context";
 import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName, normalizeOrderEmail } from "@/lib/orderAccess";
+import { sendMerchantOrderNotification } from "@/lib/merchantOrderNotifications";
 
 export const runtime = "nodejs";
 
 type Body = {
-  items: { productId: string; quantity: number }[];
+  items: { productId: string; productVariantId?: string | null; lineKey?: string; quantity: number }[];
   shipping: {
     name: string;
     email: string;
@@ -105,6 +107,7 @@ export async function POST(req: Request) {
   const shippingBranch = body.shippingBranch;
   const notes = String(body.notes || "").replace(/\s+/g, " ").trim().slice(0, 1000);
   const contactEmail = normalizeOrderEmail(shipping?.email);
+  const metaTracking = getMetaTrackingContext(req);
 
   if (items.length === 0) return bad("El carrito esta vacio.");
   if (!shipping?.name?.trim() || !contactEmail || !shipping?.phone?.trim()) {
@@ -180,20 +183,25 @@ export async function POST(req: Request) {
   const normalized = items
     .map((it) => ({
       productId: String(it.productId || "").trim(),
+      productVariantId: String(it.productVariantId || "").trim() || null,
+      lineKey: String(it.lineKey || "").trim() || `${String(it.productId || "").trim()}:${String(it.productVariantId || "").trim() || ""}`,
       quantity: Math.floor(Number(it.quantity)),
     }))
-    .filter((it) => it.productId && Number.isFinite(it.quantity) && it.quantity > 0);
+    .filter((it) => it.productId && Number.isFinite(it.quantity) && it.quantity > 0 && it.lineKey);
 
   if (normalized.length === 0) return bad("Items invalidos.");
 
-  const mergedMap = new Map<string, number>();
+  const mergedMap = new Map<string, { productId: string; productVariantId: string | null; quantity: number; lineKey: string }>();
   for (const it of normalized) {
-    mergedMap.set(it.productId, (mergedMap.get(it.productId) ?? 0) + it.quantity);
+    const current = mergedMap.get(it.lineKey);
+    mergedMap.set(it.lineKey, {
+      productId: it.productId,
+      productVariantId: it.productVariantId,
+      lineKey: it.lineKey,
+      quantity: (current?.quantity ?? 0) + it.quantity,
+    });
   }
-  const merged = Array.from(mergedMap.entries()).map(([productId, quantity]) => ({
-    productId,
-    quantity,
-  }));
+  const merged = Array.from(mergedMap.values());
   const promotionDeliveryType =
     shippingMethod === "correo" ? shippingDeliveryType || "D" : isPickup ? null : "D";
   const freeShipping = await getFreeShippingForCart(merged, promoCode, paymentMethod, promotionDeliveryType, shippingMethod);
@@ -203,10 +211,18 @@ export async function POST(req: Request) {
     const result = await prisma.$transaction(async (tx) => {
       const products = await tx.product.findMany({
         where: { id: { in: merged.map((x) => x.productId) } },
-        select: { id: true, name: true, price: true, stock: true, isActive: true },
+        select: { id: true, name: true, sku: true, price: true, stock: true, isActive: true, hasVariants: true },
       });
 
       const byId = new Map(products.map((p) => [p.id, p]));
+      const variantIds = [...new Set(merged.map((item) => item.productVariantId).filter(Boolean) as string[])];
+      const variants = variantIds.length
+        ? await tx.productVariant.findMany({
+            where: { id: { in: variantIds } },
+            select: { id: true, productId: true, stock: true, sku: true, label: true, priceOverride: true },
+          })
+        : [];
+      const variantsById = new Map(variants.map((variant) => [variant.id, variant]));
 
       for (const it of merged) {
         const p = byId.get(it.productId);
@@ -216,18 +232,29 @@ export async function POST(req: Request) {
         if (!p.isActive) {
           throw new Error(`El producto "${p.name}" no esta disponible.`);
         }
-        if (p.stock < it.quantity) {
+        if (it.productVariantId) {
+          const variant = variantsById.get(it.productVariantId);
+          if (!variant || variant.productId !== it.productId) {
+            throw new Error(`Variante inválida para "${p.name}".`);
+          }
+          if (variant.stock < it.quantity) {
+            throw new Error(`Stock insuficiente para "${p.name}" (${variant.label}). Disponible: ${variant.stock}.`);
+          }
+        } else if (p.stock < it.quantity) {
           throw new Error(`Stock insuficiente para "${p.name}". Disponible: ${p.stock}.`);
         }
       }
 
       let total = new Prisma.Decimal(0);
       const priced = await priceCartItems(merged, promoCode, paymentMethod, promotionDeliveryType, shippingMethod);
-      const pricedById = new Map(priced.items.map((it) => [it.productId, it]));
+      const pricedById = new Map(priced.items.map((it) => [it.lineKey, it]));
 
       const orderItemsData = merged.map((it) => {
         const p = byId.get(it.productId)!;
-        const unit = pricedById.get(it.productId)?.finalPrice ?? Number(p.price);
+        const variant = it.productVariantId ? variantsById.get(it.productVariantId) : null;
+        const unit =
+          pricedById.get(it.lineKey)?.finalPrice ??
+          (variant?.priceOverride !== null && variant?.priceOverride !== undefined ? Number(variant.priceOverride) : Number(p.price));
         const unitPrice = new Prisma.Decimal(unit.toFixed(2));
         const qty = new Prisma.Decimal(it.quantity);
         const subtotal = unitPrice.mul(qty);
@@ -235,7 +262,10 @@ export async function POST(req: Request) {
 
         return {
           productId: p.id,
-          nameSnapshot: p.name,
+          productVariantId: variant?.id || null,
+          nameSnapshot: variant?.label ? `${p.name} · ${variant.label}` : p.name,
+          variantSnapshot: variant?.label || null,
+          skuSnapshot: variant?.sku || p.sku || null,
           unitPrice,
           quantity: it.quantity,
           subtotal,
@@ -261,6 +291,10 @@ export async function POST(req: Request) {
           shippingBranchName: isCorreoBranch ? String(shippingBranch?.name || "").trim() : null,
           shippingAmount: new Prisma.Decimal(shippingAmount || 0),
           notes: notes ? `Nota del cliente: ${notes}` : null,
+          metaFbp: metaTracking.fbp,
+          metaFbc: metaTracking.fbc,
+          metaClientIpAddress: metaTracking.clientIpAddress,
+          metaClientUserAgent: metaTracking.clientUserAgent,
           items: { create: orderItemsData },
           payments: {
             create: {
@@ -274,6 +308,12 @@ export async function POST(req: Request) {
       });
 
       for (const it of merged) {
+        if (it.productVariantId) {
+          await tx.productVariant.update({
+            where: { id: it.productVariantId },
+            data: { stock: { decrement: it.quantity } },
+          });
+        }
         await tx.product.update({
           where: { id: it.productId },
           data: { stock: { decrement: it.quantity } },
@@ -403,6 +443,17 @@ export async function POST(req: Request) {
           );
         })
         .catch((error) => console.error("payment reminder scheduling failed", error instanceof Error ? error.message : error));
+
+      if (paymentMethod !== "mercadopago") {
+        sendMerchantOrderNotification({
+          orderId: createdOrder.id,
+          trigger: "created",
+          paymentLabel,
+          req,
+        }).catch((error) =>
+          console.error("merchant order created email failed", error instanceof Error ? error.message : error)
+        );
+      }
     }
 
     return NextResponse.json({ ok: true, orderId: result.orderId, orderNumber: result.orderNumber });

@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { addToCart } from "@/lib/cart";
+import { lineItemKey } from "@/lib/productVariants";
 import SiteHeader from "@/components/SiteHeader";
 import { sanitizeRichText } from "@/lib/richText";
 import { trackMetaAddToCart, trackMetaViewContent } from "@/lib/metaPixelEvents";
@@ -74,6 +75,21 @@ function optionRank(attribute: string, value: string) {
   return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
 }
 
+function normalizeOptionKey(value: string) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function modernOptionDisplayRank(name: string) {
+  const key = normalizeOptionKey(name);
+  if (key === "talle") return 0;
+  if (key === "color") return 1;
+  return 2;
+}
+
 type ProductVariant = {
   id: string;
   slug: string;
@@ -83,6 +99,22 @@ type ProductVariant = {
   stock: number;
   isActive: boolean;
   images?: Array<{ url: string }>;
+};
+
+type ModernVariantOption = {
+  id: string;
+  name: string;
+  values: Array<{ id: string; value: string }>;
+};
+
+type ModernProductVariant = {
+  id: string;
+  label: string;
+  sku?: string | null;
+  stock: number;
+  priceOverride?: number | null;
+  optionValueIds: string[];
+  imageUrls?: string[];
 };
 
 type ShippingRate = {
@@ -120,6 +152,8 @@ type PaymentSettings = {
 export default function ProductDetailClient({
   product,
   variants = [product],
+  modernVariantOptions = [],
+  modernVariants = [],
   promoPercent = 0,
   promoPercents = {},
   promoPercentsByPaymentMethod = {},
@@ -135,16 +169,65 @@ export default function ProductDetailClient({
 }: {
   product: ProductVariant;
   variants?: ProductVariant[];
+  modernVariantOptions?: ModernVariantOption[];
+  modernVariants?: ModernProductVariant[];
   promoPercent?: number;
   promoPercents?: Record<string, number>;
   promoPercentsByPaymentMethod?: Partial<Record<PaymentMethodKey, Record<string, number>>>;
   paymentSettings?: PaymentSettings;
 }) {
+  const isModernVariantProduct = modernVariantOptions.length > 0 && modernVariants.length > 0;
+  const orderedModernVariantOptions = useMemo(
+    () =>
+      [...modernVariantOptions].sort((a, b) => {
+        const rankDiff = modernOptionDisplayRank(a.name) - modernOptionDisplayRank(b.name);
+        return rankDiff || a.name.localeCompare(b.name, "es");
+      }),
+    [modernVariantOptions]
+  );
   const [selectedId, setSelectedId] = useState<string>(product.id);
   const selected = variants.find((variant) => variant.id === selectedId) ?? product;
+  const initialModernVariant = modernVariants.find((variant) => variant.stock > 0) ?? modernVariants[0] ?? null;
+  const [selectedModernOptionValues, setSelectedModernOptionValues] = useState<Record<string, string>>(() => {
+    if (!initialModernVariant) return {};
+    const next: Record<string, string> = {};
+    for (const option of orderedModernVariantOptions) {
+      const optionValueId = option.values.find((value) => initialModernVariant.optionValueIds.includes(value.id))?.id;
+      if (optionValueId) next[option.id] = optionValueId;
+    }
+    return next;
+  });
   const { baseName } = splitProductName(product.name);
   const fallback = "https://placehold.co/800x800/png?text=Fika";
-  const images = useMemo<string[]>(() => (selected.images ?? product.images ?? []).map((x) => x.url), [product.images, selected.images]);
+  const modernVariantSelectionKey = Object.values(selectedModernOptionValues).sort().join("|");
+  const selectedModernVariant =
+    isModernVariantProduct && modernVariantOptions.every((option) => selectedModernOptionValues[option.id])
+      ? modernVariants.find((variant) => [...variant.optionValueIds].sort().join("|") === modernVariantSelectionKey) || null
+      : null;
+  const inferredModernVariantPrimaryImage = useMemo(() => {
+    if (!isModernVariantProduct || !selectedModernVariant) return null;
+    const colorOption = modernVariantOptions.find((option) => normalizeOptionKey(option.name) === "color");
+    if (!colorOption) return null;
+    const selectedValueId = selectedModernOptionValues[colorOption.id];
+    if (!selectedValueId) return null;
+    const selectedValueIndex = colorOption.values.findIndex((value) => value.id === selectedValueId);
+    if (selectedValueIndex < 0) return null;
+    return product.images?.[selectedValueIndex]?.url ?? null;
+  }, [isModernVariantProduct, modernVariantOptions, product.images, selectedModernOptionValues, selectedModernVariant]);
+  const images = useMemo<string[]>(
+    () => {
+      if (!isModernVariantProduct) return (selected.images ?? product.images ?? []).map((x) => x.url);
+      const assignedImages = selectedModernVariant?.imageUrls?.filter(Boolean) ?? [];
+      if (assignedImages.length > 0) return assignedImages;
+      const baseImages = (product.images ?? []).map((x) => x.url);
+      if (!inferredModernVariantPrimaryImage) return baseImages;
+      return [
+        inferredModernVariantPrimaryImage,
+        ...baseImages.filter((url) => url !== inferredModernVariantPrimaryImage),
+      ];
+    },
+    [inferredModernVariantPrimaryImage, isModernVariantProduct, product.images, selected.images, selectedModernVariant?.imageUrls]
+  );
   const galleryImages = useMemo(() => (images.length > 0 ? images : [fallback]), [images]);
   const [active, setActive] = useState<string>(images[0] ?? fallback);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -157,21 +240,25 @@ export default function ProductDetailClient({
   const [stockAlertMessage, setStockAlertMessage] = useState<string | null>(null);
   const [financingOpen, setFinancingOpen] = useState(false);
   const lastTrackedViewContentId = useRef<string | null>(null);
-
-  const price = Number(selected.price);
+  const price = isModernVariantProduct
+    ? selectedModernVariant?.priceOverride !== null && selectedModernVariant?.priceOverride !== undefined
+      ? Number(selectedModernVariant.priceOverride)
+      : Number(product.price)
+    : Number(selected.price);
+  const promotionTargetId = isModernVariantProduct ? product.id : selected.id;
   const cashTransferPromo = Math.max(
-    Number(promoPercentsByPaymentMethod.cash?.[selected.id] ?? 0),
-    Number(promoPercentsByPaymentMethod.transfer?.[selected.id] ?? 0)
+    Number(promoPercentsByPaymentMethod.cash?.[promotionTargetId] ?? 0),
+    Number(promoPercentsByPaymentMethod.transfer?.[promotionTargetId] ?? 0)
   );
-  const promo = cashTransferPromo || Number(promoPercents[selected.id] ?? promoPercent ?? 0);
+  const promo = cashTransferPromo || Number(promoPercents[promotionTargetId] ?? promoPercent ?? 0);
   const finalPrice = promo > 0 ? Math.round(price * (1 - promo / 100) * 100) / 100 : price;
   const installmentAmount = Math.round((finalPrice / 3) * 100) / 100;
-  const stock = Number(selected.stock);
+  const stock = isModernVariantProduct ? Number(selectedModernVariant?.stock ?? 0) : Number(selected.stock);
   const activeIndex = Math.max(0, galleryImages.indexOf(active));
   const activeImage = galleryImages[activeIndex] ?? galleryImages[0] ?? fallback;
-
-  const canBuy = selected.isActive && stock > 0;
-  const canRequestStockAlert = selected.isActive && stock <= 0;
+  const missingModernSelection = isModernVariantProduct && orderedModernVariantOptions.some((option) => !selectedModernOptionValues[option.id]);
+  const canBuy = (isModernVariantProduct ? !missingModernSelection : selected.isActive) && stock > 0;
+  const canRequestStockAlert = !isModernVariantProduct && selected.isActive && stock <= 0;
   const variantAttributeEntries = variants.map((variant) => ({
     variant,
     attrs: variantAttributes(variant.name),
@@ -187,13 +274,19 @@ export default function ProductDetailClient({
 
   useEffect(() => {
     if (lastTrackedViewContentId.current === selected.id) return;
-    lastTrackedViewContentId.current = selected.id;
+    const trackingId = isModernVariantProduct ? selectedModernVariant?.id || product.id : selected.id;
+    if (lastTrackedViewContentId.current === trackingId) return;
+    lastTrackedViewContentId.current = trackingId;
     trackMetaViewContent({
-      id: selected.id,
-      name: selected.name,
+      id: trackingId,
+      name: isModernVariantProduct ? `${product.name}${selectedModernVariant?.label ? ` · ${selectedModernVariant.label}` : ""}` : selected.name,
       price: finalPrice,
     });
-  }, [finalPrice, selected.id, selected.name]);
+  }, [finalPrice, isModernVariantProduct, product.id, product.name, selected.id, selected.name, selectedModernVariant?.id, selectedModernVariant?.label]);
+
+  useEffect(() => {
+    setActive(galleryImages[0] ?? fallback);
+  }, [fallback, galleryImages, selected.id, selectedModernVariant?.id]);
 
   function selectVariant(variant: ProductVariant) {
     setSelectedId(variant.id);
@@ -205,12 +298,12 @@ export default function ProductDetailClient({
   }
 
   function finalPriceForPaymentMethod(method: PaymentMethodKey) {
-    const methodPromo = Number(promoPercentsByPaymentMethod[method]?.[selected.id] ?? 0);
+    const methodPromo = Number(promoPercentsByPaymentMethod[method]?.[promotionTargetId] ?? 0);
     return methodPromo > 0 ? Math.round(price * (1 - methodPromo / 100) * 100) / 100 : price;
   }
 
   function promoForPaymentMethod(method: PaymentMethodKey) {
-    return Number(promoPercentsByPaymentMethod[method]?.[selected.id] ?? 0);
+    return Number(promoPercentsByPaymentMethod[method]?.[promotionTargetId] ?? 0);
   }
 
   const showImageAt = useCallback((index: number) => {
@@ -366,7 +459,12 @@ export default function ProductDetailClient({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            items: [{ productId: selected.id, quantity: qty }],
+            items: [{
+              productId: product.id,
+              productVariantId: isModernVariantProduct ? selectedModernVariant?.id ?? null : null,
+              lineKey: lineItemKey(product.id, isModernVariantProduct ? selectedModernVariant?.id ?? null : null),
+              quantity: qty,
+            }],
             promoCode: null,
             paymentMethod: null,
             deliveryType: row.deliveryType,
@@ -398,7 +496,7 @@ export default function ProductDetailClient({
     setStockAlertMessage(null);
 
     try {
-      const res = await fetch(`/api/products/${selected.id}/stock-notifications`, {
+      const res = await fetch(`/api/products/${product.id}/stock-notifications`, {
         method: "POST",
       });
       const data = await res.json().catch(() => ({}));
@@ -520,7 +618,7 @@ export default function ProductDetailClient({
               </div>
             )}
 
-            {variants.length > 1 && (
+            {!isModernVariantProduct && variants.length > 1 && (
               <div className="mt-6">
                 <div className="text-sm font-medium text-zinc-300">Variantes</div>
                 {canUseGroupedVariants ? (
@@ -577,6 +675,69 @@ export default function ProductDetailClient({
               </div>
             )}
 
+            {isModernVariantProduct && (
+              <div className="mt-6 space-y-4">
+                {orderedModernVariantOptions.map((option) => (
+                  <div key={option.id}>
+                    <div className="text-sm font-medium text-zinc-300">{option.name}</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {option.values.map((value) => {
+                        const selectedValue = selectedModernOptionValues[option.id] === value.id;
+                        const available = modernVariants.some((variant) => {
+                          if (!variant.optionValueIds.includes(value.id)) return false;
+                          if (variant.stock <= 0) return false;
+                          return orderedModernVariantOptions.every((candidate) => {
+                            if (candidate.id === option.id) return true;
+                            const chosen = selectedModernOptionValues[candidate.id];
+                            return !chosen || variant.optionValueIds.includes(chosen);
+                          });
+                        });
+                        return (
+                          <button
+                            key={value.id}
+                            type="button"
+                            disabled={!available}
+                            onClick={() =>
+                              setSelectedModernOptionValues((current) => ({
+                                ...current,
+                                [option.id]: value.id,
+                              }))
+                            }
+                            className={[
+                              "rounded-xl border px-3 py-2 text-sm transition",
+                              selectedValue
+                                ? "border-zinc-100 bg-zinc-100 text-zinc-900"
+                                : available
+                                  ? "border-zinc-800 bg-zinc-950 text-zinc-200 hover:bg-zinc-900/60"
+                                  : "cursor-not-allowed border-zinc-800 bg-zinc-950 text-zinc-600 opacity-50",
+                            ].join(" ")}
+                          >
+                            {value.value}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+                {missingModernSelection ? (
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-3 text-sm text-zinc-400">
+                    Seleccioná una opción de cada grupo para elegir la combinación.
+                  </div>
+                ) : selectedModernVariant ? (
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-3 text-sm text-zinc-300">
+                    <div className="font-medium text-zinc-100">{selectedModernVariant.label}</div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {selectedModernVariant.stock > 0 ? `${selectedModernVariant.stock} disponibles` : "Sin stock"}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+                    Esa combinación no está disponible.
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="mt-6 grid gap-3">
               <label className="text-sm text-zinc-300">Cantidad</label>
 
@@ -611,11 +772,16 @@ export default function ProductDetailClient({
               {canBuy ? (
                 <button
                   onClick={() => {
+                    const selectedVariantId = isModernVariantProduct ? selectedModernVariant?.id ?? null : null;
+                    const selectedVariantLabel = isModernVariantProduct ? selectedModernVariant?.label ?? null : null;
                     addToCart(
                       {
-                        productId: selected.id,
-                        slug: selected.slug,
-                        name: selected.name,
+                        productId: product.id,
+                        productVariantId: selectedVariantId,
+                        lineKey: lineItemKey(product.id, selectedVariantId),
+                        slug: product.slug,
+                        name: product.name,
+                        variantLabel: selectedVariantLabel,
                         price,
                         stock,
                         imageUrl: images[0],
@@ -623,8 +789,8 @@ export default function ProductDetailClient({
                       qty
                     );
                     trackMetaAddToCart({
-                      id: selected.id,
-                      name: selected.name,
+                      id: selectedVariantId || product.id,
+                      name: selectedVariantLabel ? `${product.name} · ${selectedVariantLabel}` : product.name,
                       price: finalPrice,
                       quantity: qty,
                     });
@@ -632,11 +798,13 @@ export default function ProductDetailClient({
                   }}
                   className="mt-4 w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white"
                 >
-                  Agregar al carrito
+                  {missingModernSelection ? "Seleccioná tus opciones" : "Agregar al carrito"}
                 </button>
               ) : (
                 <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4">
-                  <div className="text-sm font-medium text-zinc-200">Producto sin stock</div>
+                  <div className="text-sm font-medium text-zinc-200">
+                    {missingModernSelection ? "Seleccioná tus opciones" : "Producto sin stock"}
+                  </div>
                   {canRequestStockAlert && (
                     <button
                       type="button"

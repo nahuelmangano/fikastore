@@ -45,32 +45,62 @@ export default async function ProductDetailPage({
 
   const product = await prisma.product.findUnique({
     where: { slug },
-    include: { images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } },
+    include: {
+      images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
+      options: {
+        orderBy: { position: "asc" },
+        include: {
+          values: { orderBy: { position: "asc" } },
+        },
+      },
+      variants: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          images: {
+            orderBy: [{ sortOrder: "asc" }, { imageId: "asc" }],
+            include: {
+              image: true,
+            },
+          },
+          values: {
+            include: {
+              optionValue: {
+                include: {
+                  option: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
   });
 
   if (!product || !product.isActive) return notFound();
 
   const { baseName } = splitProductName(product.name);
-  const variants = await prisma.product.findMany({
-    where: {
-      isActive: true,
-      OR: [{ name: baseName }, { name: { startsWith: `${baseName} —` } }],
-    },
-    include: { images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } },
-    orderBy: [{ name: "asc" }],
-  });
+  const legacyVariants = product.hasVariants
+    ? []
+    : await prisma.product.findMany({
+        where: {
+          isActive: true,
+          OR: [{ name: baseName }, { name: { startsWith: `${baseName} —` } }],
+        },
+        include: { images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } },
+        orderBy: [{ name: "asc" }],
+      });
 
-  const activeVariants = sortVariantsBySize(variants.length > 0 ? variants : [product]);
-  const variantIds = activeVariants.map((variant) => variant.id);
+  const activeVariants = sortVariantsBySize(legacyVariants.length > 0 ? legacyVariants : [product]);
+  const discountTargetIds = product.hasVariants ? [product.id] : activeVariants.map((variant) => variant.id);
   const [paymentSettings, cashPromoMap, transferPromoMap, mercadoPagoPromoMap, agreementPromoMap] = await Promise.all([
     getCheckoutPaymentSettings(),
-    getAutomaticDiscountsForProducts(variantIds, "cash"),
-    getAutomaticDiscountsForProducts(variantIds, "transfer"),
-    getAutomaticDiscountsForProducts(variantIds, "mercadopago"),
-    getAutomaticDiscountsForProducts(variantIds, "agreement"),
+    getAutomaticDiscountsForProducts(discountTargetIds, "cash"),
+    getAutomaticDiscountsForProducts(discountTargetIds, "transfer"),
+    getAutomaticDiscountsForProducts(discountTargetIds, "mercadopago"),
+    getAutomaticDiscountsForProducts(discountTargetIds, "agreement"),
   ]);
   const promoMap = new Map(
-    variantIds.map((id) => [
+    discountTargetIds.map((id) => [
       id,
       Math.max(
         cashPromoMap.get(id) ?? 0,
@@ -85,9 +115,28 @@ export default async function ProductDetailPage({
   return (
     <ProductDetailClient
       product={product}
-      variants={activeVariants}
+      variants={product.hasVariants ? [product] : activeVariants}
+      modernVariantOptions={product.options.map((option) => ({
+        id: option.id,
+        name: option.name,
+        values: option.values.map((value) => ({
+          id: value.id,
+          value: value.value,
+        })),
+      }))}
+      modernVariants={product.variants.map((variant) => ({
+        id: variant.id,
+        label: variant.label,
+        sku: variant.sku,
+        stock: variant.stock,
+        priceOverride: variant.priceOverride ? Number(variant.priceOverride) : null,
+        optionValueIds: variant.values.map((value) => value.optionValueId),
+        imageUrls: variant.images
+          .map((item) => (item.image.visible ? item.image.url : null))
+          .filter(Boolean) as string[],
+      }))}
       promoPercent={promoPercent}
-      promoPercents={Object.fromEntries(promoMap)}
+      promoPercents={Object.fromEntries(product.hasVariants ? [[product.id, promoPercent]] : promoMap)}
       promoPercentsByPaymentMethod={{
         cash: Object.fromEntries(cashPromoMap),
         transfer: Object.fromEntries(transferPromoMap),

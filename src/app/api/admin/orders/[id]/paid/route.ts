@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { queueAndSendEmailNotification } from "@/lib/emailNotificationService";
+import { syncMetaPurchaseForOrder } from "@/lib/meta/conversionsApi";
 import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName } from "@/lib/orderAccess";
+import { markOrderPaidIfPending } from "@/lib/orderPaymentTransition";
 import { prisma } from "@/lib/prisma";
 import { publicBaseUrl } from "@/lib/publicUrl";
 import { isStaffRole } from "@/lib/roles";
@@ -39,9 +41,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const paymentId = order.payments[0]?.id;
   const updated = await prisma.$transaction(async (tx) => {
-    const updatedOrder = await tx.order.update({
+    await markOrderPaidIfPending(tx, order.id);
+
+    const updatedOrder = await tx.order.findUniqueOrThrow({
       where: { id: order.id },
-      data: { status: "paid" },
     });
 
     if (paymentId) {
@@ -91,6 +94,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       console.error("manual payment-approved email failed", error instanceof Error ? error.message : error);
     });
   }
+
+  await syncMetaPurchaseForOrder(order.id, { req });
 
   return NextResponse.json({ ok: true, ...updated });
 }

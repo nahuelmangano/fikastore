@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { buildMetaPurchaseEventId } from "@/lib/meta/purchase";
 import { trackMetaPurchase } from "@/lib/metaPixelEvents";
 
 type OrderResp =
@@ -9,6 +10,8 @@ type OrderResp =
   | { ok: false; error: string };
 
 type OrderDetails = {
+  id?: string;
+  orderNumber?: number | null;
   status?: string | null;
   total: number | string;
   items: Array<{
@@ -25,6 +28,9 @@ type OrderDetails = {
   } | null;
 };
 
+const PURCHASE_SUCCESS_ORDER_STATUSES = new Set(["paid", "shipped", "delivered"]);
+const PURCHASE_SUCCESS_PAYMENT_STATUSES = new Set(["approved"]);
+
 function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
 }
@@ -35,6 +41,12 @@ function badge(status: string) {
   if (s === "pending_payment" || s === "pending" || s === "in_process") return "border-amber-900/40 bg-amber-900/20 text-amber-200";
   if (s === "cancelled" || s === "rejected" || s === "failure") return "border-red-900/40 bg-red-900/20 text-red-200";
   return "border-zinc-800 bg-zinc-900/30 text-zinc-200";
+}
+
+function canTrackApprovedPurchase(order: OrderDetails) {
+  const orderStatus = String(order.status || "").toLowerCase();
+  const paymentStatus = String(order.payment?.status || "").toLowerCase();
+  return PURCHASE_SUCCESS_ORDER_STATUSES.has(orderStatus) || PURCHASE_SUCCESS_PAYMENT_STATUSES.has(paymentStatus);
 }
 
 export default function PayResultClient({
@@ -88,6 +100,7 @@ export default function PayResultClient({
   }, [accessEmail, orderId]);
 
   const order = ok ? data.order : null;
+  const displayOrderLabel = order?.orderNumber ? `#${order.orderNumber}` : orderId;
 
   const effectiveStatus = useMemo(() => {
     if (!order) return "unknown";
@@ -96,17 +109,21 @@ export default function PayResultClient({
   }, [order]);
 
   useEffect(() => {
-    if (!trackPurchase || !order || purchaseTrackedRef.current) return;
+    if (!trackPurchase || !order || purchaseTrackedRef.current || !canTrackApprovedPurchase(order)) return;
 
     const storageKey = `fikastore_meta_purchase_tracked_${orderId}`;
-    if (typeof window !== "undefined" && window.localStorage.getItem(storageKey)) {
+    const eventId = buildMetaPurchaseEventId(order.id || orderId);
+    if (typeof window === "undefined") return;
+
+    const alreadyTracked = window.localStorage.getItem(storageKey);
+    if (alreadyTracked === eventId || alreadyTracked === "1") {
+      console.info(`[Meta Pixel] Purchase skipped: already sent order=${order.id || orderId}`);
       purchaseTrackedRef.current = true;
       return;
     }
 
-    purchaseTrackedRef.current = true;
-    trackMetaPurchase({
-      id: orderId,
+    const purchasePayload = {
+      id: order.id || orderId,
       total: Number(order.total),
       items: order.items.map((item) => ({
         id: item.productId,
@@ -114,11 +131,34 @@ export default function PayResultClient({
         quantity: item.quantity,
         unitPrice: Number(item.unitPrice),
       })),
-    });
+    };
 
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(storageKey, "1");
-    }
+    const tryTrack = () => {
+      console.info(
+        `[Meta Pixel] Purchase preparing order=${purchasePayload.id} status=${String(order.status || "").toLowerCase()} payment=${String(order.payment?.status || "").toLowerCase()} eventID=${eventId}`
+      );
+      const result = trackMetaPurchase(purchasePayload);
+      if (result !== "sent") return false;
+
+      purchaseTrackedRef.current = true;
+      window.localStorage.setItem(storageKey, eventId);
+      return true;
+    };
+
+    if (tryTrack()) return;
+
+    const intervalId = window.setInterval(() => {
+      if (tryTrack()) window.clearInterval(intervalId);
+    }, 500);
+
+    const timeoutId = window.setTimeout(() => {
+      window.clearInterval(intervalId);
+    }, 30000);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.clearTimeout(timeoutId);
+    };
   }, [order, orderId, trackPurchase]);
 
   return (
@@ -131,7 +171,7 @@ export default function PayResultClient({
           <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm text-zinc-400">
-                Orden: <span className="font-mono text-zinc-200">{orderId}</span>
+                Orden: <span className="font-mono text-zinc-200">{displayOrderLabel}</span>
               </div>
 
               <span className={["rounded-full border px-3 py-1 text-xs", badge(effectiveStatus)].join(" ")}>

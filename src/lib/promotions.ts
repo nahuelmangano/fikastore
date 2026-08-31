@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { getProviderConfigValue } from "@/lib/shippingProviderConfig";
+import { lineItemKey } from "@/lib/productVariants";
 
 export type PromotionType = "global" | "product" | "code";
 export type PromotionPaymentMethod = "mercadopago" | "agreement" | "cash" | "transfer";
@@ -7,10 +9,15 @@ export type PromotionFreeShippingDeliveryType = "D" | "S";
 export type PricingInputItem = {
   productId: string;
   quantity: number;
+  productVariantId?: string | null;
+  lineKey?: string;
 };
 
 export type PricedItem = {
+  lineKey: string;
   productId: string;
+  productVariantId: string | null;
+  variantLabel: string | null;
   basePrice: number;
   finalPrice: number;
   quantity: number;
@@ -31,6 +38,11 @@ export type PricingSummary = {
   codeDiscountAmount: number;
   freeShipping: boolean;
   freeShippingPromotionName: string | null;
+};
+
+type FreeShippingDecision = {
+  applies: boolean;
+  promotionName: string | null;
 };
 
 export type PricingResult = {
@@ -248,8 +260,10 @@ export async function priceCartItems(
     .map((it) => ({
       productId: String(it.productId || "").trim(),
       quantity: Math.floor(Number(it.quantity)),
+      productVariantId: String(it.productVariantId || "").trim() || null,
+      lineKey: String(it.lineKey || "").trim() || lineItemKey(String(it.productId || "").trim(), String(it.productVariantId || "").trim() || null),
     }))
-    .filter((it) => it.productId && Number.isFinite(it.quantity) && it.quantity > 0);
+    .filter((it) => it.productId && Number.isFinite(it.quantity) && it.quantity > 0 && it.lineKey);
 
   if (normalizedItems.length === 0) {
     return {
@@ -267,30 +281,44 @@ export async function priceCartItems(
     };
   }
 
-  const mergedMap = new Map<string, number>();
+  const mergedMap = new Map<string, { productId: string; productVariantId: string | null; quantity: number; lineKey: string }>();
   for (const it of normalizedItems) {
-    mergedMap.set(it.productId, (mergedMap.get(it.productId) ?? 0) + it.quantity);
+    const current = mergedMap.get(it.lineKey);
+    mergedMap.set(it.lineKey, {
+      productId: it.productId,
+      productVariantId: it.productVariantId,
+      lineKey: it.lineKey,
+      quantity: (current?.quantity ?? 0) + it.quantity,
+    });
   }
-  const merged = [...mergedMap.entries()].map(([productId, quantity]) => ({ productId, quantity }));
+  const merged = [...mergedMap.values()];
 
   const products = await prisma.product.findMany({
     where: { id: { in: merged.map((x) => x.productId) } },
-    select: { id: true, price: true, isActive: true },
+    select: { id: true, price: true, isActive: true, hasVariants: true },
   });
   const byId = new Map(products.map((p) => [p.id, p]));
+  const variantIds = [...new Set(merged.map((item) => item.productVariantId).filter(Boolean) as string[])];
+  const variants = variantIds.length
+    ? await prisma.productVariant.findMany({
+        where: { id: { in: variantIds } },
+        select: { id: true, productId: true, priceOverride: true, label: true },
+      })
+    : [];
+  const variantsById = new Map(variants.map((variant) => [variant.id, variant]));
 
   const autoMap = await getAutomaticDiscountsForProducts(merged.map((m) => m.productId), paymentMethod);
   const normalizedCode = normalizePromoCode(promoCode);
   const codeInfo = await getCodeDiscountPercent(normalizedCode, paymentMethod);
-  const freeShipping = await getFreeShippingForCart(merged, normalizedCode, paymentMethod, deliveryType, carrierKey);
-
   const items: PricedItem[] = [];
 
   for (const it of merged) {
     const product = byId.get(it.productId);
     if (!product || !product.isActive) continue;
+    const variant = it.productVariantId ? variantsById.get(it.productVariantId) : null;
+    if (it.productVariantId && (!variant || variant.productId !== it.productId)) continue;
 
-    const basePrice = Number(product.price);
+    const basePrice = variant?.priceOverride !== null && variant?.priceOverride !== undefined ? Number(variant.priceOverride) : Number(product.price);
     const autoPercent = autoMap.get(it.productId) ?? 0;
     const codePercent = codeInfo.percent;
     const totalPercent = Math.max(0, Math.min(90, autoPercent + codePercent));
@@ -301,7 +329,10 @@ export async function priceCartItems(
     const codeDiscountAmount = round2(baseSubtotal * (codePercent / 100));
 
     items.push({
+      lineKey: it.lineKey,
       productId: it.productId,
+      productVariantId: it.productVariantId,
+      variantLabel: variant?.label ?? null,
       basePrice,
       finalPrice,
       quantity: it.quantity,
@@ -320,13 +351,16 @@ export async function priceCartItems(
   const discountAmount = round2(subtotalBase - subtotalDiscounted);
   const autoDiscountAmount = round2(items.reduce((acc, it) => acc + it.autoDiscountAmount, 0));
   const codeDiscountAmount = round2(items.reduce((acc, it) => acc + it.codeDiscountAmount, 0));
+  const freeShippingPromo = await getFreeShippingPromotionForCart(merged, normalizedCode, paymentMethod, deliveryType, carrierKey);
+  const minimumSubtotalFreeShipping = await getCarrierMinimumSubtotalFreeShipping(subtotalDiscounted, carrierKey);
+  const freeShipping = freeShippingPromo.applies ? freeShippingPromo : minimumSubtotalFreeShipping;
 
   return {
     items: items.map((it) => ({
       ...it,
       autoDiscountAmount: it.autoPercent > 0 ? it.autoDiscountAmount : 0,
       codeDiscountAmount: it.codePercent > 0 ? it.codeDiscountAmount : 0,
-    })),
+        })),
     summary: {
       subtotalBase,
       subtotalDiscounted,
@@ -352,7 +386,105 @@ export async function getFreeShippingForCart(
   paymentMethod?: string | null,
   deliveryType?: string | null,
   carrierKey?: string | null
+) : Promise<FreeShippingDecision> {
+  const promotionFreeShipping = await getFreeShippingPromotionForCart(
+    inputItems,
+    promoCode,
+    paymentMethod,
+    deliveryType,
+    carrierKey
+  );
+  if (promotionFreeShipping.applies) return promotionFreeShipping;
+
+  const subtotalDiscounted = await getDiscountedSubtotalForItems(inputItems, promoCode, paymentMethod);
+  return getCarrierMinimumSubtotalFreeShipping(subtotalDiscounted, carrierKey);
+}
+
+async function getDiscountedSubtotalForItems(
+  inputItems: PricingInputItem[],
+  promoCode?: string | null,
+  paymentMethod?: string | null
 ) {
+  const normalizedItems = inputItems
+    .map((it) => ({
+      productId: String(it.productId || "").trim(),
+      quantity: Math.floor(Number(it.quantity)),
+      productVariantId: String(it.productVariantId || "").trim() || null,
+      lineKey: String(it.lineKey || "").trim() || lineItemKey(String(it.productId || "").trim(), String(it.productVariantId || "").trim() || null),
+    }))
+    .filter((it) => it.productId && Number.isFinite(it.quantity) && it.quantity > 0 && it.lineKey);
+
+  if (normalizedItems.length === 0) return 0;
+
+  const mergedMap = new Map<string, { productId: string; productVariantId: string | null; quantity: number; lineKey: string }>();
+  for (const it of normalizedItems) {
+    const current = mergedMap.get(it.lineKey);
+    mergedMap.set(it.lineKey, {
+      productId: it.productId,
+      productVariantId: it.productVariantId,
+      lineKey: it.lineKey,
+      quantity: (current?.quantity ?? 0) + it.quantity,
+    });
+  }
+  const merged = [...mergedMap.values()];
+
+  const products = await prisma.product.findMany({
+    where: { id: { in: merged.map((item) => item.productId) } },
+    select: { id: true, price: true, isActive: true },
+  });
+  const byId = new Map(products.map((product) => [product.id, product]));
+  const variantIds = [...new Set(merged.map((item) => item.productVariantId).filter(Boolean) as string[])];
+  const variants = variantIds.length
+    ? await prisma.productVariant.findMany({
+        where: { id: { in: variantIds } },
+        select: { id: true, productId: true, priceOverride: true },
+      })
+    : [];
+  const variantsById = new Map(variants.map((variant) => [variant.id, variant]));
+  const autoMap = await getAutomaticDiscountsForProducts(merged.map((item) => item.productId), paymentMethod);
+  const codeInfo = await getCodeDiscountPercent(normalizePromoCode(promoCode), paymentMethod);
+
+  let subtotalDiscounted = 0;
+  for (const item of merged) {
+    const product = byId.get(item.productId);
+    if (!product || !product.isActive) continue;
+    const variant = item.productVariantId ? variantsById.get(item.productVariantId) : null;
+    if (item.productVariantId && (!variant || variant.productId !== item.productId)) continue;
+
+    const basePrice = variant?.priceOverride !== null && variant?.priceOverride !== undefined ? Number(variant.priceOverride) : Number(product.price);
+    const autoPercent = autoMap.get(item.productId) ?? 0;
+    const codePercent = codeInfo.percent;
+    const totalPercent = Math.max(0, Math.min(90, autoPercent + codePercent));
+    const finalPrice = round2(basePrice * (1 - totalPercent / 100));
+    subtotalDiscounted += round2(finalPrice * item.quantity);
+  }
+
+  return round2(subtotalDiscounted);
+}
+
+async function getCarrierMinimumSubtotalFreeShipping(
+  subtotalDiscounted: number,
+  carrierKey?: string | null
+): Promise<FreeShippingDecision> {
+  if (carrierKey !== "correo") return { applies: false, promotionName: null };
+
+  const configuredMinimum = Number(await getProviderConfigValue("correo", "FREE_SHIPPING_MIN_SUBTOTAL", "0"));
+  const minimum = Number.isFinite(configuredMinimum) && configuredMinimum > 0 ? round2(configuredMinimum) : 0;
+  if (!minimum || subtotalDiscounted < minimum) return { applies: false, promotionName: null };
+
+  return {
+    applies: true,
+    promotionName: `Envío gratis desde $${minimum.toLocaleString("es-AR")}`,
+  };
+}
+
+async function getFreeShippingPromotionForCart(
+  inputItems: PricingInputItem[],
+  promoCode?: string | null,
+  paymentMethod?: string | null,
+  deliveryType?: string | null,
+  carrierKey?: string | null
+): Promise<FreeShippingDecision> {
   const productIds = [
     ...new Set(inputItems.map((item) => String(item.productId || "").trim()).filter(Boolean)),
   ];

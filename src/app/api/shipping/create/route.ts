@@ -157,7 +157,7 @@ export async function POST(req: Request) {
         street: addresseeAddress.street,
         number: addresseeAddress.number,
         city: order.shippingCity,
-        province: (await getProviderConfigValue("epick", "EPICK_ADDRESSEE_PROVINCE")) || order.shippingCity,
+        province: (await getProviderConfigValue("epick", "EPICK_ADDRESSEE_PROVINCE")) || order.shippingProvince,
         extra: "",
         info: "",
       },

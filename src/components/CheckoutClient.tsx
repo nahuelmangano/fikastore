@@ -64,7 +64,9 @@ type AndreaniQuote = {
 };
 
 type PricingItem = {
+  lineKey: string;
   productId: string;
+  productVariantId?: string | null;
   basePrice?: number;
   finalPrice?: number;
   totalPercent?: number;
@@ -268,7 +270,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
     if (checkoutTracked.current || items.length === 0) return;
     checkoutTracked.current = true;
     trackMetaInitiateCheckout(items.map((item) => ({
-      id: item.productId,
+      id: item.productVariantId || item.productId,
       price: item.price,
       quantity: item.quantity,
     })));
@@ -361,7 +363,12 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          items: summaryItems.map((it) => ({ productId: it.productId, quantity: it.quantity })),
+          items: summaryItems.map((it) => ({
+            productId: it.productId,
+            productVariantId: it.productVariantId ?? null,
+            lineKey: it.lineKey,
+            quantity: it.quantity,
+          })),
           promoCode,
           paymentMethod,
           deliveryType: promotionDeliveryType,
@@ -385,7 +392,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
 
   const pricingById = useMemo(() => {
     const map = new Map<string, PricingItem>();
-    for (const it of pricing?.items ?? []) map.set(it.productId, it);
+    for (const it of pricing?.items ?? []) map.set(it.lineKey, it);
     return map;
   }, [pricing]);
 
@@ -623,7 +630,12 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          items: items.map((it) => ({ productId: it.productId, quantity: it.quantity })),
+          items: items.map((it) => ({
+            productId: it.productId,
+            productVariantId: it.productVariantId ?? null,
+            lineKey: it.lineKey,
+            quantity: it.quantity,
+          })),
           shipping,
           shippingMethod,
           shippingDeliveryType: shippingMethod === "correo" ? correoDeliveryType : undefined,
@@ -675,12 +687,13 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
           <>
             <div className="mt-4 space-y-3">
               {summaryItems.map((it) => (
-                <div key={it.productId} className="flex items-start justify-between gap-4">
+                <div key={it.lineKey} className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <div className="truncate font-medium">{it.name}</div>
+                    {it.variantLabel ? <div className="mt-1 text-xs text-zinc-500">{it.variantLabel}</div> : null}
                     <div className="mt-1 text-sm text-zinc-400">
                       {(() => {
-                        const pi = pricingById.get(it.productId);
+                        const pi = pricingById.get(it.lineKey);
                         const base = Number(pi?.basePrice ?? it.price);
                         const final = Number(pi?.finalPrice ?? it.price);
                         const percent = Number(pi?.totalPercent ?? 0);
@@ -701,7 +714,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                     </div>
                   </div>
                   <div className="shrink-0 text-sm text-zinc-200">
-                    ${Number(pricingById.get(it.productId)?.finalSubtotal ?? it.price * it.quantity).toLocaleString("es-AR")}
+                    ${Number(pricingById.get(it.lineKey)?.finalSubtotal ?? it.price * it.quantity).toLocaleString("es-AR")}
                   </div>
                 </div>
               ))}
@@ -1233,7 +1246,8 @@ function PayBlock({
       const data = await res.json().catch(() => ({}));
       if (cancelled) return;
       if (!res.ok) {
-        setEpickError(data?.error || "No se pudo crear el envio en E-pick.");
+        const detail = typeof data?.details === "string" && data.details.trim() ? data.details.trim() : "";
+        setEpickError(detail ? `${data?.error || "No se pudo crear el envio en E-pick."} ${detail}` : data?.error || "No se pudo crear el envio en E-pick.");
         return;
       }
       setEpickCreated(true);
@@ -1262,7 +1276,7 @@ function PayBlock({
     <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4">
       <div className="font-semibold text-zinc-100">Pedido creado OK</div>
       <div className="mt-2 text-sm text-zinc-300">
-        ID de orden: <span className="font-mono">{orderId}</span>
+        Numero de pedido: <span className="font-mono">{orderNumber ?? orderId}</span>
       </div>
 
       {error && (

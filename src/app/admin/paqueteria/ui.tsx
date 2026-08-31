@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Building2, CheckCircle2, PackageCheck, Settings, Store, Truck } from "lucide-react";
 import AdminPageHeader from "@/components/admin/layout/AdminPageHeader";
 import SectionCard from "@/components/admin/cards/SectionCard";
@@ -19,10 +19,66 @@ type Carrier = {
   flatRate: number;
   pricingMode: "fixed" | "agreement" | "free";
   deliveryDays: string | null;
+  shippingSurcharge: number;
+  freeShippingMinimumSubtotal: number;
   configured: boolean;
   requiredCount: number;
   completedCount: number;
 };
+
+type PromotionPaymentMethod = "mercadopago" | "agreement" | "cash" | "transfer";
+type PromotionFreeShippingDeliveryType = "D" | "S";
+
+type ShippingPromotion = {
+  id: string;
+  name: string;
+  freeShipping: boolean;
+  freeShippingDeliveryTypes: PromotionFreeShippingDeliveryType[];
+  freeShippingCarrierKeys: string[];
+  paymentMethods: PromotionPaymentMethod[];
+  isActive: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+};
+
+const paymentMethodOptions: { key: PromotionPaymentMethod; label: string }[] = [
+  { key: "mercadopago", label: "Mercado Pago" },
+  { key: "transfer", label: "Transferencia" },
+  { key: "cash", label: "Efectivo" },
+  { key: "agreement", label: "A convenir" },
+];
+
+const freeShippingDeliveryTypeOptions: { key: PromotionFreeShippingDeliveryType; label: string }[] = [
+  { key: "D", label: "Domicilio" },
+  { key: "S", label: "Sucursal" },
+];
+
+function formatPromotionDate(v: string | null) {
+  if (!v) return "Sin fecha";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "Sin fecha";
+  return d.toLocaleString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function paymentMethodsLabel(methods: PromotionPaymentMethod[]) {
+  if (!methods.length) return "Todos los pagos";
+  return methods
+    .map((method) => paymentMethodOptions.find((option) => option.key === method)?.label || method)
+    .join(" · ");
+}
+
+function deliveryTypesLabel(types: PromotionFreeShippingDeliveryType[]) {
+  if (!types.length) return "Domicilio y sucursal";
+  return types
+    .map((type) => freeShippingDeliveryTypeOptions.find((option) => option.key === type)?.label || type)
+    .join(" · ");
+}
 
 const providerMeta: Record<string, { description: string; group: "delivery" | "pickup"; icon: typeof Truck }> = {
   epick: { description: "Envíos a domicilio con gestión de tracking.", group: "delivery", icon: Truck },
@@ -334,9 +390,212 @@ function ProviderCard({
   const [customPricingMode, setCustomPricingMode] = useState<"fixed" | "agreement" | "free">(carrier.pricingMode);
   const [deliveryDays, setDeliveryDays] = useState(carrier.deliveryDays ?? "");
   const supportsDeliveryDays = carrier.key === "epick" || carrier.key === "correo";
+  const supportsFreeShippingPromotions = carrier.key === "correo";
+  const [shippingPromotions, setShippingPromotions] = useState<ShippingPromotion[]>([]);
+  const [shippingPromotionsLoading, setShippingPromotionsLoading] = useState(false);
+  const [shippingPromotionsBusyId, setShippingPromotionsBusyId] = useState<string | null>(null);
+  const [shippingPromotionsDeletingId, setShippingPromotionsDeletingId] = useState<string | null>(null);
+  const [shippingPromotionsMsg, setShippingPromotionsMsg] = useState<string | null>(null);
+  const [shippingPromotionsError, setShippingPromotionsError] = useState<string | null>(null);
+  const [shippingPromotionsModalOpen, setShippingPromotionsModalOpen] = useState(false);
+  const [promotionName, setPromotionName] = useState("Envío gratis Correo Argentino");
+  const [promotionDeliveryTypes, setPromotionDeliveryTypes] = useState<PromotionFreeShippingDeliveryType[]>([]);
+  const [promotionPaymentMethods, setPromotionPaymentMethods] = useState<PromotionPaymentMethod[]>([]);
+  const [promotionStartsAt, setPromotionStartsAt] = useState("");
+  const [promotionEndsAt, setPromotionEndsAt] = useState("");
+  const [creatingPromotion, setCreatingPromotion] = useState(false);
+  const [shippingSurcharge, setShippingSurcharge] = useState(String(carrier.shippingSurcharge || 0));
+  const [savingShippingSurcharge, setSavingShippingSurcharge] = useState(false);
+  const [freeShippingMinimumSubtotal, setFreeShippingMinimumSubtotal] = useState(String(carrier.freeShippingMinimumSubtotal || 0));
+  const [savingFreeShippingMinimumSubtotal, setSavingFreeShippingMinimumSubtotal] = useState(false);
+
+  useEffect(() => {
+    if (!supportsFreeShippingPromotions) return;
+
+    let cancelled = false;
+    (async () => {
+      setShippingPromotionsLoading(true);
+      setShippingPromotionsError(null);
+      const res = await fetch("/api/admin/promotions");
+      const data = await res.json().catch(() => ({}));
+      if (cancelled) return;
+      setShippingPromotionsLoading(false);
+      if (!res.ok) {
+        setShippingPromotionsError(data?.error || "No se pudieron cargar las bonificaciones.");
+        return;
+      }
+      const promotions = Array.isArray(data?.promotions) ? (data.promotions as ShippingPromotion[]) : [];
+      setShippingPromotions(
+        promotions.filter((promotion) => promotion.freeShipping && promotion.freeShippingCarrierKeys.includes("correo"))
+      );
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [supportsFreeShippingPromotions]);
+
+  async function createShippingPromotion() {
+    if (!promotionName.trim()) {
+      setShippingPromotionsError("Ingresá un nombre para la bonificación.");
+      setShippingPromotionsMsg(null);
+      return;
+    }
+    if (promotionStartsAt && promotionEndsAt && new Date(promotionStartsAt) > new Date(promotionEndsAt)) {
+      setShippingPromotionsError("La fecha de inicio no puede ser posterior a la fecha de fin.");
+      setShippingPromotionsMsg(null);
+      return;
+    }
+
+    setCreatingPromotion(true);
+    setShippingPromotionsError(null);
+    setShippingPromotionsMsg(null);
+    const res = await fetch("/api/admin/promotions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: promotionName.trim(),
+        type: "global",
+        percent: 0,
+        freeShipping: true,
+        freeShippingDeliveryTypes: promotionDeliveryTypes,
+        freeShippingCarrierKeys: ["correo"],
+        paymentMethods: promotionPaymentMethods,
+        startsAt: promotionStartsAt || null,
+        endsAt: promotionEndsAt || null,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setCreatingPromotion(false);
+
+    if (!res.ok) {
+      setShippingPromotionsError(data?.error || "No se pudo crear la bonificación.");
+      return;
+    }
+
+    setShippingPromotions((prev) => [data.promotion as ShippingPromotion, ...prev]);
+    setPromotionName("Envío gratis Correo Argentino");
+    setPromotionDeliveryTypes([]);
+    setPromotionPaymentMethods([]);
+    setPromotionStartsAt("");
+    setPromotionEndsAt("");
+    setShippingPromotionsMsg(`Bonificación creada: ${data?.promotion?.name || "Envío gratis Correo Argentino"}.`);
+  }
+
+  async function toggleShippingPromotion(promotion: ShippingPromotion) {
+    setShippingPromotionsBusyId(promotion.id);
+    setShippingPromotionsError(null);
+    setShippingPromotionsMsg(null);
+    const res = await fetch(`/api/admin/promotions/${promotion.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isActive: !promotion.isActive }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setShippingPromotionsBusyId(null);
+
+    if (!res.ok) {
+      setShippingPromotionsError(data?.error || "No se pudo actualizar la bonificación.");
+      return;
+    }
+
+    setShippingPromotions((prev) =>
+      prev.map((item) => (item.id === promotion.id ? { ...item, isActive: data?.promotion?.isActive ?? !item.isActive } : item))
+    );
+    setShippingPromotionsMsg(
+      `${promotion.name} ${data?.promotion?.isActive ? "activada" : "desactivada"}.`
+    );
+  }
+
+  async function deleteShippingPromotion(promotion: ShippingPromotion) {
+    setShippingPromotionsDeletingId(promotion.id);
+    setShippingPromotionsError(null);
+    setShippingPromotionsMsg(null);
+    const res = await fetch(`/api/admin/promotions/${promotion.id}`, {
+      method: "DELETE",
+    });
+    const data = await res.json().catch(() => ({}));
+    setShippingPromotionsDeletingId(null);
+
+    if (!res.ok) {
+      setShippingPromotionsError(data?.error || "No se pudo eliminar la bonificación.");
+      return;
+    }
+
+    setShippingPromotions((prev) => prev.filter((item) => item.id !== promotion.id));
+    setShippingPromotionsMsg(`Bonificación eliminada: ${promotion.name}.`);
+  }
+
+  function toggleDeliveryType(type: PromotionFreeShippingDeliveryType) {
+    setPromotionDeliveryTypes((prev) => (prev.includes(type) ? prev.filter((item) => item !== type) : [...prev, type]));
+  }
+
+  function togglePaymentMethod(method: PromotionPaymentMethod) {
+    setPromotionPaymentMethods((prev) => (prev.includes(method) ? prev.filter((item) => item !== method) : [...prev, method]));
+  }
+
+  async function saveShippingSurcharge() {
+    const nextValue = Number(String(shippingSurcharge || "0").replace(",", "."));
+    if (!Number.isFinite(nextValue) || nextValue < 0) {
+      setShippingPromotionsError("Ingresá un recargo válido mayor o igual a 0.");
+      setShippingPromotionsMsg(null);
+      return;
+    }
+
+    setSavingShippingSurcharge(true);
+    setShippingPromotionsError(null);
+    setShippingPromotionsMsg(null);
+    const res = await fetch("/api/admin/shipping/carriers", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: carrier.key, shippingSurcharge: nextValue }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setSavingShippingSurcharge(false);
+
+    if (!res.ok) {
+      setShippingPromotionsError(data?.error || "No se pudo guardar el recargo.");
+      return;
+    }
+
+    setShippingSurcharge(String(data?.carrier?.shippingSurcharge ?? nextValue));
+    setShippingPromotionsMsg(`Recargo actualizado a $${Number(data?.carrier?.shippingSurcharge ?? nextValue).toLocaleString("es-AR")}.`);
+  }
+
+  async function saveFreeShippingMinimumSubtotal() {
+    const nextValue = Number(String(freeShippingMinimumSubtotal || "0").replace(",", "."));
+    if (!Number.isFinite(nextValue) || nextValue < 0) {
+      setShippingPromotionsError("Ingresá un monto mínimo válido mayor o igual a 0.");
+      setShippingPromotionsMsg(null);
+      return;
+    }
+
+    setSavingFreeShippingMinimumSubtotal(true);
+    setShippingPromotionsError(null);
+    setShippingPromotionsMsg(null);
+    const res = await fetch("/api/admin/shipping/carriers", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: carrier.key, freeShippingMinimumSubtotal: nextValue }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setSavingFreeShippingMinimumSubtotal(false);
+
+    if (!res.ok) {
+      setShippingPromotionsError(data?.error || "No se pudo guardar el monto mínimo.");
+      return;
+    }
+
+    setFreeShippingMinimumSubtotal(String(data?.carrier?.freeShippingMinimumSubtotal ?? nextValue));
+    setShippingPromotionsMsg(
+      nextValue > 0
+        ? `Envío gratis automático desde $${Number(data?.carrier?.freeShippingMinimumSubtotal ?? nextValue).toLocaleString("es-AR")}.`
+        : "Monto mínimo para envío gratis desactivado."
+    );
+  }
 
   return (
-    <article className="rounded-3xl border border-[var(--admin-border)] bg-[var(--admin-background)] p-5 xl:p-4 transition duration-150 hover:-translate-y-0.5 hover:shadow-[var(--admin-shadow)]">
+    <article className="rounded-3xl border border-[var(--admin-border)] bg-[var(--admin-background)] p-5 xl:p-4 transition duration-150 hover:shadow-[var(--admin-shadow)]">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 gap-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--admin-surface-muted)] text-[var(--admin-primary)]">
@@ -442,6 +701,282 @@ function ProviderCard({
           </div>
         </div>
       )}
+
+      {supportsFreeShippingPromotions && (
+        <div className="mt-5 rounded-2xl border border-[var(--admin-border)] bg-white/60 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-[var(--admin-text)]">Bonificación de envíos</div>
+              <p className="mt-1 text-sm text-[var(--admin-text-soft)]">
+                Creá y administrá desde acá las bonificaciones de Correo Argentino por tipo de entrega, medio de pago y vigencia.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShippingPromotionsModalOpen(true)}
+              className="inline-flex min-h-[44px] items-center justify-center rounded-2xl bg-[var(--admin-primary)] px-5 py-2 text-sm font-semibold text-white shadow-sm transition duration-150 hover:bg-[var(--admin-primary-hover)]"
+            >
+              Gestionar bonificaciones
+            </button>
+          </div>
+
+          {shippingPromotionsMsg ? (
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              {shippingPromotionsMsg}
+            </div>
+          ) : null}
+          {shippingPromotionsError ? (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              {shippingPromotionsError}
+            </div>
+          ) : null}
+          <div className="mt-4 rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-background)] p-3">
+            <div className="text-sm font-semibold text-[var(--admin-text)]">Resumen actual</div>
+            {shippingPromotionsLoading ? (
+              <div className="mt-2 text-sm text-[var(--admin-muted)]">Cargando bonificaciones...</div>
+            ) : (
+              <div className="mt-2 text-sm text-[var(--admin-text-soft)]">
+                {shippingPromotions.length === 0
+                  ? "No hay bonificaciones creadas para Correo Argentino."
+                  : `${shippingPromotions.filter((promotion) => promotion.isActive).length} activas de ${shippingPromotions.length} configuradas.`}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {supportsFreeShippingPromotions && shippingPromotionsModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto px-4 py-8 sm:py-12">
+          <button
+            type="button"
+            aria-label="Cerrar bonificaciones"
+            className="absolute inset-0 bg-black/35"
+            onClick={() => setShippingPromotionsModalOpen(false)}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`shipping-promotions-title-${carrier.key}`}
+            className="relative w-full max-w-4xl rounded-3xl border border-[var(--admin-border)] bg-[var(--admin-background)] p-5 shadow-2xl"
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h4 id={`shipping-promotions-title-${carrier.key}`} className="text-lg font-semibold text-[var(--admin-text)]">
+                  Bonificaciones de Correo Argentino
+                </h4>
+                <p className="mt-1 text-sm text-[var(--admin-text-soft)]">
+                  Configurá envío gratis por modalidad, pago y vigencia sin salir de paquetería.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShippingPromotionsModalOpen(false)}
+                className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[var(--admin-border)] px-4 py-2 text-sm font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)]"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            {shippingPromotionsMsg ? (
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                {shippingPromotionsMsg}
+              </div>
+            ) : null}
+            {shippingPromotionsError ? (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {shippingPromotionsError}
+              </div>
+            ) : null}
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Nombre de la bonificación</span>
+                <input value={promotionName} onChange={(event) => setPromotionName(event.target.value)} className="admin-input mt-2" />
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Inicio</span>
+                  <input type="datetime-local" value={promotionStartsAt} onChange={(event) => setPromotionStartsAt(event.target.value)} className="admin-input mt-2" />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Fin</span>
+                  <input type="datetime-local" value={promotionEndsAt} onChange={(event) => setPromotionEndsAt(event.target.value)} className="admin-input mt-2" />
+                </label>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl border border-[var(--admin-border)] bg-white/60 p-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <label className="block sm:max-w-xs sm:flex-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Recargo fijo al envío</span>
+                    <input
+                      value={shippingSurcharge}
+                      onChange={(event) => setShippingSurcharge(event.target.value.replace(/[^\d.,]/g, ""))}
+                      inputMode="decimal"
+                      placeholder="0"
+                      className="admin-input mt-2"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={savingShippingSurcharge}
+                    onClick={() => void saveShippingSurcharge()}
+                    className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[var(--admin-border)] px-4 py-2 text-sm font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)] disabled:opacity-60"
+                  >
+                    {savingShippingSurcharge ? "Guardando..." : "Guardar recargo"}
+                  </button>
+                </div>
+                <p className="mt-3 text-xs text-[var(--admin-muted)]">
+                  Este monto se suma a cada tarifa cotizada de Correo Argentino antes de mostrarla en producto y checkout.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-[var(--admin-border)] bg-white/60 p-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <label className="block sm:max-w-xs sm:flex-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Monto mínimo para envío gratis</span>
+                    <input
+                      value={freeShippingMinimumSubtotal}
+                      onChange={(event) => setFreeShippingMinimumSubtotal(event.target.value.replace(/[^\d.,]/g, ""))}
+                      inputMode="decimal"
+                      placeholder="0"
+                      className="admin-input mt-2"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={savingFreeShippingMinimumSubtotal}
+                    onClick={() => void saveFreeShippingMinimumSubtotal()}
+                    className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[var(--admin-border)] px-4 py-2 text-sm font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)] disabled:opacity-60"
+                  >
+                    {savingFreeShippingMinimumSubtotal ? "Guardando..." : "Guardar mínimo"}
+                  </button>
+                </div>
+                <p className="mt-3 text-xs text-[var(--admin-muted)]">
+                  Si cargás un valor mayor a 0, el envío de Correo Argentino pasa a gratis automáticamente cuando el subtotal final lo alcanza.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl border border-[var(--admin-border)] bg-white/60 p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Tipo de entrega bonificado</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {freeShippingDeliveryTypeOptions.map((option) => {
+                    const selected = promotionDeliveryTypes.includes(option.key);
+                    return (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => toggleDeliveryType(option.key)}
+                        className={[
+                          "rounded-2xl border px-3 py-2 text-sm font-semibold transition duration-150",
+                          selected
+                            ? "border-[var(--admin-primary)] bg-[var(--admin-primary)] text-white"
+                            : "border-[var(--admin-border)] bg-white text-[var(--admin-text)] hover:bg-[var(--admin-surface-muted)]",
+                        ].join(" ")}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-3 text-xs text-[var(--admin-muted)]">Si no seleccionás ninguno, aplica a domicilio y sucursal.</p>
+              </div>
+
+              <div className="rounded-2xl border border-[var(--admin-border)] bg-white/60 p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Medios de pago</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {paymentMethodOptions.map((option) => {
+                    const selected = promotionPaymentMethods.includes(option.key);
+                    return (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => togglePaymentMethod(option.key)}
+                        className={[
+                          "rounded-2xl border px-3 py-2 text-sm font-semibold transition duration-150",
+                          selected
+                            ? "border-[var(--admin-primary)] bg-[var(--admin-primary)] text-white"
+                            : "border-[var(--admin-border)] bg-white text-[var(--admin-text)] hover:bg-[var(--admin-surface-muted)]",
+                        ].join(" ")}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-3 text-xs text-[var(--admin-muted)]">Si no seleccionás ninguno, aplica a cualquier medio de pago.</p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                disabled={creatingPromotion}
+                onClick={() => void createShippingPromotion()}
+                className="inline-flex min-h-[44px] items-center justify-center rounded-2xl bg-[var(--admin-primary)] px-5 py-2 text-sm font-semibold text-white shadow-sm transition duration-150 hover:bg-[var(--admin-primary-hover)] disabled:opacity-60"
+              >
+                {creatingPromotion ? "Guardando..." : "Crear bonificación"}
+              </button>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-[var(--admin-border)] bg-white/60 p-3">
+              <div className="text-sm font-semibold text-[var(--admin-text)]">Bonificaciones activas para Correo Argentino</div>
+              {shippingPromotionsLoading ? (
+                <div className="mt-3 text-sm text-[var(--admin-muted)]">Cargando bonificaciones...</div>
+              ) : shippingPromotions.length === 0 ? (
+                <div className="mt-3 text-sm text-[var(--admin-muted)]">Todavía no hay bonificaciones creadas para este método.</div>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  {shippingPromotions.map((promotion) => (
+                    <div key={promotion.id} className="rounded-2xl border border-[var(--admin-border)] bg-white p-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="text-sm font-semibold text-[var(--admin-text)]">{promotion.name}</div>
+                            <StatusBadge label={promotion.isActive ? "Activa" : "Inactiva"} variant={promotion.isActive ? "success" : "neutral"} />
+                          </div>
+                          <div className="mt-2 text-xs text-[var(--admin-muted)]">
+                            {deliveryTypesLabel(promotion.freeShippingDeliveryTypes)} · {paymentMethodsLabel(promotion.paymentMethods)}
+                          </div>
+                          <div className="mt-1 text-xs text-[var(--admin-muted)]">
+                            Desde {formatPromotionDate(promotion.startsAt)} · Hasta {formatPromotionDate(promotion.endsAt)}
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-2 sm:items-end">
+                          <button
+                            type="button"
+                            disabled={shippingPromotionsBusyId === promotion.id || shippingPromotionsDeletingId === promotion.id}
+                            onClick={() => void toggleShippingPromotion(promotion)}
+                            className={[
+                              "inline-flex min-w-32 items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold transition duration-150 disabled:opacity-60",
+                              promotion.isActive
+                                ? "bg-red-50 text-red-800 ring-1 ring-red-200 hover:bg-red-100"
+                                : "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200 hover:bg-emerald-100",
+                            ].join(" ")}
+                          >
+                            {shippingPromotionsBusyId === promotion.id ? "Actualizando..." : promotion.isActive ? "Desactivar" : "Activar"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={shippingPromotionsDeletingId === promotion.id || shippingPromotionsBusyId === promotion.id}
+                            onClick={() => void deleteShippingPromotion(promotion)}
+                            className="inline-flex min-w-32 items-center justify-center rounded-2xl border border-red-800 bg-red-700 px-4 py-2 text-sm font-semibold !text-white shadow-sm transition duration-150 hover:bg-red-800 disabled:border-red-400 disabled:bg-red-500 disabled:!text-white disabled:opacity-60"
+                          >
+                            {shippingPromotionsDeletingId === promotion.id ? "Eliminando..." : "Eliminar"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {carrier.custom ? (
         <div className="mt-5 rounded-2xl border border-[var(--admin-border)] bg-white/60 p-4">

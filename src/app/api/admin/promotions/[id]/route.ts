@@ -197,3 +197,33 @@ export async function PATCH(
     },
   });
 }
+
+export async function DELETE(
+  _req: Request,
+  { params }: { params: { id?: string } | Promise<{ id?: string }> }
+) {
+  const session = await auth();
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  if (!isStaffRole(role)) {
+    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  }
+
+  const resolvedParams = await Promise.resolve(params);
+  const id = String(resolvedParams?.id || "").trim();
+  if (!id) return NextResponse.json({ ok: false, error: "Id inválido." }, { status: 400 });
+
+  const existing = await prisma.promotion.findUnique({
+    where: { id },
+    select: { id: true, name: true },
+  });
+  if (!existing) {
+    return NextResponse.json({ ok: false, error: "Promoción no encontrada." }, { status: 404 });
+  }
+
+  await prisma.promotion.delete({ where: { id } });
+
+  return NextResponse.json({
+    ok: true,
+    deleted: { id: existing.id, name: existing.name },
+  });
+}

@@ -13,6 +13,8 @@ export type ShippingCarrierView = {
   flatRate: number;
   pricingMode: "fixed" | "agreement" | "free";
   deliveryDays: string | null;
+  shippingSurcharge: number;
+  freeShippingMinimumSubtotal: number;
 };
 
 const CUSTOM_SHIPPING_PROVIDER = "custom_shipping";
@@ -111,6 +113,24 @@ async function deliveryDaysForCarrier(key: string) {
   return key === "epick" ? "2-3" : key === "correo" ? "3-6" : null;
 }
 
+async function shippingSurchargeForCarrier(key: string) {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: { provider_key: { provider: key, key: "SHIPPING_SURCHARGE" } },
+    select: { value: true },
+  });
+  const value = Number(String(row?.value || "").trim());
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+async function freeShippingMinimumSubtotalForCarrier(key: string) {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: { provider_key: { provider: key, key: "FREE_SHIPPING_MIN_SUBTOTAL" } },
+    select: { value: true },
+  });
+  const value = Number(String(row?.value || "").trim());
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
 async function customCarrierSettingsMap() {
   const rows = await prisma.shippingProviderSetting.findMany({
     where: { provider: CUSTOM_SHIPPING_PROVIDER },
@@ -120,7 +140,10 @@ async function customCarrierSettingsMap() {
 }
 
 async function withCustomCarrierSettings(
-  carriers: Omit<ShippingCarrierView, "custom" | "description" | "flatRate" | "pricingMode" | "deliveryDays">[],
+  carriers: Omit<
+    ShippingCarrierView,
+    "custom" | "description" | "flatRate" | "pricingMode" | "deliveryDays" | "shippingSurcharge" | "freeShippingMinimumSubtotal"
+  >[],
 ): Promise<ShippingCarrierView[]> {
   const settings = await customCarrierSettingsMap();
   return Promise.all(carriers.map(async (carrier) => {
@@ -136,6 +159,8 @@ async function withCustomCarrierSettings(
       flatRate: custom && Number.isFinite(rawRate) && rawRate >= 0 ? rawRate : 0,
       pricingMode: custom && rawPricingMode === "agreement" ? "agreement" : custom && rawPricingMode === "free" ? "free" : "fixed",
       deliveryDays: await deliveryDaysForCarrier(carrier.key),
+      shippingSurcharge: await shippingSurchargeForCarrier(carrier.key),
+      freeShippingMinimumSubtotal: await freeShippingMinimumSubtotalForCarrier(carrier.key),
     };
   }));
 }
