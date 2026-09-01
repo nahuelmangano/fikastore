@@ -18,6 +18,7 @@ const PAYMENT_FINANCING_DISPLAY_SETTINGS_KEY = "payment_financing_display_settin
 const GOOGLE_ANALYTICS_MEASUREMENT_ID_KEY = "google_analytics_measurement_id";
 const META_PIXEL_ID_KEY = "meta_pixel_id";
 const SOCIAL_LINKS_SETTINGS_KEY = "social_links_settings";
+const METRICS_SETTINGS_KEY = "metrics_settings";
 const ENCRYPTED_VALUE_PREFIX = "enc:v1:";
 
 export const DEFAULT_ANNOUNCEMENT_TEXT =
@@ -163,6 +164,10 @@ export type SocialLinksSettings = {
   facebook: string;
   instagram: string;
   tiktok: string;
+};
+
+export type MetricsSettings = {
+  startAt: string | null;
 };
 
 const DEFAULT_MANUAL_PAYMENT_METHODS: ManualPaymentMethodSettings[] = [
@@ -518,6 +523,65 @@ export async function setAnalyticsSettings(settings: AnalyticsSettings) {
       },
     }),
   ]);
+}
+
+function normalizeMetricsStartAt(value: unknown): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function normalizeMetricsSettings(input: unknown): MetricsSettings {
+  const value = input && typeof input === "object" ? input as Partial<MetricsSettings> : {};
+  return {
+    startAt: normalizeMetricsStartAt(value.startAt),
+  };
+}
+
+export async function getMetricsSettings(): Promise<MetricsSettings> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: METRICS_SETTINGS_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return { startAt: null };
+
+  try {
+    return normalizeMetricsSettings(JSON.parse(row.value));
+  } catch {
+    return { startAt: null };
+  }
+}
+
+export async function setMetricsSettings(settings: unknown) {
+  const value = JSON.stringify(normalizeMetricsSettings(settings));
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: METRICS_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: METRICS_SETTINGS_KEY,
+      value,
+      isSecret: false,
+    },
+    update: {
+      value,
+      isSecret: false,
+    },
+  });
 }
 
 function normalizeSocialUrl(value: unknown) {

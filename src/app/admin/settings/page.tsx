@@ -8,6 +8,7 @@ import {
   getHomeBannerSettings,
   getHomeCategoryTiles,
   getManualPaymentSettings,
+  getMetricsSettings,
   getMercadoPagoSettings,
   getPaymentFinancingDisplaySettings,
   getSiteTitle,
@@ -34,6 +35,7 @@ export default async function SettingsPage() {
     manualPaymentMethods,
     paymentFinancingDisplaySettings,
     analyticsSettings,
+    metricsSettings,
     socialLinksSettings,
     customDomainSettings,
     informationSections,
@@ -50,6 +52,7 @@ export default async function SettingsPage() {
     getManualPaymentSettings(),
     getPaymentFinancingDisplaySettings(),
     getAnalyticsSettings(),
+    getMetricsSettings(),
     getSocialLinksSettings(),
     getCustomDomainSettings(),
     getInformationSections(),
@@ -72,6 +75,7 @@ export default async function SettingsPage() {
       manualPaymentMethods={manualPaymentMethods}
       paymentFinancingDisplaySettings={paymentFinancingDisplaySettings}
       analyticsSettings={analyticsSettings}
+      metricsSettings={metricsSettings}
       socialLinksSettings={socialLinksSettings}
       customDomainSettings={customDomainSettings}
       currentUserRole={currentUserRole}

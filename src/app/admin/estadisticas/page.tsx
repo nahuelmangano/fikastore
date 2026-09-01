@@ -1,12 +1,18 @@
 import { prisma } from "@/lib/prisma";
+import { getMetricsSettings } from "@/lib/storeSettings";
 import AdminStatsDashboard from "./ui";
 
 const SALES_STATUSES = ["paid", "shipped"] as const;
 
 export default async function AdminEstadisticasPage() {
+  const metricsSettings = await getMetricsSettings();
+  const metricsStartAt = metricsSettings.startAt ? new Date(metricsSettings.startAt) : null;
   const [salesOrders, lowStockProducts] = await Promise.all([
     prisma.order.findMany({
-      where: { status: { in: [...SALES_STATUSES] } },
+      where: {
+        status: { in: [...SALES_STATUSES] },
+        ...(metricsStartAt ? { createdAt: { gte: metricsStartAt } } : {}),
+      },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -110,6 +116,7 @@ export default async function AdminEstadisticasPage() {
         imageUrl: product.images[0]?.url ?? null,
       }))}
       salesStatuses={[...SALES_STATUSES]}
+      metricsStartAt={metricsSettings.startAt}
     />
   );
 }

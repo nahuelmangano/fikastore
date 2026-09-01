@@ -118,6 +118,10 @@ type SocialLinksSettings = {
   tiktok: string;
 };
 
+type MetricsSettings = {
+  startAt: string | null;
+};
+
 const EMPTY_SOCIAL_LINKS: SocialLinksSettings = {
   facebook: "",
   instagram: "",
@@ -255,6 +259,7 @@ export default function AdminSettingsPage({
   manualPaymentMethods,
   paymentFinancingDisplaySettings,
   analyticsSettings,
+  metricsSettings,
   socialLinksSettings,
   customDomainSettings,
   currentUserRole,
@@ -272,6 +277,7 @@ export default function AdminSettingsPage({
   manualPaymentMethods: ManualPaymentMethodSettings[];
   paymentFinancingDisplaySettings: PaymentFinancingDisplaySettings;
   analyticsSettings: AnalyticsSettings;
+  metricsSettings: MetricsSettings;
   socialLinksSettings?: SocialLinksSettings;
   customDomainSettings: CustomDomainSettings;
   currentUserRole: string;
@@ -294,6 +300,7 @@ export default function AdminSettingsPage({
   const [financingDisplay, setFinancingDisplay] = useState(paymentFinancingDisplaySettings);
   const [gaMeasurementId, setGaMeasurementId] = useState(analyticsSettings.googleAnalyticsMeasurementId);
   const [metaPixelId, setMetaPixelId] = useState(analyticsSettings.metaPixelId);
+  const [metricsStartAt, setMetricsStartAt] = useState(toDateTimeLocal(metricsSettings.startAt));
   const [socialLinks, setSocialLinks] = useState<SocialLinksSettings>(socialLinksSettings ?? EMPTY_SOCIAL_LINKS);
   const [domainSettings, setDomainSettings] = useState(customDomainSettings);
   const [customDomain, setCustomDomain] = useState(customDomainSettings.customDomain);
@@ -315,6 +322,7 @@ export default function AdminSettingsPage({
   const [manualPaymentsLoading, setManualPaymentsLoading] = useState(false);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [socialLinksLoading, setSocialLinksLoading] = useState(false);
+  const [metricsLoading, setMetricsLoading] = useState(false);
   const [domainLoading, setDomainLoading] = useState(false);
   const [domainVerifyLoading, setDomainVerifyLoading] = useState(false);
   const [logoLoading, setLogoLoading] = useState(false);
@@ -332,6 +340,7 @@ export default function AdminSettingsPage({
   const [manualPaymentsMsg, setManualPaymentsMsg] = useState<string | null>(null);
   const [analyticsMsg, setAnalyticsMsg] = useState<string | null>(null);
   const [socialLinksMsg, setSocialLinksMsg] = useState<string | null>(null);
+  const [metricsMsg, setMetricsMsg] = useState<string | null>(null);
   const [domainMsg, setDomainMsg] = useState<string | null>(null);
   const [homeBannerMsg, setHomeBannerMsg] = useState<string | null>(null);
   const [tileMsg, setTileMsg] = useState<string | null>(null);
@@ -562,6 +571,28 @@ export default function AdminSettingsPage({
     setGaMeasurementId(data.settings?.googleAnalyticsMeasurementId || "");
     setMetaPixelId(data.settings?.metaPixelId || "");
     setAnalyticsMsg("Configuración de analíticas guardada.");
+  }
+
+  async function saveMetricsSettings() {
+    setMetricsMsg(null);
+    setMetricsLoading(true);
+
+    const res = await fetch("/api/admin/settings/metrics", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ startAt: metricsStartAt ? new Date(metricsStartAt).toISOString() : null }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    setMetricsLoading(false);
+
+    if (!res.ok) {
+      setMetricsMsg(String(data?.error || "No se pudo guardar el inicio de métricas."));
+      return;
+    }
+
+    setMetricsStartAt(toDateTimeLocal(data.settings?.startAt || null));
+    setMetricsMsg(data.settings?.startAt ? "Inicio de métricas guardado." : "Inicio de métricas limpiado.");
   }
 
   async function saveCustomDomainSettings() {
@@ -1013,6 +1044,7 @@ export default function AdminSettingsPage({
   const sectionsEnabled = sections.some((section) => section.isActive);
   const canManageMercadoPagoOAuth = currentUserRole === "merchant";
   const canManageMercadoPagoManualToken = currentUserRole === "admin";
+  const canManageMetricsStartAt = currentUserRole === "admin";
 
   return (
     <main className="min-h-screen bg-[#FAF8F5] text-[#70471F]">
@@ -1644,8 +1676,44 @@ export default function AdminSettingsPage({
               </div>
             </SectionCard>
 
-            <SectionCard title="Uso por tienda" description="Cada tienda debe usar sus propias cuentas de medición." icon={Store}>
-              <div className="grid gap-3">
+            <div className="space-y-6">
+              {canManageMetricsStartAt ? (
+                <SectionCard title="Inicio de métricas" description="Definí desde cuándo el panel empieza a contar ventas, pedidos y estadísticas." icon={BarChart3}>
+                  <div className="rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-5 xl:p-4">
+                    <div className="flex items-center gap-2">
+                      <StatusBadge active={Boolean(metricsStartAt)} />
+                      <span className="text-sm font-semibold text-[#5F3B18]">
+                        {metricsStartAt ? "Métricas filtradas por fecha de inicio" : "Métricas tomando todo el historial"}
+                      </span>
+                    </div>
+                    <p className="mt-3 max-w-xl text-sm leading-6 text-[#8F6A49]">
+                      Si cargás una fecha, dashboard, estadísticas y pedidos comerciales sólo contarán órdenes creadas desde ese momento. Los pedidos viejos no se borran.
+                    </p>
+
+                    <label className="mt-5 block">
+                      <FieldLabel label="Fecha y hora de inicio" help="Usá la fecha exacta desde la que querés empezar a medir. Dejalo vacío para usar todo el historial." />
+                      <input
+                        type="datetime-local"
+                        value={metricsStartAt}
+                        onChange={(e) => setMetricsStartAt(e.target.value)}
+                        className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
+                      />
+                    </label>
+
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                      <PrimaryButton onClick={saveMetricsSettings} loading={metricsLoading} label="Guardar inicio" />
+                      {metricsStartAt ? (
+                        <SecondaryButton onClick={() => setMetricsStartAt("")} label="Quitar filtro" />
+                      ) : null}
+                    </div>
+
+                    {metricsMsg ? <Notice>{metricsMsg}</Notice> : null}
+                  </div>
+                </SectionCard>
+              ) : null}
+
+              <SectionCard title="Uso por tienda" description="Cada tienda debe usar sus propias cuentas de medición." icon={Store}>
+                <div className="grid gap-3">
                 <div className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
                   <div className="text-sm font-semibold text-[#5F3B18]">Dónde se carga</div>
                   <div className="mt-1 text-sm text-[#8F6A49]">En la tienda pública. El admin no carga Analytics ni Meta Pixel.</div>
@@ -1658,8 +1726,15 @@ export default function AdminSettingsPage({
                   <div className="text-sm font-semibold text-[#5F3B18]">Meta Pixel</div>
                   <div className="mt-1 text-sm text-[#8F6A49]">{metaPixelId.trim() || "Sin Pixel ID"}</div>
                 </div>
-              </div>
-            </SectionCard>
+                {canManageMetricsStartAt ? (
+                  <div className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
+                    <div className="text-sm font-semibold text-[#5F3B18]">Inicio de métricas</div>
+                    <div className="mt-1 text-sm text-[#8F6A49]">{formatDateTime(fromDateTimeLocal(metricsStartAt)) || "Todo el historial"}</div>
+                  </div>
+                ) : null}
+                </div>
+              </SectionCard>
+            </div>
           </div>
         ) : null}
 
@@ -1743,6 +1818,26 @@ function formatDateTime(value: string | null) {
   } catch {
     return null;
   }
+}
+
+function toDateTimeLocal(value: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function fromDateTimeLocal(value: string) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function DomainSettingsSection({

@@ -134,18 +134,26 @@ function inventoryStatus(stock: number) {
   return { key: "ok" as const, label: "Stock correcto", variant: "success" as const };
 }
 
+function formatMetricsStartAt(value: string | null) {
+  if (!value) return null;
+  return new Intl.DateTimeFormat("es-AR", { dateStyle: "long", timeStyle: "short" }).format(new Date(value));
+}
+
 export default function AdminStatsDashboard({
   salesOrders,
   lowStockProducts,
   salesStatuses,
+  metricsStartAt,
 }: {
   salesOrders: SalesOrder[];
   lowStockProducts: LowStockProduct[];
   salesStatuses: string[];
+  metricsStartAt: string | null;
 }) {
   const [period, setPeriod] = useState<PeriodKey>("all");
   const [inventoryFilter, setInventoryFilter] = useState<InventoryFilter>("all");
   const [inventoryQuery, setInventoryQuery] = useState("");
+  const metricsStartLabel = formatMetricsStartAt(metricsStartAt);
 
   const periodStart = getPeriodStart(period);
   const periodLabel = periodOptions.find((option) => option.value === period)?.label || "Todo el historial";
@@ -330,11 +338,16 @@ export default function AdminStatsDashboard({
           subtitle="Analizá el rendimiento comercial y el estado del inventario de tu tienda."
           backHref="/admin"
         />
+        {metricsStartLabel ? (
+          <div className="mt-4 rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-4 py-3 text-sm text-[var(--admin-muted)]">
+            Métricas comerciales calculadas desde {metricsStartLabel}.
+          </div>
+        ) : null}
 
         <SectionCard className="mt-8 xl:mt-6">
           <PageToolbar
             title="Período"
-            description={`Métricas calculadas sobre: ${periodLabel}. Pedidos considerados: ${salesStatuses.join(" / ")}.`}
+            description={`Métricas calculadas sobre: ${periodLabel}${metricsStartLabel ? `, desde ${metricsStartLabel}` : ""}. Pedidos considerados: ${salesStatuses.join(" / ")}.`}
             filters={<FilterChips options={periodOptions} value={period} onChange={setPeriod} ariaLabel="Seleccionar período de estadísticas" />}
           />
         </SectionCard>

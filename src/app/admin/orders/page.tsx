@@ -3,6 +3,7 @@ import { CalendarClock, CreditCard, PackageCheck, ShoppingBag } from "lucide-rea
 import type { Prisma } from "@prisma/client";
 import type { ReactNode } from "react";
 import { prisma } from "@/lib/prisma";
+import { getMetricsSettings } from "@/lib/storeSettings";
 import AdminPageHeader from "@/components/admin/layout/AdminPageHeader";
 import PageToolbar from "@/components/admin/layout/PageToolbar";
 import SectionCard from "@/components/admin/cards/SectionCard";
@@ -140,8 +141,16 @@ function paymentOptionLabel(status: string) {
   return paymentStatus(status).label;
 }
 
+function formatMetricsStartAt(value: string | null) {
+  if (!value) return null;
+  return new Intl.DateTimeFormat("es-AR", { dateStyle: "long", timeStyle: "short" }).format(new Date(value));
+}
+
 export default async function AdminOrdersPage({ searchParams }: { searchParams: Params | Promise<Params> }) {
   const resolved = await Promise.resolve(searchParams);
+  const metricsSettings = await getMetricsSettings();
+  const metricsStartAt = metricsSettings.startAt ? new Date(metricsSettings.startAt) : null;
+  const metricsStartLabel = formatMetricsStartAt(metricsSettings.startAt);
   const q = (resolved.q ?? "").trim();
   const status = (resolved.status ?? "all").toLowerCase();
   const payment = (resolved.payment ?? "all").toLowerCase();
@@ -149,6 +158,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
   const page = toInt(resolved.page ?? "1", 1);
 
   const and: Prisma.OrderWhereInput[] = [];
+  if (metricsStartAt) and.push({ createdAt: { gte: metricsStartAt } });
   if (q) {
     const maybeNumber = Number(q);
     and.push({
@@ -195,15 +205,19 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
       },
     }),
     prisma.order.count({ where }),
-    prisma.order.count(),
-    prisma.order.count({ where: { status: "pending_payment" } }),
-    prisma.order.count({ where: { status: { in: ["paid", "shipped", "delivered"] } } }),
+    prisma.order.count({ where: metricsStartAt ? { createdAt: { gte: metricsStartAt } } : {} }),
+    prisma.order.count({ where: { status: "pending_payment", ...(metricsStartAt ? { createdAt: { gte: metricsStartAt } } : {}) } }),
+    prisma.order.count({ where: { status: { in: ["paid", "shipped", "delivered"] }, ...(metricsStartAt ? { createdAt: { gte: metricsStartAt } } : {}) } }),
     prisma.order.aggregate({
-      where: { status: { in: ["paid", "shipped", "delivered"] } },
+      where: { status: { in: ["paid", "shipped", "delivered"] }, ...(metricsStartAt ? { createdAt: { gte: metricsStartAt } } : {}) },
       _sum: { total: true },
     }),
-    prisma.order.groupBy({ by: ["status"], _count: { _all: true } }),
-    prisma.payment.groupBy({ by: ["status"], _count: { _all: true } }),
+    prisma.order.groupBy({ by: ["status"], where, _count: { _all: true } }),
+    prisma.payment.groupBy({
+      by: ["status"],
+      where: metricsStartAt ? { order: { createdAt: { gte: metricsStartAt } } } : undefined,
+      _count: { _all: true },
+    }),
   ]);
 
   const orders: ListedOrder[] = ordersRaw.map((order) => ({
@@ -310,9 +324,14 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
           subtitle={`Gestioná las compras, pagos y envíos de tu tienda. ${totalOrders} pedido${totalOrders === 1 ? "" : "s"}.`}
           backHref="/admin"
         />
+        {metricsStartLabel ? (
+          <div className="mt-4 rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-4 py-3 text-sm text-[var(--admin-muted)]">
+            Métricas y listado comercial calculados desde {metricsStartLabel}.
+          </div>
+        ) : null}
 
         <section className="mt-8 xl:mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard title="Pedidos" value={totalOrders} description="Total histórico" icon={ShoppingBag} />
+          <StatCard title="Pedidos" value={totalOrders} description={metricsStartLabel ? "Total desde inicio de métricas" : "Total histórico"} icon={ShoppingBag} />
           <StatCard title="Pendientes" value={pendingOrders} description="Esperando pago" icon={CalendarClock} />
           <StatCard title="Pagados" value={paidOrders} description="Pagados, enviados o entregados" icon={PackageCheck} />
           <StatCard title="Facturación" value={money(paidRevenue)} description="Pedidos pagos/enviados/entregados" icon={CreditCard} />

@@ -17,7 +17,7 @@ import {
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isAdminRole } from "@/lib/roles";
-import { getMailingSettings } from "@/lib/storeSettings";
+import { getMailingSettings, getMetricsSettings } from "@/lib/storeSettings";
 
 type ActivityItem = {
   id: string;
@@ -38,6 +38,11 @@ function startOfToday() {
 function endOfToday() {
   const start = startOfToday();
   return new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
+}
+
+function formatMetricsStartAt(value: string | null) {
+  if (!value) return null;
+  return new Intl.DateTimeFormat("es-AR", { dateStyle: "long", timeStyle: "short" }).format(new Date(value));
 }
 
 function relativeTime(date: Date) {
@@ -71,6 +76,10 @@ export default async function AdminDashboardPage() {
   const displayName = user?.name?.trim() || "";
   const todayStart = startOfToday();
   const todayEnd = endOfToday();
+  const metricsSettings = await getMetricsSettings();
+  const metricsStartAt = metricsSettings.startAt ? new Date(metricsSettings.startAt) : null;
+  const metricsCreatedAtFilter = metricsStartAt ? { gte: metricsStartAt } : undefined;
+  const salesTodayStart = metricsStartAt && metricsStartAt > todayStart ? metricsStartAt : todayStart;
 
   const [
     todaySales,
@@ -91,12 +100,12 @@ export default async function AdminDashboardPage() {
     prisma.order.aggregate({
       where: {
         status: { in: ["paid", "shipped", "delivered"] },
-        createdAt: { gte: todayStart, lt: todayEnd },
+        createdAt: { gte: salesTodayStart, lt: todayEnd },
       },
       _sum: { total: true },
     }),
-    prisma.order.count(),
-    prisma.order.count({ where: { status: { in: ["pending_payment", "paid"] } } }),
+    prisma.order.count({ where: metricsCreatedAtFilter ? { createdAt: metricsCreatedAtFilter } : {} }),
+    prisma.order.count({ where: { status: { in: ["pending_payment", "paid"] }, ...(metricsCreatedAtFilter ? { createdAt: metricsCreatedAtFilter } : {}) } }),
     prisma.user.count({ where: { role: "customer" } }),
     prisma.product.count({ where: { isActive: true } }),
     prisma.product.count({ where: { stock: { lte: 0 } } }),
@@ -109,6 +118,7 @@ export default async function AdminDashboardPage() {
       },
     }),
     prisma.order.findMany({
+      where: metricsCreatedAtFilter ? { createdAt: metricsCreatedAtFilter } : undefined,
       orderBy: { createdAt: "desc" },
       take: 5,
       include: {
@@ -137,6 +147,7 @@ export default async function AdminDashboardPage() {
   ]);
 
   const salesToday = Number(todaySales._sum.total ?? 0);
+  const metricsStartLabel = formatMetricsStartAt(metricsSettings.startAt);
   const conversionLabel = totalOrders > 0 && customerCount > 0
     ? `${Math.round((totalOrders / customerCount) * 100)}%`
     : "Próximamente";
@@ -187,6 +198,7 @@ export default async function AdminDashboardPage() {
               {displayName ? `Hola, ${displayName} 👋` : "Hola 👋"}
             </h1>
             <p className="mt-2 text-base text-[#8F6A49]">Así está funcionando tu tienda hoy.</p>
+            {metricsStartLabel ? <p className="mt-2 text-sm text-[#A37A55]">Métricas calculadas desde {metricsStartLabel}.</p> : null}
           </div>
           <div className="rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm text-[#8B5A2B] shadow-sm">
             <div className="text-xs font-semibold uppercase tracking-wider text-[#B18B68]">Última actualización</div>
