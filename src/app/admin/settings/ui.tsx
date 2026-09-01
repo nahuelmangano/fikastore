@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   ArrowUpRight,
   BarChart3,
   CheckCircle2,
@@ -296,7 +298,11 @@ export default function AdminSettingsPage({
   const [domainSettings, setDomainSettings] = useState(customDomainSettings);
   const [customDomain, setCustomDomain] = useState(customDomainSettings.customDomain);
   const [homeBanner, setHomeBanner] = useState<HomeBannerSettings>(homeBannerSettings);
+  const [draggingBannerSlideId, setDraggingBannerSlideId] = useState<string | null>(null);
+  const [dragOverBannerSlideId, setDragOverBannerSlideId] = useState<string | null>(null);
   const [tiles, setTiles] = useState<HomeCategoryTile[]>(homeCategoryTiles);
+  const [draggingTileId, setDraggingTileId] = useState<string | null>(null);
+  const [dragOverTileId, setDragOverTileId] = useState<string | null>(null);
   const [sections, setSections] = useState<InformationSection[]>(informationSections);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [draggingSectionId, setDraggingSectionId] = useState<string | null>(null);
@@ -689,9 +695,48 @@ export default function AdminSettingsPage({
   function removeHomeBannerSlide(id: string) {
     setHomeBannerMsg(null);
     setHomeBanner((prev) => ({
-      ...prev,
-      slides: prev.slides.filter((slide) => slide.id !== id),
+    ...prev,
+    slides: prev.slides.filter((slide) => slide.id !== id),
     }));
+  }
+
+  function moveHomeBannerSlide(id: string, direction: "up" | "down") {
+    setHomeBannerMsg(null);
+    setHomeBanner((prev) => {
+      const index = prev.slides.findIndex((slide) => slide.id === id);
+      if (index < 0) return prev;
+
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= prev.slides.length) return prev;
+
+      const slides = [...prev.slides];
+      const [slide] = slides.splice(index, 1);
+      slides.splice(targetIndex, 0, slide);
+
+      return {
+        ...prev,
+        slides,
+      };
+    });
+  }
+
+  function reorderHomeBannerSlides(fromId: string, toId: string) {
+    if (!fromId || !toId || fromId === toId) return;
+    setHomeBannerMsg(null);
+    setHomeBanner((prev) => {
+      const fromIndex = prev.slides.findIndex((slide) => slide.id === fromId);
+      const toIndex = prev.slides.findIndex((slide) => slide.id === toId);
+      if (fromIndex < 0 || toIndex < 0) return prev;
+
+      const slides = [...prev.slides];
+      const [draggedSlide] = slides.splice(fromIndex, 1);
+      slides.splice(toIndex, 0, draggedSlide);
+
+      return {
+        ...prev,
+        slides,
+      };
+    });
   }
 
   async function uploadHomeBannerImage(id: string, file: File) {
@@ -769,6 +814,37 @@ export default function AdminSettingsPage({
 
   function patchTile(id: string, patch: Partial<HomeCategoryTile>) {
     setTiles((prev) => prev.map((tile) => (tile.id === id ? { ...tile, ...patch } : tile)));
+  }
+
+  function moveTile(id: string, direction: "up" | "down") {
+    setTileMsg(null);
+    setTiles((prev) => {
+      const index = prev.findIndex((tile) => tile.id === id);
+      if (index < 0) return prev;
+
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+
+      const next = [...prev];
+      const [tile] = next.splice(index, 1);
+      next.splice(targetIndex, 0, tile);
+      return next;
+    });
+  }
+
+  function reorderTiles(fromId: string, toId: string) {
+    if (!fromId || !toId || fromId === toId) return;
+    setTileMsg(null);
+    setTiles((prev) => {
+      const fromIndex = prev.findIndex((tile) => tile.id === fromId);
+      const toIndex = prev.findIndex((tile) => tile.id === toId);
+      if (fromIndex < 0 || toIndex < 0) return prev;
+
+      const next = [...prev];
+      const [tile] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, tile);
+      return next;
+    });
   }
 
   async function uploadTileImage(id: string, file: File) {
@@ -1042,6 +1118,12 @@ export default function AdminSettingsPage({
               addSlide={addHomeBannerSlide}
               patchSlide={patchHomeBannerSlide}
               removeSlide={removeHomeBannerSlide}
+              moveSlide={moveHomeBannerSlide}
+              draggingSlideId={draggingBannerSlideId}
+              dragOverSlideId={dragOverBannerSlideId}
+              setDraggingSlideId={setDraggingBannerSlideId}
+              setDragOverSlideId={setDragOverBannerSlideId}
+              reorderSlides={reorderHomeBannerSlides}
               uploadSlideImage={uploadHomeBannerImage}
               save={saveHomeBanner}
             />
@@ -1052,6 +1134,12 @@ export default function AdminSettingsPage({
               tileMsg={tileMsg}
               addTile={addTile}
               patchTile={patchTile}
+              moveTile={moveTile}
+              draggingTileId={draggingTileId}
+              dragOverTileId={dragOverTileId}
+              setDraggingTileId={setDraggingTileId}
+              setDragOverTileId={setDragOverTileId}
+              reorderTiles={reorderTiles}
               uploadTileImage={uploadTileImage}
               saveTiles={saveTiles}
               removeTile={(id) => setTiles((prev) => prev.filter((item) => item.id !== id))}
@@ -2075,6 +2163,12 @@ function HomeBannerSection({
   addSlide,
   patchSlide,
   removeSlide,
+  moveSlide,
+  draggingSlideId,
+  dragOverSlideId,
+  setDraggingSlideId,
+  setDragOverSlideId,
+  reorderSlides,
   uploadSlideImage,
   save,
 }: {
@@ -2085,6 +2179,12 @@ function HomeBannerSection({
   addSlide: () => void;
   patchSlide: (id: string, patch: Partial<HomeBannerSlide>) => void;
   removeSlide: (id: string) => void;
+  moveSlide: (id: string, direction: "up" | "down") => void;
+  draggingSlideId: string | null;
+  dragOverSlideId: string | null;
+  setDraggingSlideId: (id: string | null) => void;
+  setDragOverSlideId: (id: string | null | ((current: string | null) => string | null)) => void;
+  reorderSlides: (fromId: string, toId: string) => void;
   uploadSlideImage: (id: string, file: File) => void;
   save: () => void;
 }) {
@@ -2133,8 +2233,40 @@ function HomeBannerSection({
         <EmptyState icon={ImageIcon} title="No hay imágenes en el banner." description="Agregá una imagen para crear el carrusel de inicio." />
       ) : (
         <div className="grid gap-5 xl:gap-4">
-          {settings.slides.map((slide) => (
-            <div key={slide.id} className="rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
+          {settings.slides.map((slide, index) => (
+            <div
+              key={slide.id}
+              draggable
+              onDragStart={(event) => {
+                setDraggingSlideId(slide.id);
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", slide.id);
+              }}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setDragOverSlideId(slide.id);
+              }}
+              onDragLeave={() => {
+                setDragOverSlideId((current) => (current === slide.id ? null : current));
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const fromId = event.dataTransfer.getData("text/plain") || draggingSlideId;
+                if (fromId) reorderSlides(fromId, slide.id);
+                setDraggingSlideId(null);
+                setDragOverSlideId(null);
+              }}
+              onDragEnd={() => {
+                setDraggingSlideId(null);
+                setDragOverSlideId(null);
+              }}
+              className={[
+                "rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-4 transition duration-150",
+                draggingSlideId === slide.id ? "opacity-50" : "",
+                dragOverSlideId === slide.id && draggingSlideId !== slide.id ? "ring-2 ring-[#8B5A2B]/30" : "",
+              ].join(" ")}
+            >
               <div className="grid gap-5 xl:gap-4 lg:grid-cols-[320px_1fr]">
                 <div className="overflow-hidden rounded-3xl border border-[#E5D7C8] bg-white">
                   <div className="relative aspect-[16/7] min-h-[150px]">
@@ -2158,6 +2290,33 @@ function HomeBannerSection({
                 </div>
 
                 <div className="grid content-start gap-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-[#E5D7C8] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-wide text-[#8B5A2B]">
+                      <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
+                      Posición {index + 1}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => moveSlide(slide.id, "up")}
+                        disabled={index === 0}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-[#E5D7C8] bg-white px-3 py-2 text-sm font-semibold text-[#8B5A2B] transition duration-150 hover:bg-[#F2ECE5] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                        Subir
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveSlide(slide.id, "down")}
+                        disabled={index === settings.slides.length - 1}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-[#E5D7C8] bg-white px-3 py-2 text-sm font-semibold text-[#8B5A2B] transition duration-150 hover:bg-[#F2ECE5] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <ArrowDown className="h-4 w-4" aria-hidden="true" />
+                        Bajar
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="block">
                       <FieldLabel label="Título" help="Texto principal sobre la imagen." />
@@ -2236,6 +2395,12 @@ function HomeTilesSection({
   tileMsg,
   addTile,
   patchTile,
+  moveTile,
+  draggingTileId,
+  dragOverTileId,
+  setDraggingTileId,
+  setDragOverTileId,
+  reorderTiles,
   uploadTileImage,
   saveTiles,
   removeTile,
@@ -2246,6 +2411,12 @@ function HomeTilesSection({
   tileMsg: string | null;
   addTile: () => void;
   patchTile: (id: string, patch: Partial<HomeCategoryTile>) => void;
+  moveTile: (id: string, direction: "up" | "down") => void;
+  draggingTileId: string | null;
+  dragOverTileId: string | null;
+  setDraggingTileId: (id: string | null) => void;
+  setDragOverTileId: (id: string | null | ((current: string | null) => string | null)) => void;
+  reorderTiles: (fromId: string, toId: string) => void;
   uploadTileImage: (id: string, file: File) => void;
   saveTiles: () => void;
   removeTile: (id: string) => void;
@@ -2271,10 +2442,42 @@ function HomeTilesSection({
         <EmptyState icon={Home} title="No hay categorías destacadas." description="Agregá una categoría para mostrarla como tarjeta principal en la home." />
       ) : (
         <div className="grid gap-5 xl:gap-4">
-          {tiles.map((tile) => {
+          {tiles.map((tile, index) => {
             const selectedCategory = categories.find((category) => category.id === tile.categoryId);
             return (
-              <div key={tile.id} className="rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
+              <div
+                key={tile.id}
+                draggable
+                onDragStart={(event) => {
+                  setDraggingTileId(tile.id);
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", tile.id);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragOverTileId(tile.id);
+                }}
+                onDragLeave={() => {
+                  setDragOverTileId((current) => (current === tile.id ? null : current));
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const fromId = event.dataTransfer.getData("text/plain") || draggingTileId;
+                  if (fromId) reorderTiles(fromId, tile.id);
+                  setDraggingTileId(null);
+                  setDragOverTileId(null);
+                }}
+                onDragEnd={() => {
+                  setDraggingTileId(null);
+                  setDragOverTileId(null);
+                }}
+                className={[
+                  "rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-4 transition duration-150",
+                  draggingTileId === tile.id ? "opacity-50" : "",
+                  dragOverTileId === tile.id && draggingTileId !== tile.id ? "ring-2 ring-[#8B5A2B]/30" : "",
+                ].join(" ")}
+              >
                 <div className="grid gap-5 xl:gap-4 lg:grid-cols-[260px_1fr]">
                   <div className="overflow-hidden rounded-3xl border border-[#E5D7C8] bg-white">
                     <div className="relative aspect-[4/3]">
@@ -2297,6 +2500,33 @@ function HomeTilesSection({
                   </div>
 
                   <div className="grid content-start gap-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="inline-flex items-center gap-2 rounded-full border border-[#E5D7C8] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-wide text-[#8B5A2B]">
+                        <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
+                        Posición {index + 1}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => moveTile(tile.id, "up")}
+                          disabled={index === 0}
+                          className="inline-flex items-center gap-2 rounded-2xl border border-[#E5D7C8] bg-white px-3 py-2 text-sm font-semibold text-[#8B5A2B] transition duration-150 hover:bg-[#F2ECE5] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                          Subir
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveTile(tile.id, "down")}
+                          disabled={index === tiles.length - 1}
+                          className="inline-flex items-center gap-2 rounded-2xl border border-[#E5D7C8] bg-white px-3 py-2 text-sm font-semibold text-[#8B5A2B] transition duration-150 hover:bg-[#F2ECE5] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <ArrowDown className="h-4 w-4" aria-hidden="true" />
+                          Bajar
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="block">
                         <FieldLabel label="Categoría" help="Destino de la tarjeta destacada." />

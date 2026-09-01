@@ -47,6 +47,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       createdAt: order.createdAt,
       items: order.items.map((it) => ({
         productId: it.productId,
+        productVariantId: it.productVariantId,
         name: it.nameSnapshot,
         quantity: it.quantity,
         unitPrice: Number(it.unitPrice),

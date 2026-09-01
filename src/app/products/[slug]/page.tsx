@@ -31,11 +31,15 @@ function sortVariantsBySize<T extends { name: string }>(variants: T[]) {
 
 export default async function ProductDetailPage({
   params,
+  searchParams,
 }: {
   params: { slug?: string } | Promise<{ slug?: string }>;
+  searchParams?: { variant?: string } | Promise<{ variant?: string }>;
 }) {
   const resolvedParams = await Promise.resolve(params);
+  const resolvedSearchParams = await Promise.resolve(searchParams);
   const slug = resolvedParams?.slug?.trim();
+  const initialVariantId = String(resolvedSearchParams?.variant || "").trim() || null;
   if (!slug) return notFound();
 
   const temporaryShutdown = await getTemporaryShutdownSettings();
@@ -134,7 +138,8 @@ export default async function ProductDetailPage({
         imageUrls: variant.images
           .map((item) => (item.image.visible ? item.image.url : null))
           .filter(Boolean) as string[],
-      }))}
+        }))}
+      initialModernVariantId={initialVariantId}
       promoPercent={promoPercent}
       promoPercents={Object.fromEntries(product.hasVariants ? [[product.id, promoPercent]] : promoMap)}
       promoPercentsByPaymentMethod={{

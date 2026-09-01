@@ -154,6 +154,7 @@ export default function ProductDetailClient({
   variants = [product],
   modernVariantOptions = [],
   modernVariants = [],
+  initialModernVariantId = null,
   promoPercent = 0,
   promoPercents = {},
   promoPercentsByPaymentMethod = {},
@@ -171,6 +172,7 @@ export default function ProductDetailClient({
   variants?: ProductVariant[];
   modernVariantOptions?: ModernVariantOption[];
   modernVariants?: ModernProductVariant[];
+  initialModernVariantId?: string | null;
   promoPercent?: number;
   promoPercents?: Record<string, number>;
   promoPercentsByPaymentMethod?: Partial<Record<PaymentMethodKey, Record<string, number>>>;
@@ -187,7 +189,11 @@ export default function ProductDetailClient({
   );
   const [selectedId, setSelectedId] = useState<string>(product.id);
   const selected = variants.find((variant) => variant.id === selectedId) ?? product;
-  const initialModernVariant = modernVariants.find((variant) => variant.stock > 0) ?? modernVariants[0] ?? null;
+  const initialModernVariant =
+    modernVariants.find((variant) => variant.id === initialModernVariantId) ??
+    modernVariants.find((variant) => variant.stock > 0) ??
+    modernVariants[0] ??
+    null;
   const [selectedModernOptionValues, setSelectedModernOptionValues] = useState<Record<string, string>>(() => {
     if (!initialModernVariant) return {};
     const next: Record<string, string> = {};

@@ -16,6 +16,7 @@ type OrderDetails = {
   total: number | string;
   items: Array<{
     productId?: string;
+    productVariantId?: string | null;
     name: string;
     quantity: number;
     unitPrice: number | string;
@@ -126,7 +127,7 @@ export default function PayResultClient({
       id: order.id || orderId,
       total: Number(order.total),
       items: order.items.map((item) => ({
-        id: item.productId,
+        id: item.productVariantId || item.productId,
         name: item.name,
         quantity: item.quantity,
         unitPrice: Number(item.unitPrice),

@@ -13,14 +13,11 @@ import {
   Mail,
   Menu,
   Package,
+  Shirt,
   RefreshCcw,
   Ruler,
-  ShoppingBag,
-  Sparkles,
-  Tag,
   UserRound,
   X,
-  Shirt,
   type LucideIcon,
 } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
@@ -57,29 +54,6 @@ function normalizeText(value: string) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
-}
-
-function categoryIcon(category: Pick<CategoryOption, "name" | "slug">): LucideIcon {
-  const text = normalizeText(`${category.name} ${category.slug}`);
-  if (
-    text.includes("pijama") ||
-    text.includes("pantalon") ||
-    text.includes("camiseta") ||
-    text.includes("remeron") ||
-    text.includes("conjunto")
-  ) {
-    return Shirt;
-  }
-  if (text.includes("lenceria") || text.includes("top") || text.includes("bombi")) {
-    return Sparkles;
-  }
-  if (text.includes("accesorio")) {
-    return ShoppingBag;
-  }
-  if (text.includes("discontinu")) {
-    return Tag;
-  }
-  return Package;
 }
 
 function informationIcon(section: InformationSection): LucideIcon {
@@ -279,7 +253,7 @@ export default function MobileStoreNav({
                   >
                     <span className="flex items-center gap-3">
                       <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#F4E9DE] text-[#A46A39]">
-                        {renderIcon(Package, "h-4.5 w-4.5")}
+                        {renderIcon(Shirt, "h-4.5 w-4.5")}
                       </span>
                       <span className="text-[15px] font-semibold tracking-[0.01em]">
                         Productos
@@ -297,12 +271,13 @@ export default function MobileStoreNav({
                       productsOpen ? "max-h-[1200px] opacity-100" : "max-h-0 opacity-0",
                     ].join(" ")}
                   >
-                    <div className="space-y-1.5 px-2 pb-2 pt-1">
+                    <div className="space-y-1 px-1 pb-2 pt-1">
                       <MobileMenuLink
                         href="/products"
                         label="Todos los productos"
                         icon={Package}
                         compact
+                        noIcon
                         active={pathname === "/products" && !selectedSlug}
                         onClick={closeMenu}
                       />
@@ -469,7 +444,6 @@ function MobileCategoryItem({
   onToggle: (categoryId: string) => void;
   onClose: () => void;
 }) {
-  const Icon = categoryIcon(category);
   const hasChildren = category.children.length > 0;
   const isExpanded = expandedIds.has(category.id);
   const active = isActive(category);
@@ -481,12 +455,9 @@ function MobileCategoryItem({
           <Link
             href={`/products?category=${category.slug}`}
             onClick={onClose}
-            className="flex min-h-[50px] min-w-0 flex-1 items-center gap-3 px-3"
+            className="flex min-h-[46px] min-w-0 flex-1 items-center px-4"
           >
-            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#F4E9DE] text-[#A46A39]">
-              {renderIcon(Icon, "h-4.5 w-4.5")}
-            </span>
-            <span className="min-w-0 text-[14px] font-medium text-[#704622]">
+            <span className="min-w-0 text-[14px] font-medium tracking-[0.01em] text-[#704622]">
               {category.name}
             </span>
           </Link>
@@ -495,7 +466,7 @@ function MobileCategoryItem({
             <button
               type="button"
               onClick={() => onToggle(category.id)}
-              className="mr-2 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#9D6B43] transition hover:bg-[#F1E3D5]"
+              className="mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#9D6B43] transition hover:bg-[#F1E3D5]"
               aria-expanded={isExpanded}
               aria-controls={`mobile-category-${category.id}`}
             >
@@ -511,14 +482,13 @@ function MobileCategoryItem({
         <div
           id={`mobile-category-${category.id}`}
           className={[
-            "overflow-hidden pl-12 transition-[max-height,opacity] duration-200 ease-out",
+            "overflow-hidden pl-4 transition-[max-height,opacity] duration-200 ease-out",
             isExpanded ? "max-h-[720px] opacity-100" : "max-h-0 opacity-0",
           ].join(" ")}
         >
-          <div className="space-y-1 border-l border-[#E7D8C9] py-1 pl-3">
+          <div className="space-y-1 border-l border-[#E7D8C9] py-1 pl-4">
             {category.children.map((child) => {
               const childActive = isSelected(child) || selectedAncestorIds.has(child.id);
-              const ChildIcon = categoryIcon(child);
 
               if (child.children.length > 0) {
                 return (
@@ -541,13 +511,12 @@ function MobileCategoryItem({
                   href={`/products?category=${child.slug}`}
                   onClick={onClose}
                   className={[
-                    "flex min-h-[38px] items-center gap-2 rounded-lg px-3 text-[13px] transition",
+                    "flex min-h-[36px] items-center rounded-lg px-3 text-[13px] transition",
                     childActive
                       ? "bg-[#F6EDE3] font-medium text-[#8B5A2B]"
                       : "text-[#9A6A45] hover:bg-[#FAF2E9]",
                   ].join(" ")}
                 >
-                  {renderIcon(ChildIcon, "h-3.5 w-3.5 shrink-0 text-[#B07A4A]")}
                   <span>{child.name}</span>
                 </Link>
               );
@@ -566,6 +535,7 @@ function MobileMenuLink({
   active = false,
   compact = false,
   trailing = false,
+  noIcon = false,
   onClick,
 }: {
   href: string;
@@ -574,6 +544,7 @@ function MobileMenuLink({
   active?: boolean;
   compact?: boolean;
   trailing?: boolean;
+  noIcon?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -582,14 +553,16 @@ function MobileMenuLink({
       onClick={onClick}
       className={[
         "flex items-center justify-between rounded-xl px-4 transition",
-        compact ? "min-h-[42px]" : "min-h-[50px]",
+        compact ? "min-h-[40px]" : "min-h-[50px]",
         active ? "bg-[#F6EDE3] text-[#8B5A2B]" : "text-[#704622] hover:bg-[#FAF2E9]",
       ].join(" ")}
     >
-      <span className="flex min-w-0 items-center gap-3">
-        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#F4E9DE] text-[#A46A39]">
-          {renderIcon(Icon, "h-4.5 w-4.5")}
-        </span>
+      <span className={["flex min-w-0 items-center", noIcon ? "" : "gap-3"].join(" ")}>
+        {noIcon ? null : (
+          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#F4E9DE] text-[#A46A39]">
+            {renderIcon(Icon, "h-4.5 w-4.5")}
+          </span>
+        )}
         <span className={compact ? "text-[13px] font-medium" : "text-[14px] font-medium"}>
           {label}
         </span>

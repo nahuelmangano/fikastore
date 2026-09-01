@@ -119,6 +119,7 @@ async function sendPurchaseEvent(input: {
     user: { email: string | null; name: string | null } | null;
     items: Array<{
       productId: string;
+      productVariantId: string | null;
       quantity: number;
       unitPrice: unknown;
     }>;
@@ -137,7 +138,7 @@ async function sendPurchaseEvent(input: {
     id: input.order.id,
     total: Number(input.order.total),
     items: input.order.items.map((item) => ({
-      id: item.productId,
+      id: item.productVariantId || item.productId,
       quantity: item.quantity,
       unitPrice: Number(item.unitPrice),
     })),
@@ -257,6 +258,7 @@ export async function syncMetaPurchaseForOrder(orderId: string, options: SyncMet
         items: {
           select: {
             productId: true,
+            productVariantId: true,
             quantity: true,
             unitPrice: true,
           },
