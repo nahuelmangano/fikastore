@@ -405,6 +405,7 @@ function ProviderCard({
   const [promotionStartsAt, setPromotionStartsAt] = useState("");
   const [promotionEndsAt, setPromotionEndsAt] = useState("");
   const [creatingPromotion, setCreatingPromotion] = useState(false);
+  const [editingPromotionId, setEditingPromotionId] = useState<string | null>(null);
   const [shippingSurcharge, setShippingSurcharge] = useState(String(carrier.shippingSurcharge || 0));
   const [savingShippingSurcharge, setSavingShippingSurcharge] = useState(false);
   const [freeShippingMinimumSubtotal, setFreeShippingMinimumSubtotal] = useState(String(carrier.freeShippingMinimumSubtotal || 0));
@@ -454,8 +455,8 @@ function ProviderCard({
     setCreatingPromotion(true);
     setShippingPromotionsError(null);
     setShippingPromotionsMsg(null);
-    const res = await fetch("/api/admin/promotions", {
-      method: "POST",
+    const res = await fetch(editingPromotionId ? `/api/admin/promotions/${editingPromotionId}` : "/api/admin/promotions", {
+      method: editingPromotionId ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: promotionName.trim(),
@@ -477,13 +478,45 @@ function ProviderCard({
       return;
     }
 
-    setShippingPromotions((prev) => [data.promotion as ShippingPromotion, ...prev]);
+    setShippingPromotions((prev) => editingPromotionId
+      ? prev.map((promotion) => promotion.id === editingPromotionId ? data.promotion as ShippingPromotion : promotion)
+      : [data.promotion as ShippingPromotion, ...prev]);
+    const wasEditing = Boolean(editingPromotionId);
+    setEditingPromotionId(null);
     setPromotionName("Envío gratis Correo Argentino");
     setPromotionDeliveryTypes([]);
     setPromotionPaymentMethods([]);
     setPromotionStartsAt("");
     setPromotionEndsAt("");
-    setShippingPromotionsMsg(`Bonificación creada: ${data?.promotion?.name || "Envío gratis Correo Argentino"}.`);
+    setShippingPromotionsMsg(`Bonificación ${wasEditing ? "editada" : "creada"}: ${data?.promotion?.name || "Envío gratis Correo Argentino"}.`);
+  }
+
+  function editShippingPromotion(promotion: ShippingPromotion) {
+    const toDateTimeLocal = (value: string | null) => {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      const offset = date.getTimezoneOffset() * 60 * 1000;
+      return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+    };
+    setEditingPromotionId(promotion.id);
+    setPromotionName(promotion.name);
+    setPromotionDeliveryTypes(promotion.freeShippingDeliveryTypes || []);
+    setPromotionPaymentMethods(promotion.paymentMethods || []);
+    setPromotionStartsAt(toDateTimeLocal(promotion.startsAt));
+    setPromotionEndsAt(toDateTimeLocal(promotion.endsAt));
+    setShippingPromotionsMsg(null);
+    setShippingPromotionsError(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelEditShippingPromotion() {
+    setEditingPromotionId(null);
+    setPromotionName("Envío gratis Correo Argentino");
+    setPromotionDeliveryTypes([]);
+    setPromotionPaymentMethods([]);
+    setPromotionStartsAt("");
+    setPromotionEndsAt("");
   }
 
   async function toggleShippingPromotion(promotion: ShippingPromotion) {
@@ -946,14 +979,19 @@ function ProviderCard({
               </div>
             </div>
 
-            <div className="mt-4 flex justify-end">
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              {editingPromotionId ? (
+                <button type="button" onClick={cancelEditShippingPromotion} className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[var(--admin-border)] px-5 py-2 text-sm font-semibold text-[var(--admin-primary)] hover:bg-[var(--admin-surface-muted)]">
+                  Cancelar edición
+                </button>
+              ) : null}
               <button
                 type="button"
                 disabled={creatingPromotion}
                 onClick={() => void createShippingPromotion()}
                 className="inline-flex min-h-[44px] items-center justify-center rounded-2xl bg-[var(--admin-primary)] px-5 py-2 text-sm font-semibold text-white shadow-sm transition duration-150 hover:bg-[var(--admin-primary-hover)] disabled:opacity-60"
               >
-                {creatingPromotion ? "Guardando..." : "Crear bonificación"}
+                {creatingPromotion ? "Guardando..." : editingPromotionId ? "Guardar cambios" : "Crear bonificación"}
               </button>
             </div>
 
@@ -981,6 +1019,14 @@ function ProviderCard({
                           </div>
                         </div>
                         <div className="flex flex-col gap-2 sm:items-end">
+                          <button
+                            type="button"
+                            disabled={shippingPromotionsBusyId === promotion.id || shippingPromotionsDeletingId === promotion.id}
+                            onClick={() => editShippingPromotion(promotion)}
+                            className="inline-flex min-w-32 items-center justify-center rounded-2xl border border-[var(--admin-border)] px-4 py-2 text-sm font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)] disabled:opacity-60"
+                          >
+                            Editar
+                          </button>
                           <button
                             type="button"
                             disabled={shippingPromotionsBusyId === promotion.id || shippingPromotionsDeletingId === promotion.id}

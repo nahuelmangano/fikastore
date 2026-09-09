@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
@@ -9,6 +10,7 @@ import {
   CheckCircle2,
   Clipboard,
   Copy,
+  CreditCard,
   PackageSearch,
   Plus,
   Search,
@@ -60,7 +62,7 @@ type FormState = {
   paymentMethods: PaymentMethodKey[];
 };
 
-type ActiveTab = "global" | "product" | "code" | "shipping";
+type ActiveTab = "global" | "product" | "code" | "shipping" | "installments";
 
 type ShippingCarrierOption = {
   key: string;
@@ -69,6 +71,8 @@ type ShippingCarrierOption = {
   visibleToMerchant?: boolean;
   custom?: boolean;
 };
+
+type InstallmentPlan = { installments: number; minimumAmount: number };
 
 const emptyForm: FormState = {
   name: "",
@@ -98,6 +102,7 @@ const tabs: { key: ActiveTab; label: string; icon: LucideIcon }[] = [
   { key: "product", label: "Por producto", icon: PackageSearch },
   { key: "code", label: "Código promocional", icon: TicketPercent },
   { key: "shipping", label: "Envío gratis", icon: Truck },
+  { key: "installments", label: "Cuotas", icon: CreditCard },
 ];
 
 function formatDate(v: string | null) {
@@ -187,11 +192,14 @@ function validateForm(tab: ActiveTab, form: FormState, promoCode: string, select
 }
 
 export default function AdminPromotions({ products }: { products: ProductOption[] }) {
+  const searchParams = useSearchParams();
+  const requestedTab = searchParams.get("tab") as ActiveTab | null;
+  const initialTab = requestedTab && tabs.some((tab) => tab.key === requestedTab) ? requestedTab : "global";
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<ActiveTab>("global");
+  const [activeTab, setActiveTab] = useState<ActiveTab>(initialTab);
   const [productSearch, setProductSearch] = useState("");
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
@@ -207,19 +215,25 @@ export default function AdminPromotions({ products }: { products: ProductOption[
   const [promoCode, setPromoCode] = useState("");
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [shippingCarrierOptions, setShippingCarrierOptions] = useState<ShippingCarrierOption[]>([]);
+  const [installmentPlans, setInstallmentPlans] = useState<InstallmentPlan[]>([{ installments: 3, minimumAmount: 50000 }]);
+  const [savingInstallments, setSavingInstallments] = useState(false);
   const [submitting, setSubmitting] = useState<ActiveTab | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (requestedTab && tabs.some((tab) => tab.key === requestedTab)) setActiveTab(requestedTab);
+  }, [requestedTab]);
 
   const activeForm =
     activeTab === "global"
       ? globalForm
       : activeTab === "product"
         ? productForm
-        : activeTab === "code"
-          ? codeForm
-          : shippingForm;
-  const activeErrors = validateForm(activeTab, activeForm, promoCode, selectedProducts);
+      : activeTab === "code"
+        ? codeForm
+        : shippingForm;
+  const activeErrors = activeTab === "installments" ? [] : validateForm(activeTab, activeForm, promoCode, selectedProducts);
 
   const filteredProducts = useMemo(() => {
     const q = productSearch.trim().toLowerCase();
@@ -266,6 +280,15 @@ export default function AdminPromotions({ products }: { products: ProductOption[
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/admin/settings/installment-plans")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data?.plans)) setInstallmentPlans(data.plans);
+      })
+      .catch(() => null);
   }, []);
 
   useEffect(() => {
@@ -665,28 +688,53 @@ export default function AdminPromotions({ products }: { products: ProductOption[
                 />
               ) : null}
 
+              {activeTab === "installments" ? (
+                <InstallmentsFields
+                  plans={installmentPlans}
+                  onChange={setInstallmentPlans}
+                  onSave={async () => {
+                    setSavingInstallments(true);
+                    const res = await fetch("/api/admin/settings/installment-plans", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ plans: installmentPlans }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    setSavingInstallments(false);
+                    if (res.ok && Array.isArray(data?.plans)) {
+                      setInstallmentPlans(data.plans);
+                      setMsg("Configuración de cuotas guardada.");
+                      setError(null);
+                    } else setError(data?.error || "No se pudo guardar la configuración de cuotas.");
+                  }}
+                  saving={savingInstallments}
+                />
+              ) : null}
+
               {activeErrors.length > 0 ? (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 xl:py-2.5 text-sm text-amber-900">
                   {activeErrors[0]}
                 </div>
               ) : null}
 
-              <button
-                disabled={submitting === activeTab}
-                className="w-full rounded-2xl bg-[#8B5A2B] px-5 py-3 xl:py-2.5 text-sm font-semibold text-white shadow-sm transition duration-150 hover:bg-[#70471F] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-              >
-                {submitting === activeTab
-                  ? editingId ? "Guardando..." : "Creando..."
-                  : editingId
-                    ? "Guardar cambios"
-                    : activeTab === "shipping"
-                      ? "Crear envío gratis"
-                    : activeTab === "global"
-                      ? "Crear descuento general"
-                      : activeTab === "product"
-                        ? "Crear descuento por producto"
-                        : "Crear código promocional"}
-              </button>
+              {activeTab !== "installments" ? (
+                <button
+                  disabled={submitting === activeTab}
+                  className="w-full rounded-2xl bg-[#8B5A2B] px-5 py-3 xl:py-2.5 text-sm font-semibold text-white shadow-sm transition duration-150 hover:bg-[#70471F] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                >
+                  {submitting === activeTab
+                    ? editingId ? "Guardando..." : "Creando..."
+                    : editingId
+                      ? "Guardar cambios"
+                      : activeTab === "shipping"
+                        ? "Crear envío gratis"
+                      : activeTab === "global"
+                        ? "Crear descuento general"
+                        : activeTab === "product"
+                          ? "Crear descuento por producto"
+                          : "Crear código promocional"}
+                </button>
+              ) : null}
             </form>
 
             <div className="space-y-4">
@@ -696,6 +744,7 @@ export default function AdminPromotions({ products }: { products: ProductOption[
                 promoCode={promoCode}
                 selectedCount={selectedProducts.length}
                 carriers={shippingCarrierOptions}
+                installmentPlans={installmentPlans}
               />
               {msg ? (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 xl:py-2.5 text-sm text-emerald-900">
@@ -966,6 +1015,51 @@ function FreeShippingFields({
   );
 }
 
+function InstallmentsFields({
+  plans,
+  onChange,
+  onSave,
+  saving,
+}: {
+  plans: InstallmentPlan[];
+  onChange: (plans: InstallmentPlan[]) => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  return (
+    <div className="rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-5 xl:p-4">
+      <div className="flex items-start gap-3">
+        <div className="rounded-2xl bg-[#8B5A2B] p-3 text-white">
+          <CreditCard className="h-5 w-5" aria-hidden="true" />
+        </div>
+        <div>
+          <h2 className="font-semibold text-[#5F3B18]">Cuotas sin interés</h2>
+          <p className="mt-1 text-sm leading-6 text-[#8F6A49]">
+            Configurá qué opciones de financiación se muestran en la tienda desde la sección de pagos.
+          </p>
+        </div>
+      </div>
+      <div className="mt-5 space-y-3">
+        {plans.map((plan, index) => (
+          <div key={index} className="grid gap-3 rounded-2xl border border-[#E5D7C8] bg-white p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <label className="block">
+              <span className="text-sm font-semibold text-[#70471F]">Cantidad de cuotas</span>
+              <input type="number" min={1} max={24} value={plan.installments} onChange={(event) => onChange(plans.map((item, i) => i === index ? { ...item, installments: Math.max(1, Math.min(24, Number(event.target.value) || 1)) } : item))} className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]" />
+            </label>
+            <label className="block">
+              <span className="text-sm font-semibold text-[#70471F]">Monto mínimo para aplicar</span>
+              <div className="relative mt-2"><span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-[#8F6A49]">$</span><input type="number" min={0} step={1000} value={plan.minimumAmount} onChange={(event) => onChange(plans.map((item, i) => i === index ? { ...item, minimumAmount: Math.max(0, Number(event.target.value) || 0) } : item))} className="w-full rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] py-3 pl-8 pr-4 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]" /></div>
+            </label>
+            <button type="button" onClick={() => onChange(plans.filter((_, i) => i !== index))} disabled={plans.length === 1} className="rounded-2xl border border-[#E5D7C8] px-4 py-3 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40">Quitar</button>
+          </div>
+        ))}
+        <button type="button" onClick={() => onChange([...plans, { installments: 3, minimumAmount: 0 }])} className="inline-flex items-center gap-2 rounded-2xl border border-[#E5D7C8] px-4 py-3 text-sm font-semibold text-[#8B5A2B] hover:bg-[#F2ECE5]"><Plus className="h-4 w-4" /> Agregar cuota</button>
+      </div>
+      <button type="button" onClick={onSave} disabled={saving} className="mt-5 rounded-2xl bg-[#8B5A2B] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#70471F] disabled:opacity-60">{saving ? "Guardando..." : "Guardar cuotas"}</button>
+    </div>
+  );
+}
+
 function PaymentMethodPicker({
   selected,
   onChange,
@@ -1219,18 +1313,26 @@ function PreviewBox({
   promoCode,
   selectedCount,
   carriers,
+  installmentPlans,
 }: {
   tab: ActiveTab;
   form: FormState;
   promoCode: string;
   selectedCount: number;
   carriers: ShippingCarrierOption[];
+  installmentPlans: InstallmentPlan[];
 }) {
   const hasPercent = Number.isFinite(form.percent) && form.percent > 0;
   const paymentText = ` Aplica en: ${paymentMethodsLabel(form.paymentMethods)}.`;
   const shippingText = freeShippingDeliveryTypesLabel(form.freeShippingDeliveryTypes).toLowerCase();
   const carriersText = freeShippingCarriersLabel(form.freeShippingCarrierKeys, carriers).toLowerCase();
   const text = (() => {
+    if (tab === "installments") {
+      const planText = installmentPlans
+        .map((plan) => `${plan.installments} cuotas desde $${plan.minimumAmount.toLocaleString("es-AR")}`)
+        .join(" · ");
+      return `La tienda mostrará: ${planText}.`;
+    }
     if (!hasPercent && !form.freeShipping) return "Completá los datos para ver un resumen del descuento.";
     if (form.freeShipping) return `Esta promoción bonificará el costo de envío para ${shippingText} en ${carriersText}.${paymentText}`;
     if (tab === "global") return `Este descuento aplicará ${form.percent}% a toda la tienda.${paymentText}`;

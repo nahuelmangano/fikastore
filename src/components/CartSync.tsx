@@ -9,8 +9,6 @@ export default function CartSync() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!session?.user) return;
-
     const send = () => {
       const items = readCart().map((it) => ({
         productId: it.productId,

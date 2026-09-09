@@ -297,9 +297,9 @@ export default async function AdminProductsPage({
         </section>
 
         <section className="mt-8 xl:mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard title="Productos" value={catalogSummary.products} description="Total del catálogo" icon={Package} />
-          <StatCard title="Activos" value={catalogSummary.active} description="Publicados en la tienda" icon={Store} />
-          <StatCard title="Sin stock" value={catalogSummary.outOfStock} description="Necesitan reposición" icon={TriangleAlert} />
+          <StatCard href="/admin/products" title="Productos" value={catalogSummary.products} description="Total del catálogo" icon={Package} />
+          <StatCard href={buildHref("/admin/products", { status: "active" })} title="Activos" value={catalogSummary.active} description="Publicados en la tienda" icon={Store} />
+          <StatCard href={buildHref("/admin/products", { status: "oos" })} title="Sin stock" value={catalogSummary.outOfStock} description="Necesitan reposición" icon={TriangleAlert} />
           <StatCard title="Variantes" value={catalogSummary.variants} description="Talles y opciones" icon={Boxes} />
         </section>
 

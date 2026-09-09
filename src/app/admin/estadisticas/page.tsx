@@ -1,13 +1,28 @@
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
+import { isAdminRole } from "@/lib/roles";
 import { getMetricsSettings } from "@/lib/storeSettings";
 import AdminStatsDashboard from "./ui";
 
 const SALES_STATUSES = ["paid", "shipped"] as const;
 
+function parseCartItems(itemsJson: string) {
+  try {
+    const items = JSON.parse(itemsJson);
+    return Array.isArray(items)
+      ? items.map((item) => ({ name: String(item?.name || "Producto"), quantity: Number(item?.quantity) || 0, price: Number(item?.price) || 0 }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 export default async function AdminEstadisticasPage() {
+  const session = await auth();
+  const isAdmin = isAdminRole((session?.user as { role?: string } | undefined)?.role);
   const metricsSettings = await getMetricsSettings();
   const metricsStartAt = metricsSettings.startAt ? new Date(metricsSettings.startAt) : null;
-  const [salesOrders, lowStockProducts] = await Promise.all([
+  const [salesOrders, lowStockProducts, abandonedCarts, anonymousCarts] = await Promise.all([
     prisma.order.findMany({
       where: {
         status: { in: [...SALES_STATUSES] },
@@ -70,6 +85,24 @@ export default async function AdminEstadisticasPage() {
         },
       },
     }),
+    prisma.cartSnapshot.findMany({
+      orderBy: { updatedAt: "desc" },
+      take: 100,
+      select: {
+        id: true,
+        itemsJson: true,
+        itemCount: true,
+        reminderSentAt: true,
+        createdAt: true,
+        updatedAt: true,
+        user: { select: { name: true, email: true } },
+      },
+    }),
+    prisma.anonymousCartSnapshot.findMany({
+      orderBy: { updatedAt: "desc" },
+      take: 100,
+      select: { id: true, itemsJson: true, itemCount: true, createdAt: true, updatedAt: true },
+    }),
   ]);
 
   return (
@@ -115,8 +148,33 @@ export default async function AdminEstadisticasPage() {
         isActive: product.isActive,
         imageUrl: product.images[0]?.url ?? null,
       }))}
+      showAbandonedCarts={isAdmin}
       salesStatuses={[...SALES_STATUSES]}
       metricsStartAt={metricsSettings.startAt}
+      abandonedCarts={isAdmin ? [
+        ...abandonedCarts.map((cart) => ({
+        id: cart.id,
+        customerName: cart.user.name || cart.user.email,
+        customerEmail: cart.user.email,
+        itemCount: cart.itemCount,
+        total: parseCartItems(cart.itemsJson).reduce((sum, item) => sum + item.price * item.quantity, 0),
+        items: parseCartItems(cart.itemsJson).map((item) => ({ name: item.name, quantity: item.quantity })),
+        reminderSentAt: cart.reminderSentAt?.toISOString() ?? null,
+        createdAt: cart.createdAt.toISOString(),
+        updatedAt: cart.updatedAt.toISOString(),
+        })),
+        ...anonymousCarts.map((cart) => ({
+          id: `anonymous-${cart.id}`,
+          customerName: "Visitante anónimo",
+          customerEmail: "Sin email registrado",
+          itemCount: cart.itemCount,
+          total: parseCartItems(cart.itemsJson).reduce((sum, item) => sum + item.price * item.quantity, 0),
+          items: parseCartItems(cart.itemsJson).map((item) => ({ name: item.name, quantity: item.quantity })),
+          reminderSentAt: null,
+          createdAt: cart.createdAt.toISOString(),
+          updatedAt: cart.updatedAt.toISOString(),
+        })),
+      ] : []}
     />
   );
 }

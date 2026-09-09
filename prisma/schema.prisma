@@ -679,3 +679,14 @@ model CartSnapshot {
   @@index([updatedAt])
   @@index([reminderSentAt])
 }
+
+model AnonymousCartSnapshot {
+  id             String    @id @default(cuid())
+  anonymousId    String    @unique
+  itemsJson      String    @db.NVarChar(max)
+  itemCount      Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([updatedAt])
+}

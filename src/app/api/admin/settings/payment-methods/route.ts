@@ -15,11 +15,11 @@ export async function GET() {
   const role = (session?.user as { role?: string } | undefined)?.role;
   if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
-  const [methods, financingDisplay] = await Promise.all([
+  const [methods, savedFinancingDisplay] = await Promise.all([
     getManualPaymentSettings(),
     getPaymentFinancingDisplaySettings(),
   ]);
-  return NextResponse.json({ ok: true, methods, financingDisplay });
+  return NextResponse.json({ ok: true, methods, financingDisplay: savedFinancingDisplay });
 }
 
 export async function PATCH(req: Request) {
@@ -28,14 +28,22 @@ export async function PATCH(req: Request) {
   if (!isStaffRole(role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
+  const currentFinancingDisplay = await getPaymentFinancingDisplaySettings();
+  const financingDisplay = role === "admin"
+    ? body.financingDisplay
+    : {
+        ...body.financingDisplay,
+        merchantCanSee: currentFinancingDisplay.merchantCanSee,
+        merchantOptions: currentFinancingDisplay.merchantOptions,
+      };
   await Promise.all([
     setManualPaymentSettings(body.methods),
-    setPaymentFinancingDisplaySettings(body.financingDisplay),
+    setPaymentFinancingDisplaySettings(financingDisplay),
   ]);
 
-  const [methods, financingDisplay] = await Promise.all([
+  const [methods, savedFinancingDisplay] = await Promise.all([
     getManualPaymentSettings(),
     getPaymentFinancingDisplaySettings(),
   ]);
-  return NextResponse.json({ ok: true, methods, financingDisplay });
+  return NextResponse.json({ ok: true, methods, financingDisplay: savedFinancingDisplay });
 }

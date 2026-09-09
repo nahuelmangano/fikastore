@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, GripVertical, Info, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { slugify } from "@/lib/slug";
 import { sanitizeRichText } from "@/lib/richText";
@@ -256,6 +256,8 @@ export default function ModernProductEditor({
   const [loading, setLoading] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [imageDeleteTarget, setImageDeleteTarget] = useState<ProductImage | null>(null);
+  const [deletingImage, setDeletingImage] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [draggedPendingImageIndex, setDraggedPendingImageIndex] = useState<number | null>(null);
   const [pendingImageDropIndex, setPendingImageDropIndex] = useState<number | null>(null);
@@ -641,14 +643,23 @@ export default function ModernProductEditor({
   }
 
   async function removeImage(imageId: string) {
-    if (!product.id) return;
+    if (!product.id) return false;
     const res = await fetch(`/api/admin/products/${product.id}/images/${imageId}`, { method: "DELETE" });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       setMsg(String(data?.error || "No se pudo borrar la imagen."));
-      return;
+      return false;
     }
     setImages((prev) => prev.filter((image) => image.id !== imageId));
+    return true;
+  }
+
+  async function confirmRemoveImage() {
+    if (!imageDeleteTarget) return;
+    setDeletingImage(true);
+    const removed = await removeImage(imageDeleteTarget.id);
+    setDeletingImage(false);
+    if (removed) setImageDeleteTarget(null);
   }
 
   async function deleteProduct() {
@@ -1162,28 +1173,27 @@ export default function ModernProductEditor({
               ) : null}
             </div>
 
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/40 p-4">
+            <div className="rounded-2xl border border-[#e5d8ca] bg-[#fffdfb] p-4 text-[#70471f] shadow-sm sm:p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold">Imágenes del producto</div>
-                  <div className="mt-1 text-xs text-zinc-500">Podés subirlas una sola vez y luego decidir qué fotos se muestran en cada variante.</div>
+                  <div className="text-lg font-semibold">Imágenes del producto</div>
+                  <div className="mt-1 text-xs text-[#927b68]">Subí las fotos una sola vez. Luego podrás elegir qué fotos se muestran en cada variante.</div>
                 </div>
-                <label className="cursor-pointer rounded-xl border border-zinc-800 px-3 py-2 text-sm hover:bg-zinc-900/60">
-                  Elegir imágenes
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                    onChange={(event) => {
-                      const files = Array.from(event.target.files ?? []);
-                      setPendingImages((prev) => {
-                        for (const image of prev) URL.revokeObjectURL(image.url);
-                        return files.map(createPendingImage);
-                      });
-                    }}
-                  />
-                </label>
+                <div className="group relative">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-lg border border-[#e5d8ca] bg-[#f8f3ed] px-2.5 py-1.5 text-[11px] font-medium text-[#70471f] outline-none transition hover:border-[#b98b5e] focus:border-[#8b5728] focus:ring-2 focus:ring-[#8b5728]/15"
+                    aria-label="Cómo funcionan las imágenes del producto"
+                  >
+                    <Info className="h-3.5 w-3.5" /> Cómo funciona
+                  </button>
+                  <div className="pointer-events-none absolute right-0 top-full z-20 mt-2 w-72 origin-top-right rounded-xl border border-[#e5d8ca] bg-white p-3 text-left text-xs leading-5 text-[#70471f] opacity-0 shadow-lg transition duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                    <div className="font-semibold">¿Cómo se usa?</div>
+                    <p className="mt-1 text-[#927b68]">Agregá las imágenes una sola vez desde la tarjeta “Agregar imágenes”.</p>
+                    <p className="mt-1 text-[#927b68]">Arrastrá las tarjetas para cambiar el orden. La primera imagen será la principal del producto.</p>
+                    <p className="mt-1 text-[#927b68]">Desde “Fotos por variante” podés elegir qué imágenes se muestran en cada combinación.</p>
+                  </div>
+                </div>
               </div>
               {pendingImages.length > 0 ? <div className="mt-3 text-sm text-zinc-400">{pendingImages.length} imagen(es) lista(s) para subir al guardar.</div> : null}
               {pendingImages.length > 0 ? (
@@ -1239,9 +1249,11 @@ export default function ModernProductEditor({
                   ))}
                 </div>
               ) : null}
-              {images.length > 0 ? (
-                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                   {images.map((image, index) => (
+                    (() => {
+                      const usedByCount = Object.values(variantImageAssignments).filter((imageIds) => imageIds.includes(image.id)).length;
+                      return (
                     <div
                       key={image.id}
                       draggable={mode === "edit"}
@@ -1249,87 +1261,105 @@ export default function ModernProductEditor({
                       onDragOver={(event) => handleSavedImageDragOver(event, index)}
                       onDrop={(event) => void handleSavedImageDrop(event, index)}
                       onDragEnd={resetSavedImageDragState}
-                      className={`overflow-hidden rounded-xl border bg-zinc-900 transition ${savedImageDropIndex === index ? "border-[var(--admin-primary)] ring-2 ring-[var(--admin-primary)]/20" : "border-zinc-800"} ${draggedSavedImageIndex === index ? "opacity-70" : ""}`}
+                      className={`overflow-hidden rounded-xl border border-[#e5d8ca] bg-white transition ${savedImageDropIndex === index ? "border-[#8b5728] ring-2 ring-[#8b5728]/20" : ""} ${draggedSavedImageIndex === index ? "opacity-70" : ""}`}
                     >
-                      <div className="relative">
+                      <div className="relative aspect-[1.15]">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={image.url} alt="" className="aspect-square w-full object-cover" />
+                        <img src={image.url} alt="" className="h-full w-full object-cover" />
                         {mode === "edit" ? (
                           <>
-                            <div className="absolute left-2 top-2 flex gap-1">
-                              <button
-                                type="button"
-                                onClick={() => void moveSavedImage(index, index - 1)}
-                                disabled={index === 0}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-950/80 text-zinc-100 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-40"
-                                aria-label="Mover imagen guardada a la izquierda"
-                              >
-                                <ArrowLeft className="h-4 w-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void moveSavedImage(index, index + 1)}
-                                disabled={index === images.length - 1}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-950/80 text-zinc-100 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-40"
-                                aria-label="Mover imagen guardada a la derecha"
-                              >
-                                <ArrowRight className="h-4 w-4" />
-                              </button>
+                            <div className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white/95 text-[#70471f] shadow">
+                              <GripVertical className="h-4 w-4" />
                             </div>
-                            <div className="absolute bottom-2 left-2 rounded-md bg-zinc-950/80 px-2 py-1 text-[11px] font-medium text-zinc-100">
+                            <div className="absolute left-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#8b5728] text-sm font-semibold text-white shadow">
                               {index + 1}
                             </div>
+                            {index === 0 ? <span className="absolute bottom-2 left-2 rounded-md bg-[#8b5728] px-2 py-1 text-[11px] font-semibold text-white">★ Principal</span> : null}
                           </>
                         ) : null}
                       </div>
-                      {mode === "edit" ? (
-                        <button
-                          type="button"
-                          onClick={() => void removeImage(image.id)}
-                          className="w-full border-t border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-semibold text-red-300 hover:bg-zinc-900/60"
-                        >
-                          Quitar
-                        </button>
-                      ) : null}
+                      <div className="flex items-center justify-between gap-2 border-t border-[#eee5dc] px-3 py-2.5 text-xs">
+                        <span className="truncate text-[#70471f]">{usedByCount > 0 ? `Usada en ${usedByCount} variante${usedByCount === 1 ? "" : "s"}` : "Sin asignar"}</span>
+                        {mode === "edit" ? <button type="button" onClick={() => setImageDeleteTarget(image)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#e5d8ca] text-[#70471f] hover:border-[#b98b5e]" aria-label="Quitar imagen"><Trash2 className="h-4 w-4" /></button> : null}
+                      </div>
                     </div>
+                      );
+                    })()
                   ))}
-                </div>
-              ) : null}
+                  <label className="flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-[#d8b995] bg-[#fffaf5] px-3 text-center hover:bg-[#fff6eb]">
+                    <Plus className="h-8 w-8 text-[#8b5728]" />
+                    <span className="mt-2 text-sm font-semibold">Agregar imágenes</span>
+                    <span className="mt-1 text-xs text-[#927b68]">JPG, PNG o WebP</span>
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={(event) => {
+                      const files = Array.from(event.target.files ?? []);
+                      setPendingImages((prev) => {
+                        for (const pending of prev) URL.revokeObjectURL(pending.url);
+                        return files.map(createPendingImage);
+                      });
+                    }} />
+                  </label>
+              </div>
               {hasVariants && visibleVariantRows.length > 0 && assignableImages.length > 0 ? (
-                <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-950 p-4">
-                  <div className="text-sm font-semibold text-zinc-100">Fotos por variante</div>
-                  <div className="mt-1 text-xs text-zinc-500">
-                    Elegí qué imágenes se muestran en cada combinación. El orden asignado define la foto principal y la galería en la tienda.
+                <div className="mt-6 rounded-2xl border border-[#e5d8ca] bg-[#fffdfb] p-4 text-[#70471f] shadow-sm sm:p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">Fotos por variante</div>
+                      <div className="mt-1 text-xs text-[#927b68]">
+                        Seleccioná las imágenes que se muestran en esta variante y arrastralas para definir el orden.
+                      </div>
+                    </div>
+                    <div className="group relative hidden sm:block">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-lg border border-[#e5d8ca] bg-[#f8f3ed] px-2.5 py-1.5 text-[11px] font-medium text-[#70471f] outline-none transition hover:border-[#b98b5e] focus:border-[#8b5728] focus:ring-2 focus:ring-[#8b5728]/15"
+                        aria-label="Cómo funcionan las fotos por variante"
+                      >
+                        <Info className="h-3.5 w-3.5" /> Cómo funciona
+                      </button>
+                      <div className="pointer-events-none absolute right-0 top-full z-20 mt-2 w-72 origin-top-right rounded-xl border border-[#e5d8ca] bg-white p-3 text-left text-xs leading-5 text-[#70471f] opacity-0 shadow-lg transition duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                        <div className="font-semibold">¿Cómo se usa?</div>
+                        <p className="mt-1 text-[#927b68]">Elegí una variante en el selector y usá el botón <span className="font-semibold text-[#70471f]">+</span> para asignarle imágenes.</p>
+                        <p className="mt-1 text-[#927b68]">Arrastrá las fotos seleccionadas para cambiar el orden. La primera será la principal.</p>
+                        <p className="mt-1 text-[#927b68]">Una misma imagen puede asignarse a varias variantes.</p>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {visibleVariantRows.map((variant) => {
-                      const selectedVariant = selectedVariantImageKey === variant.combinationKey;
-                      const assignedCount = variantImageAssignments[variant.combinationKey]?.length ?? 0;
-                      return (
-                        <button
-                          key={variant.combinationKey}
-                          type="button"
-                          onClick={() => setSelectedVariantImageKey(variant.combinationKey)}
-                          className={[
-                            "rounded-xl border px-3 py-2 text-left text-sm transition",
-                            selectedVariant
-                              ? "border-zinc-100 bg-zinc-100 text-zinc-900"
-                              : "border-zinc-800 bg-zinc-950 text-zinc-200 hover:bg-zinc-900/60",
-                          ].join(" ")}
-                        >
-                          <span className="block font-medium">{variant.label}</span>
-                          <span className="mt-1 block text-xs opacity-70">{assignedCount} foto(s)</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <label className="mt-4 block">
+                    <span className="sr-only">Seleccionar variante</span>
+                    <div className="relative">
+                      <select
+                        value={selectedVariantImageKey ?? ""}
+                        onChange={(event) => setSelectedVariantImageKey(event.target.value)}
+                        className="w-full cursor-pointer appearance-none rounded-xl border border-[#d8c4b0] bg-white px-3 py-3 pr-10 text-sm text-[#70471f] outline-none transition hover:border-[#b98b5e] focus:border-[#8b5728] focus:ring-2 focus:ring-[#8b5728]/15"
+                      >
+                        {visibleVariantRows.map((variant) => {
+                          const assignedCount = variantImageAssignments[variant.combinationKey]?.length ?? 0;
+                          return (
+                            <option key={variant.combinationKey} value={variant.combinationKey}>
+                              {variant.label} · {assignedCount} foto{assignedCount === 1 ? "" : "s"}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8b5728]" aria-hidden="true" />
+                    </div>
+                  </label>
 
                   {selectedVariantForImages ? (
                     <>
-                      <div className="mt-5 text-sm font-medium text-zinc-200">Orden para {selectedVariantForImages.label}</div>
-                      {selectedVariantAssignedImages.length > 0 ? (
-                        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      <div className="mt-5 rounded-xl border border-[#eadfd4] bg-white p-3 sm:p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold">Fotos para {selectedVariantForImages.label}</div>
+                            <div className="mt-1 text-xs text-[#927b68]">Seleccioná las imágenes y arrastralas para definir el orden. La primera será la foto principal.</div>
+                          </div>
+                          <span className="shrink-0 rounded-lg bg-[#f8f3ed] px-2.5 py-1.5 text-[11px] font-semibold text-[#70471f]">
+                            {selectedVariantAssignedImages.length} de {assignableImages.length} seleccionadas
+                          </span>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                           {selectedVariantAssignedImages.map((image, index) => (
                             <div
                               key={`${selectedVariantForImages.combinationKey}:${image.key}`}
@@ -1338,82 +1368,36 @@ export default function ModernProductEditor({
                               onDragOver={(event) => handleVariantAssignedImageDragOver(event, index)}
                               onDrop={(event) => handleVariantAssignedImageDrop(event, selectedVariantForImages.combinationKey, index)}
                               onDragEnd={resetVariantAssignedImageDragState}
-                              className={`overflow-hidden rounded-xl border bg-zinc-900 transition ${variantImageDropIndex === index ? "border-[var(--admin-primary)] ring-2 ring-[var(--admin-primary)]/20" : "border-zinc-800"} ${draggedVariantImageIndex === index ? "opacity-70" : ""}`}
+                              className={`overflow-hidden rounded-xl border-2 bg-white transition ${variantImageDropIndex === index ? "border-[#8b5728] ring-2 ring-[#8b5728]/20" : "border-[#8b5728]"} ${draggedVariantImageIndex === index ? "opacity-70" : ""}`}
                             >
-                              <div className="relative aspect-square">
+                              <div className="relative aspect-[1.08]">
                                 <img src={image.url} alt={image.name} className="h-full w-full object-cover" />
-                                <div className="absolute bottom-2 left-2 rounded-md bg-zinc-950/80 px-2 py-1 text-[11px] font-medium text-zinc-100">
+                                <div className="absolute left-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#8b5728] text-xs font-semibold text-white shadow">
                                   {index + 1}
                                 </div>
-                              </div>
-                              <div className="grid grid-cols-3 border-t border-zinc-800">
-                                <button
-                                  type="button"
-                                  onClick={() => moveVariantAssignedImage(selectedVariantForImages.combinationKey, index, index - 1)}
-                                  disabled={index === 0}
-                                  className="border-r border-zinc-800 px-2 py-2 text-xs text-zinc-300 hover:bg-zinc-950/60 disabled:opacity-40"
-                                >
-                                  <ArrowLeft className="mx-auto h-4 w-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => toggleVariantImageAssignment(selectedVariantForImages.combinationKey, image.key)}
-                                  className="px-2 py-2 text-xs font-semibold text-red-300 hover:bg-zinc-950/60"
-                                >
-                                  Quitar
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => moveVariantAssignedImage(selectedVariantForImages.combinationKey, index, index + 1)}
-                                  disabled={index === selectedVariantAssignedImages.length - 1}
-                                  className="border-l border-zinc-800 px-2 py-2 text-xs text-zinc-300 hover:bg-zinc-950/60 disabled:opacity-40"
-                                >
-                                  <ArrowRight className="mx-auto h-4 w-4" />
+                                {index === 0 ? <span className="absolute bottom-1.5 left-1.5 rounded-md bg-[#8b5728] px-1.5 py-1 text-[10px] font-semibold text-white">★ Principal</span> : null}
+                                <button type="button" onClick={() => toggleVariantImageAssignment(selectedVariantForImages.combinationKey, image.key)} className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/95 text-[#70471f] shadow hover:bg-white" aria-label={`Quitar ${image.name}`}>
+                                  <Trash2 className="h-3.5 w-3.5" />
                                 </button>
                               </div>
                             </div>
                           ))}
-                        </div>
-                      ) : (
-                        <div className="mt-3 rounded-xl border border-dashed border-zinc-700 bg-zinc-900/30 p-3 text-sm text-zinc-400">
-                          Esta variante todavía no tiene fotos asignadas.
-                        </div>
-                      )}
-
-                      <div className="mt-5 text-sm font-medium text-zinc-200">Todas las imágenes disponibles</div>
-                      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                        {assignableImages.map((image) => {
-                          const assignedKeys = variantImageAssignments[selectedVariantForImages.combinationKey] ?? [];
-                          const assignedIndex = assignedKeys.indexOf(image.key);
-                          const assigned = assignedIndex >= 0;
+                          {assignableImages.filter((image) => !(variantImageAssignments[selectedVariantForImages.combinationKey] ?? []).includes(image.key)).map((image) => {
                           return (
                             <div
                               key={`${selectedVariantForImages.combinationKey}:${image.key}:picker`}
-                              className={`overflow-hidden rounded-xl border ${assigned ? "border-emerald-500 bg-emerald-950/20" : "border-zinc-800 bg-zinc-900/60"}`}
+                              className="overflow-hidden rounded-xl border border-[#e8e1da] bg-[#f4f4f4]"
                             >
-                              <div className="relative aspect-square">
+                              <div className="relative aspect-[1.08]">
                                 <img src={image.url} alt={image.name} className="h-full w-full object-cover" />
-                                {assigned ? (
-                                  <div className="absolute bottom-2 left-2 rounded-md bg-emerald-500/90 px-2 py-1 text-[11px] font-medium text-emerald-950">
-                                    #{assignedIndex + 1}
-                                  </div>
-                                ) : null}
-                                {image.pending ? (
-                                  <div className="absolute right-2 top-2 rounded-md bg-zinc-950/80 px-2 py-1 text-[11px] font-medium text-zinc-100">
-                                    Nueva
-                                  </div>
-                                ) : null}
+                                <button type="button" onClick={() => toggleVariantImageAssignment(selectedVariantForImages.combinationKey, image.key)} className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/95 text-[#29231e] shadow hover:bg-white" aria-label={`Usar ${image.name}`}><Plus className="h-4 w-4" /></button>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => toggleVariantImageAssignment(selectedVariantForImages.combinationKey, image.key)}
-                                className={`w-full border-t px-3 py-2 text-xs font-semibold ${assigned ? "border-emerald-500/50 text-emerald-300" : "border-zinc-800 text-zinc-200"} hover:bg-zinc-950/60`}
-                              >
-                                {assigned ? "Quitar de esta variante" : "Usar en esta variante"}
-                              </button>
                             </div>
                           );
                         })}
+                        </div>
+                        <div className="mt-4 flex items-center gap-2 rounded-lg bg-[#f8f3ed] px-3 py-2.5 text-xs text-[#70471f]"><GripVertical className="h-4 w-4 shrink-0" /> Arrastrá las fotos seleccionadas para cambiar el orden</div>
+                        <div className="mt-3 flex items-start gap-2 rounded-lg bg-[#f1f3fb] px-3 py-2.5 text-xs text-[#5b5f70]"><Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" /><span>Una misma imagen puede usarse en varias variantes.<br /><span className="text-[10px] text-[#777b89]">Si una imagen ya está asignada a otra variante, te lo indicaremos al pasar el mouse.</span></span></div>
                       </div>
                     </>
                   ) : null}
@@ -1434,6 +1418,19 @@ export default function ModernProductEditor({
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={Boolean(imageDeleteTarget)}
+        title="Quitar imagen"
+        description="La imagen se quitará del producto y de todas las variantes donde esté asignada. Esta acción no se puede deshacer."
+        confirmLabel={deletingImage ? "Quitando..." : "Quitar imagen"}
+        cancelLabel="Cancelar"
+        variant="danger"
+        loading={deletingImage}
+        onConfirm={() => void confirmRemoveImage()}
+        onCancel={() => {
+          if (!deletingImage) setImageDeleteTarget(null);
+        }}
+      />
       <ConfirmDialog
         open={deleteOpen}
         title="Eliminar producto"

@@ -136,6 +136,7 @@ type PaymentMethodKey = "mercadopago" | "agreement" | "cash" | "transfer";
 
 type PaymentSettings = {
   mercadopagoEnabled: boolean;
+  installmentPlans: Array<{ installments: number; minimumAmount: number }>;
   financingDisplay: {
     goCuotas: boolean;
     mercadopago: boolean;
@@ -160,6 +161,7 @@ export default function ProductDetailClient({
   promoPercentsByPaymentMethod = {},
   paymentSettings = {
     mercadopagoEnabled: false,
+    installmentPlans: [{ installments: 3, minimumAmount: 50000 }],
     financingDisplay: {
       goCuotas: true,
       mercadopago: true,
@@ -258,7 +260,9 @@ export default function ProductDetailClient({
   );
   const promo = cashTransferPromo || Number(promoPercents[promotionTargetId] ?? promoPercent ?? 0);
   const finalPrice = promo > 0 ? Math.round(price * (1 - promo / 100) * 100) / 100 : price;
-  const installmentAmount = Math.round((finalPrice / 3) * 100) / 100;
+  const eligibleInstallmentPlans = paymentSettings.installmentPlans.filter((plan) => price >= plan.minimumAmount);
+  const installmentPlan = [...eligibleInstallmentPlans].sort((a, b) => b.installments - a.installments)[0] ?? null;
+  const installmentAmount = installmentPlan ? Math.round((price / installmentPlan.installments) * 100) / 100 : 0;
   const stock = isModernVariantProduct ? Number(selectedModernVariant?.stock ?? 0) : Number(selected.stock);
   const activeIndex = Math.max(0, galleryImages.indexOf(active));
   const activeImage = galleryImages[activeIndex] ?? galleryImages[0] ?? fallback;
@@ -603,7 +607,7 @@ export default function ProductDetailClient({
                   </div>
                 )}
 
-                {finalPrice > 0 && (
+                {finalPrice > 0 && installmentPlan && (
                   <button
                     type="button"
                     onClick={() => setFinancingOpen(true)}
@@ -613,7 +617,7 @@ export default function ProductDetailClient({
                       <CreditCard className="h-5 w-5" aria-hidden="true" />
                     </div>
                     <div className="min-w-0 flex-1 text-base leading-6 text-[#351204]">
-                      <div>3 cuotas sin interés</div>
+                      <div>{installmentPlan.installments} cuotas sin interés</div>
                       <div>
                         de <span className="font-bold">{money(installmentAmount)}</span>
                       </div>
@@ -1016,8 +1020,12 @@ function PaymentFinancingModal({
   const enabledManualMethods = paymentSettings.manualMethods.filter((method) =>
     method.enabled && paymentSettings.financingDisplay.manualMethods[method.key]
   );
+  const eligibleInstallmentPlans = paymentSettings.installmentPlans.filter(
+    (plan) => price >= plan.minimumAmount
+  );
+  const installmentPlan = [...eligibleInstallmentPlans].sort((a, b) => b.installments - a.installments)[0] ?? null;
   const hasVisibleFinancingOptions =
-    paymentSettings.financingDisplay.goCuotas ||
+    (paymentSettings.financingDisplay.goCuotas && Boolean(installmentPlan)) ||
     (paymentSettings.mercadopagoEnabled && paymentSettings.financingDisplay.mercadopago) ||
     enabledManualMethods.length > 0;
 
@@ -1050,7 +1058,7 @@ function PaymentFinancingModal({
         </header>
 
         <div className="space-y-3 bg-white px-4 py-4 sm:px-7">
-          {paymentSettings.financingDisplay.goCuotas ? (
+          {paymentSettings.financingDisplay.goCuotas && installmentPlan ? (
             <FinancingCard
               leading={
                 <div className="flex items-center gap-2 text-sm font-bold text-pink-500">
@@ -1058,7 +1066,7 @@ function PaymentFinancingModal({
                   <span>Cuotas con DÉBITO</span>
                 </div>
               }
-              badge="Hasta 3 cuotas sin interés"
+              badge={`Hasta ${installmentPlan.installments} cuotas sin interés`}
               collapsible
             />
           ) : null}
@@ -1071,7 +1079,7 @@ function PaymentFinancingModal({
                   <span>mercado pago</span>
                 </div>
               }
-              badge="Hasta 3 cuotas sin interés"
+              badge={`Hasta ${installmentPlan.installments} cuotas sin interés`}
               collapsible
             />
           ) : null}

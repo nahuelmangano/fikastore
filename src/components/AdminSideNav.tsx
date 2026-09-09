@@ -60,6 +60,7 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [settingsOpen, setSettingsOpen] = useState(pathname.startsWith("/admin/settings"));
+  const [promotionsOpen, setPromotionsOpen] = useState(pathname.startsWith("/admin/promociones"));
 
   const isItemActive = (item: NavItem) =>
     item.query
@@ -77,6 +78,13 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
     { href: "/admin/settings", query: "domain", label: "Dominio", icon: Globe },
     { href: "/admin/settings", query: "analytics", label: "Analíticas", icon: BarChart3 },
   ];
+  const promotionsChildren: NavItem[] = [
+    { href: "/admin/promociones", query: "global", label: "Descuento general", icon: BadgePercent },
+    { href: "/admin/promociones", query: "product", label: "Por producto", icon: ShoppingBag },
+    { href: "/admin/promociones", query: "code", label: "Código promocional", icon: Share2 },
+    { href: "/admin/promociones", query: "shipping", label: "Envío gratis", icon: Truck },
+    { href: "/admin/promociones", query: "installments", label: "Cuotas", icon: CreditCard },
+  ];
 
   const groups: NavGroup[] = [
     {
@@ -92,7 +100,7 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
       items: [
         { href: "/admin/products", label: "Productos", icon: ShoppingBag },
         { href: "/admin/categories", label: "Categorias", icon: FolderTree },
-        { href: "/admin/promociones", label: "Promociones", icon: BadgePercent },
+        { href: "/admin/promociones", label: "Promociones", icon: BadgePercent, children: promotionsChildren },
       ],
     },
     {
@@ -199,15 +207,15 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
                         {itemLink}
                         <button
                           type="button"
-                          aria-label={settingsOpen ? "Ocultar submenú de configuración" : "Mostrar submenú de configuración"}
-                          aria-expanded={settingsOpen}
-                          onClick={() => setSettingsOpen((open) => !open)}
+                          aria-label={(item.href === "/admin/settings" ? settingsOpen : promotionsOpen) ? `Ocultar submenú de ${item.label.toLowerCase()}` : `Mostrar submenú de ${item.label.toLowerCase()}`}
+                          aria-expanded={item.href === "/admin/settings" ? settingsOpen : promotionsOpen}
+                          onClick={() => item.href === "/admin/settings" ? setSettingsOpen((open) => !open) : setPromotionsOpen((open) => !open)}
                           className="rounded-lg p-2 text-[#7B522E] hover:bg-[#F2ECE5]"
                         >
-                          <ChevronDown className={["h-4 w-4 transition-transform", settingsOpen ? "rotate-180" : ""].join(" ")} aria-hidden="true" />
+                          <ChevronDown className={["h-4 w-4 transition-transform", (item.href === "/admin/settings" ? settingsOpen : promotionsOpen) ? "rotate-180" : ""].join(" ")} aria-hidden="true" />
                         </button>
                       </div>
-                      {settingsOpen ? (
+                      {(item.href === "/admin/settings" ? settingsOpen : promotionsOpen) ? (
                         <div className="ml-5 mt-1 space-y-1 border-l border-[#E5D7C8] pl-2">
                           {item.children.map((child) => {
                             const childActive = isItemActive(child);

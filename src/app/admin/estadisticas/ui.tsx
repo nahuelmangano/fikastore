@@ -61,6 +61,18 @@ type LowStockProduct = {
   imageUrl: string | null;
 };
 
+type AbandonedCart = {
+  id: string;
+  customerName: string;
+  customerEmail: string;
+  itemCount: number;
+  total: number;
+  items: { name: string; quantity: number }[];
+  reminderSentAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type PeriodKey = "all" | "today" | "7d" | "30d" | "month";
 type InventoryFilter = "all" | "out" | "critical" | "low";
 
@@ -142,11 +154,15 @@ function formatMetricsStartAt(value: string | null) {
 export default function AdminStatsDashboard({
   salesOrders,
   lowStockProducts,
+  abandonedCarts,
+  showAbandonedCarts,
   salesStatuses,
   metricsStartAt,
 }: {
   salesOrders: SalesOrder[];
   lowStockProducts: LowStockProduct[];
+  abandonedCarts: AbandonedCart[];
+  showAbandonedCarts: boolean;
   salesStatuses: string[];
   metricsStartAt: string | null;
 }) {
@@ -361,6 +377,8 @@ export default function AdminStatsDashboard({
           <StatCard icon={Boxes} title="Unidades vendidas" value={unitsSold} description="Suma de productos vendidos" />
         </section>
 
+        {showAbandonedCarts ? <AbandonedCartsSection carts={abandonedCarts} /> : null}
+
         <section className="mt-8 xl:mt-6 grid gap-6 xl:gap-4 xl:grid-cols-[1.25fr_0.75fr]">
           <SectionCard title="Ventas en el tiempo" description="Monto vendido por día dentro del período seleccionado.">
             <SalesChart data={salesByDay} />
@@ -473,6 +491,33 @@ export default function AdminStatsDashboard({
         </SectionCard>
       </div>
     </main>
+  );
+}
+
+function AbandonedCartsSection({ carts }: { carts: AbandonedCart[] }) {
+  return (
+    <SectionCard className="mt-8 xl:mt-6" title="Carritos abandonados" description="Clientes con productos guardados que todavía no completaron su compra.">
+      {carts.length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="border-b border-[var(--admin-border)] text-xs uppercase tracking-wide text-[var(--admin-muted-2)]">
+              <tr><th className="px-3 py-3">Cliente</th><th className="px-3 py-3">Productos</th><th className="px-3 py-3">Total estimado</th><th className="px-3 py-3">Última actividad</th><th className="px-3 py-3">Recordatorio</th></tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--admin-border)]">
+              {carts.map((cart) => (
+                <tr key={cart.id} className="align-top hover:bg-[var(--admin-surface-muted)]">
+                  <td className="px-3 py-4"><div className="font-semibold text-[var(--admin-text)]">{cart.customerName}</div><div className="mt-1 text-xs text-[var(--admin-muted)]">{cart.customerEmail}</div></td>
+                  <td className="max-w-xs px-3 py-4 text-[var(--admin-text-soft)]"><div>{cart.itemCount} unidad{cart.itemCount === 1 ? "" : "es"}</div><div className="mt-1 truncate text-xs text-[var(--admin-muted)]" title={cart.items.map((item) => `${item.name} x${item.quantity}`).join(" · ")}>{cart.items.map((item) => `${item.name} x${item.quantity}`).join(" · ") || "Sin detalle"}</div></td>
+                  <td className="px-3 py-4 font-semibold text-[var(--admin-text)]">{money(cart.total)}</td>
+                  <td className="px-3 py-4 text-[var(--admin-muted)]">{fullDate(cart.updatedAt)}</td>
+                  <td className="px-3 py-4"><StatusBadge label={cart.reminderSentAt ? "Enviado" : "Pendiente"} variant={cart.reminderSentAt ? "success" : "warning"} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <EmptyState icon={ShoppingBag} title="No hay carritos abandonados." description="Los carritos guardados por clientes aparecerán en esta sección." />}
+    </SectionCard>
   );
 }
 

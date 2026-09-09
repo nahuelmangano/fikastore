@@ -15,6 +15,7 @@ const EMAIL_JOB_SETTINGS_KEY = "email_job_settings";
 const MERCADOPAGO_SETTINGS_KEY = "mercadopago_settings";
 const MANUAL_PAYMENT_SETTINGS_KEY = "manual_payment_settings";
 const PAYMENT_FINANCING_DISPLAY_SETTINGS_KEY = "payment_financing_display_settings";
+const INSTALLMENT_PLANS_SETTINGS_KEY = "installment_plans_settings";
 const GOOGLE_ANALYTICS_MEASUREMENT_ID_KEY = "google_analytics_measurement_id";
 const META_PIXEL_ID_KEY = "meta_pixel_id";
 const SOCIAL_LINKS_SETTINGS_KEY = "social_links_settings";
@@ -147,12 +148,24 @@ export type CheckoutPaymentSettings = {
   mercadopagoEnabled: boolean;
   manualMethods: ManualPaymentMethodSettings[];
   financingDisplay: PaymentFinancingDisplaySettings;
+  installmentPlans: InstallmentPlan[];
 };
 
 export type PaymentFinancingDisplaySettings = {
   goCuotas: boolean;
   mercadopago: boolean;
   manualMethods: Record<ManualPaymentMethodKey, boolean>;
+  merchantCanSee: boolean;
+  merchantOptions: {
+    goCuotas: boolean;
+    mercadopago: boolean;
+    manualMethods: Record<ManualPaymentMethodKey, boolean>;
+  };
+};
+
+export type InstallmentPlan = {
+  installments: number;
+  minimumAmount: number;
 };
 
 export type AnalyticsSettings = {
@@ -205,12 +218,20 @@ const DEFAULT_MANUAL_PAYMENT_METHODS: ManualPaymentMethodSettings[] = [
 const DEFAULT_PAYMENT_FINANCING_DISPLAY_SETTINGS: PaymentFinancingDisplaySettings = {
   goCuotas: true,
   mercadopago: true,
+  merchantCanSee: true,
   manualMethods: {
     agreement: true,
     cash: true,
     transfer: true,
   },
+  merchantOptions: {
+    goCuotas: true,
+    mercadopago: true,
+    manualMethods: { agreement: true, cash: true, transfer: true },
+  },
 };
+
+export const DEFAULT_INSTALLMENT_PLANS: InstallmentPlan[] = [{ installments: 3, minimumAmount: 50000 }];
 
 type StoredMailingSettings = Pick<
   MailingSettings,
@@ -1377,10 +1398,26 @@ function normalizePaymentFinancingDisplaySettings(input: unknown): PaymentFinanc
     value.manualMethods && typeof value.manualMethods === "object"
     ? value.manualMethods
     : {};
+  const merchantOptions = value.merchantOptions && typeof value.merchantOptions === "object"
+    ? value.merchantOptions as Partial<PaymentFinancingDisplaySettings["merchantOptions"]>
+    : {};
+  const merchantManualMethods: Partial<Record<ManualPaymentMethodKey, boolean>> = merchantOptions.manualMethods && typeof merchantOptions.manualMethods === "object"
+    ? merchantOptions.manualMethods as Partial<Record<ManualPaymentMethodKey, boolean>>
+    : {};
 
   return {
     goCuotas: value.goCuotas !== false,
     mercadopago: value.mercadopago !== false,
+    merchantCanSee: value.merchantCanSee !== false,
+    merchantOptions: {
+      goCuotas: merchantOptions.goCuotas !== false,
+      mercadopago: merchantOptions.mercadopago !== false,
+      manualMethods: {
+        agreement: merchantManualMethods.agreement !== false,
+        cash: merchantManualMethods.cash !== false,
+        transfer: merchantManualMethods.transfer !== false,
+      },
+    },
     manualMethods: {
       agreement: manualMethods.agreement !== false,
       cash: manualMethods.cash !== false,
@@ -1432,17 +1469,54 @@ export async function setPaymentFinancingDisplaySettings(settings: unknown) {
   });
 }
 
+function normalizeInstallmentPlans(input: unknown): InstallmentPlan[] {
+  if (!Array.isArray(input)) return DEFAULT_INSTALLMENT_PLANS;
+  const plans = input
+    .map((item) => {
+      const value = item as Partial<InstallmentPlan>;
+      return {
+        installments: Math.max(1, Math.min(24, Math.floor(Number(value?.installments) || 0))),
+        minimumAmount: Math.max(0, Math.floor(Number(value?.minimumAmount) || 0)),
+      };
+    })
+    .filter((item) => item.installments > 0);
+  return plans.length > 0 ? plans : DEFAULT_INSTALLMENT_PLANS;
+}
+
+export async function getInstallmentPlans(): Promise<InstallmentPlan[]> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: { provider_key: { provider: STOREFRONT_SETTINGS_PROVIDER, key: INSTALLMENT_PLANS_SETTINGS_KEY } },
+    select: { value: true },
+  });
+  if (!row?.value) return DEFAULT_INSTALLMENT_PLANS;
+  try {
+    return normalizeInstallmentPlans(JSON.parse(row.value));
+  } catch {
+    return DEFAULT_INSTALLMENT_PLANS;
+  }
+}
+
+export async function setInstallmentPlans(settings: unknown) {
+  return prisma.shippingProviderSetting.upsert({
+    where: { provider_key: { provider: STOREFRONT_SETTINGS_PROVIDER, key: INSTALLMENT_PLANS_SETTINGS_KEY } },
+    create: { provider: STOREFRONT_SETTINGS_PROVIDER, key: INSTALLMENT_PLANS_SETTINGS_KEY, value: JSON.stringify(normalizeInstallmentPlans(settings)), isSecret: false },
+    update: { value: JSON.stringify(normalizeInstallmentPlans(settings)), isSecret: false },
+  });
+}
+
 export async function getCheckoutPaymentSettings(): Promise<CheckoutPaymentSettings> {
-  const [mercadoPagoSettings, manualMethods, financingDisplay] = await Promise.all([
+  const [mercadoPagoSettings, manualMethods, financingDisplay, installmentPlans] = await Promise.all([
     getMercadoPagoSettings(),
     getManualPaymentSettings(),
     getPaymentFinancingDisplaySettings(),
+    getInstallmentPlans(),
   ]);
 
   return {
     mercadopagoEnabled: mercadoPagoSettings.accessTokenConfigured,
     manualMethods,
     financingDisplay,
+    installmentPlans,
   };
 }
 

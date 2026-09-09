@@ -105,6 +105,12 @@ type PaymentFinancingDisplaySettings = {
   goCuotas: boolean;
   mercadopago: boolean;
   manualMethods: Record<ManualPaymentMethodKey, boolean>;
+  merchantCanSee: boolean;
+  merchantOptions: {
+    goCuotas: boolean;
+    mercadopago: boolean;
+    manualMethods: Record<ManualPaymentMethodKey, boolean>;
+  };
 };
 
 type AnalyticsSettings = {
@@ -1459,26 +1465,32 @@ export default function AdminSettingsPage({
                 </div>
 
                 <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                  <FinancingDisplayToggle
+                  {(currentUserRole === "admin" || financingDisplay.merchantOptions.goCuotas) ? <FinancingDisplayToggle
                     label="GO Cuotas con débito"
                     description="Muestra la opción de hasta 3 cuotas sin interés."
                     checked={financingDisplay.goCuotas}
                     onChange={(visible) => setFinancingDisplay((prev) => ({ ...prev, goCuotas: visible }))}
-                  />
-                  <FinancingDisplayToggle
+                    merchantChecked={currentUserRole === "admin" ? financingDisplay.merchantOptions.goCuotas : undefined}
+                    onMerchantChange={currentUserRole === "admin" ? (visible) => setFinancingDisplay((prev) => ({ ...prev, merchantOptions: { ...prev.merchantOptions, goCuotas: visible } })) : undefined}
+                  /> : null}
+                  {(currentUserRole === "admin" || financingDisplay.merchantOptions.mercadopago) ? <FinancingDisplayToggle
                     label="MercadoPago"
                     description={mpSettings.accessTokenConfigured ? "Muestra MercadoPago en financiación." : "Podés ocultarlo mientras no haya credencial activa."}
                     checked={financingDisplay.mercadopago}
                     onChange={(visible) => setFinancingDisplay((prev) => ({ ...prev, mercadopago: visible }))}
-                  />
+                    merchantChecked={currentUserRole === "admin" ? financingDisplay.merchantOptions.mercadopago : undefined}
+                    onMerchantChange={currentUserRole === "admin" ? (visible) => setFinancingDisplay((prev) => ({ ...prev, merchantOptions: { ...prev.merchantOptions, mercadopago: visible } })) : undefined}
+                  /> : null}
                   {manualMethods.map((method) => (
-                    <FinancingDisplayToggle
+                    (currentUserRole === "admin" || financingDisplay.merchantOptions.manualMethods[method.key]) ? <FinancingDisplayToggle
                       key={method.key}
                       label={method.key === "agreement" ? "Acordar" : method.label}
                       description={method.enabled ? "Visible si también está activo para checkout." : "Está oculto en tienda porque el checkout lo tiene inactivo."}
                       checked={financingDisplay.manualMethods[method.key]}
                       onChange={(visible) => patchFinancingManualMethod(method.key, visible)}
-                    />
+                      merchantChecked={currentUserRole === "admin" ? financingDisplay.merchantOptions.manualMethods[method.key] : undefined}
+                      onMerchantChange={currentUserRole === "admin" ? (visible) => setFinancingDisplay((prev) => ({ ...prev, merchantOptions: { ...prev.merchantOptions, manualMethods: { ...prev.merchantOptions.manualMethods, [method.key]: visible } } })) : undefined}
+                    /> : null
                   ))}
                 </div>
 
@@ -1739,22 +1751,7 @@ export default function AdminSettingsPage({
         ) : null}
 
         {activeTab === "categories" ? (
-          <div className="mt-8 xl:mt-6 grid gap-6 xl:gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-            <SectionCard title="Categorías" description="Referencia rápida de las categorías disponibles para destacar en el inicio." icon={LayoutGrid}>
-              {categories.length > 0 ? (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {categories.map((category) => (
-                    <div key={category.id} className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
-                      <div className="font-semibold text-[#5F3B18]">{category.label ?? category.name}</div>
-                      <div className="mt-1 text-xs text-[#8F6A49]">/{category.slug}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState icon={LayoutGrid} title="No hay categorías creadas." description="Creá categorías desde Catálogo para poder destacarlas en el inicio." />
-              )}
-            </SectionCard>
-
+          <div className="mt-8 xl:mt-6 max-w-2xl">
             <SectionCard title="Categorías destacadas" description="Esta configuración vive en la pestaña Inicio." icon={Home}>
               <div className="rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-5 xl:p-4">
                 <div className="text-3xl font-semibold text-[#5F3B18]">{tiles.length}</div>
@@ -2980,11 +2977,15 @@ function FinancingDisplayToggle({
   description,
   checked,
   onChange,
+  merchantChecked,
+  onMerchantChange,
 }: {
   label: string;
   description: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  merchantChecked?: boolean;
+  onMerchantChange?: (checked: boolean) => void;
 }) {
   return (
     <div className="rounded-2xl border border-[#E5D7C8] bg-white/70 p-4">
@@ -2993,21 +2994,36 @@ function FinancingDisplayToggle({
           <div className="text-sm font-semibold text-[#5F3B18]">{label}</div>
           <div className="mt-1 text-xs leading-5 text-[#8F6A49]">{description}</div>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={checked}
-          onClick={() => onChange(!checked)}
-          className={[
-            "shrink-0 rounded-2xl px-4 py-2 text-sm font-semibold transition duration-150",
-            checked
-              ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200"
-              : "bg-[#F2ECE5] text-[#8B5A2B] ring-1 ring-[#E5D7C8]",
-          ].join(" ")}
-        >
-          {checked ? "Visible" : "Oculto"}
-        </button>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={checked}
+            aria-label={`${label}: ${checked ? "habilitado" : "no habilitado"}`}
+            onClick={() => onChange(!checked)}
+            className={["relative inline-flex h-7 w-12 shrink-0 items-center rounded-full p-1 transition duration-150 focus:outline-none focus:ring-2 focus:ring-[#8B5A2B]/25", checked ? "bg-emerald-500" : "bg-[#D7C9BB]"].join(" ")}
+          >
+            <span className={["h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-150", checked ? "translate-x-5" : "translate-x-0"].join(" ")} />
+          </button>
+          {onMerchantChange && merchantChecked !== undefined ? (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={merchantChecked}
+              aria-label={`${label}: visible para merchant ${merchantChecked ? "habilitado" : "deshabilitado"}`}
+              onClick={() => onMerchantChange(!merchantChecked)}
+              className={["relative inline-flex h-6 w-10 items-center rounded-full p-1 transition duration-150 focus:outline-none focus:ring-2 focus:ring-[#8B5A2B]/25", merchantChecked ? "bg-emerald-500" : "bg-[#D7C9BB]"].join(" ")}
+            >
+              <span className={["h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-150", merchantChecked ? "translate-x-4" : "translate-x-0"].join(" ")} />
+            </button>
+          ) : null}
+        </div>
       </div>
+      <div className={[
+        "mt-3 text-xs font-semibold",
+        checked ? "text-emerald-700" : "text-[#8F6A49]",
+      ].join(" ")}>{checked ? "Habilitado" : "No habilitado"}</div>
+      {onMerchantChange && merchantChecked !== undefined ? <div className={merchantChecked ? "mt-1 text-[10px] font-semibold text-emerald-700" : "mt-1 text-[10px] font-semibold text-[#8F6A49]"}>Merchant: {merchantChecked ? "visible" : "oculto"}</div> : null}
     </div>
   );
 }
