@@ -352,7 +352,7 @@ export async function priceCartItems(
   const autoDiscountAmount = round2(items.reduce((acc, it) => acc + it.autoDiscountAmount, 0));
   const codeDiscountAmount = round2(items.reduce((acc, it) => acc + it.codeDiscountAmount, 0));
   const freeShippingPromo = await getFreeShippingPromotionForCart(merged, normalizedCode, paymentMethod, deliveryType, carrierKey);
-  const minimumSubtotalFreeShipping = await getCarrierMinimumSubtotalFreeShipping(subtotalDiscounted, carrierKey);
+  const minimumSubtotalFreeShipping = await getCarrierMinimumSubtotalFreeShipping(subtotalDiscounted, carrierKey, deliveryType);
   const freeShipping = freeShippingPromo.applies ? freeShippingPromo : minimumSubtotalFreeShipping;
 
   return {
@@ -397,7 +397,7 @@ export async function getFreeShippingForCart(
   if (promotionFreeShipping.applies) return promotionFreeShipping;
 
   const subtotalDiscounted = await getDiscountedSubtotalForItems(inputItems, promoCode, paymentMethod);
-  return getCarrierMinimumSubtotalFreeShipping(subtotalDiscounted, carrierKey);
+  return getCarrierMinimumSubtotalFreeShipping(subtotalDiscounted, carrierKey, deliveryType);
 }
 
 async function getDiscountedSubtotalForItems(
@@ -464,13 +464,29 @@ async function getDiscountedSubtotalForItems(
 
 async function getCarrierMinimumSubtotalFreeShipping(
   subtotalDiscounted: number,
-  carrierKey?: string | null
+  carrierKey?: string | null,
+  deliveryType?: string | null
 ): Promise<FreeShippingDecision> {
   if (carrierKey !== "correo") return { applies: false, promotionName: null };
 
   const configuredMinimum = Number(await getProviderConfigValue("correo", "FREE_SHIPPING_MIN_SUBTOTAL", "0"));
   const minimum = Number.isFinite(configuredMinimum) && configuredMinimum > 0 ? round2(configuredMinimum) : 0;
   if (!minimum || subtotalDiscounted < minimum) return { applies: false, promotionName: null };
+
+  const rawDeliveryTypes = await getProviderConfigValue("correo", "FREE_SHIPPING_MIN_DELIVERY_TYPES", "[]");
+  let deliveryTypes: string[] = [];
+  try {
+    const parsed = JSON.parse(rawDeliveryTypes);
+    if (Array.isArray(parsed)) {
+      deliveryTypes = parsed.filter((item) => item === "D" || item === "S");
+    }
+  } catch {
+    deliveryTypes = [];
+  }
+
+  if (deliveryTypes.length > 0 && !deliveryTypes.includes(String(deliveryType || "").trim())) {
+    return { applies: false, promotionName: null };
+  }
 
   return {
     applies: true,

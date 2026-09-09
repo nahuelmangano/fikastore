@@ -8,6 +8,7 @@ import {
   isCustomShippingCarrierKey,
   setCustomShippingCarrierSettings,
   type ShippingCarrierKey,
+  type ShippingDeliveryTypeKey,
 } from "@/lib/shippingCarriers";
 import { isAdminRole, isStaffRole } from "@/lib/roles";
 
@@ -23,6 +24,11 @@ function isValidKey(k: string): k is ShippingCarrierKey {
 
 function canTargetCarrierKey(key: string) {
   return isValidKey(key) || isCustomShippingCarrierKey(key);
+}
+
+function normalizeDeliveryTypes(value: unknown): ShippingDeliveryTypeKey[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is ShippingDeliveryTypeKey => item === "D" || item === "S");
 }
 
 export async function GET() {
@@ -46,6 +52,7 @@ export async function GET() {
       deliveryDays: c.deliveryDays,
       shippingSurcharge: c.shippingSurcharge,
       freeShippingMinimumSubtotal: c.freeShippingMinimumSubtotal,
+      freeShippingMinimumDeliveryTypes: c.freeShippingMinimumDeliveryTypes,
     })),
   });
 }
@@ -63,6 +70,7 @@ export async function POST(req: Request) {
     deliveryDays?: string;
     shippingSurcharge?: number;
     freeShippingMinimumSubtotal?: number;
+    freeShippingMinimumDeliveryTypes?: string[];
   } | null;
 
   try {
@@ -98,6 +106,7 @@ export async function PATCH(req: Request) {
     deliveryDays?: string;
     shippingSurcharge?: number;
     freeShippingMinimumSubtotal?: number;
+    freeShippingMinimumDeliveryTypes?: string[];
   } | null;
   const key = String(body?.key || "").trim();
   const enabled = body?.enabled;
@@ -109,6 +118,7 @@ export async function PATCH(req: Request) {
   const deliveryDays = body?.deliveryDays;
   const shippingSurcharge = body?.shippingSurcharge;
   const freeShippingMinimumSubtotal = body?.freeShippingMinimumSubtotal;
+  const freeShippingMinimumDeliveryTypes = normalizeDeliveryTypes(body?.freeShippingMinimumDeliveryTypes);
 
   if (
     !canTargetCarrierKey(key) ||
@@ -119,6 +129,7 @@ export async function PATCH(req: Request) {
       typeof flatRate !== "number" &&
       typeof shippingSurcharge !== "number" &&
       typeof freeShippingMinimumSubtotal !== "number" &&
+      !Array.isArray(body?.freeShippingMinimumDeliveryTypes) &&
       typeof deliveryDays !== "string" &&
       pricingMode !== "fixed" &&
       pricingMode !== "agreement" &&
@@ -189,6 +200,19 @@ export async function PATCH(req: Request) {
     });
   }
 
+  if (Array.isArray(body?.freeShippingMinimumDeliveryTypes)) {
+    await prisma.shippingProviderSetting.upsert({
+      where: { provider_key: { provider: key, key: "FREE_SHIPPING_MIN_DELIVERY_TYPES" } },
+      create: {
+        provider: key,
+        key: "FREE_SHIPPING_MIN_DELIVERY_TYPES",
+        value: JSON.stringify(freeShippingMinimumDeliveryTypes),
+        isSecret: false,
+      },
+      update: { value: JSON.stringify(freeShippingMinimumDeliveryTypes), isSecret: false },
+    });
+  }
+
   let updated: { key: string; name: string; enabled: boolean };
   try {
     updated = await prisma.shippingCarrier.update({
@@ -242,6 +266,7 @@ export async function PATCH(req: Request) {
       pricingMode: found.pricingMode,
       shippingSurcharge: found.shippingSurcharge,
       freeShippingMinimumSubtotal: found.freeShippingMinimumSubtotal,
+      freeShippingMinimumDeliveryTypes: found.freeShippingMinimumDeliveryTypes,
     },
   });
 }

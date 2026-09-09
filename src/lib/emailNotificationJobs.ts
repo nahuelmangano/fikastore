@@ -284,7 +284,11 @@ async function processReviewRequest(payload: Record<string, unknown>, req: Reque
           productId: item.productId,
           expiresAt: addDays(new Date(), 30),
         },
-        update: {},
+        update: {
+          tokenHash: hashToken(token),
+          expiresAt: addDays(new Date(), 30),
+          usedAt: null,
+        },
       });
 
       const image = item.product.images[0]?.url;

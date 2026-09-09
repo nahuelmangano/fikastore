@@ -12,9 +12,12 @@ import { transferInstructionsWithBankDetails } from "@/lib/manualPaymentInstruct
 
 type Shipping = {
   name: string;
+  dni: string;
   email: string;
   phone: string;
   addressLine: string;
+  floor: string;
+  apartment: string;
   city: string;
   province: string;
   provinceCode: string;
@@ -179,9 +182,12 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
   const [orderItems, setOrderItems] = useState<CartItem[]>([]);
   const [shipping, setShipping] = useState<Shipping>({
     name: "",
+    dni: "",
     email: "",
     phone: "",
     addressLine: "",
+    floor: "",
+    apartment: "",
     city: "",
     province: "",
     provinceCode: "",
@@ -609,6 +615,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
     items.length > 0 &&
     hasPaymentMethods &&
     shipping.name.trim() &&
+    shipping.dni.trim() &&
     shipping.email.trim() &&
     shipping.phone.trim() &&
     shipping.provinceCode.trim() &&
@@ -801,6 +808,12 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                 onChange={(v) => setShipping((s) => ({ ...s, name: v }))}
               />
               <Field
+                label="DNI"
+                inputMode="numeric"
+                value={shipping.dni}
+                onChange={(v) => setShipping((s) => ({ ...s, dni: v.replace(/\D/g, "").slice(0, 8) }))}
+              />
+              <Field
                 label="Email"
                 type="email"
                 value={shipping.email}
@@ -818,6 +831,18 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                   value={shipping.addressLine}
                   onChange={(v) => setShipping((s) => ({ ...s, addressLine: v }))}
                 />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field
+                    label="Piso (opcional)"
+                    value={shipping.floor}
+                    onChange={(v) => setShipping((s) => ({ ...s, floor: v }))}
+                  />
+                  <Field
+                    label="Departamento (opcional)"
+                    value={shipping.apartment}
+                    onChange={(v) => setShipping((s) => ({ ...s, apartment: v }))}
+                  />
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field
                     label="Ciudad"
@@ -1556,11 +1581,13 @@ function MercadoPagoLogos() {
 function Field({
   label,
   type = "text",
+  inputMode,
   value,
   onChange,
 }: {
   label: string;
   type?: string;
+  inputMode?: "text" | "numeric" | "decimal" | "tel" | "email" | "url" | "search" | "none";
   value: string;
   onChange: (v: string) => void;
 }) {
@@ -1569,6 +1596,7 @@ function Field({
       <label className="text-sm text-zinc-300">{label}</label>
       <input
         type={type}
+        inputMode={inputMode}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"

@@ -691,7 +691,6 @@ export default function ProductDetailClient({
                         const selectedValue = selectedModernOptionValues[option.id] === value.id;
                         const available = modernVariants.some((variant) => {
                           if (!variant.optionValueIds.includes(value.id)) return false;
-                          if (variant.stock <= 0) return false;
                           return orderedModernVariantOptions.every((candidate) => {
                             if (candidate.id === option.id) return true;
                             const chosen = selectedModernOptionValues[candidate.id];
@@ -730,10 +729,28 @@ export default function ProductDetailClient({
                     Seleccioná una opción de cada grupo para elegir la combinación.
                   </div>
                 ) : selectedModernVariant ? (
-                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-3 text-sm text-zinc-300">
-                    <div className="font-medium text-zinc-100">{selectedModernVariant.label}</div>
-                    <div className="mt-1 text-xs text-zinc-500">
-                      {selectedModernVariant.stock > 0 ? `${selectedModernVariant.stock} disponibles` : "Sin stock"}
+                  <div
+                    className={[
+                      "rounded-xl border p-3 text-sm",
+                      selectedModernVariant.stock > 0
+                        ? "border-zinc-800 bg-zinc-900/30 text-zinc-300"
+                        : "border-red-300 bg-red-100 text-red-800",
+                    ].join(" ")}
+                    role={selectedModernVariant.stock > 0 ? undefined : "alert"}
+                  >
+                    <div
+                      className={selectedModernVariant.stock > 0 ? "font-medium text-zinc-100" : "font-medium text-red-900"}
+                    >
+                      {selectedModernVariant.label}
+                    </div>
+                    <div
+                      className={
+                        selectedModernVariant.stock > 0 ? "mt-1 text-xs text-zinc-500" : "mt-1 text-xs text-red-700"
+                      }
+                    >
+                      {selectedModernVariant.stock > 0
+                        ? `${selectedModernVariant.stock} disponibles`
+                        : "Esta variante no tiene stock disponible."}
                     </div>
                   </div>
                 ) : (

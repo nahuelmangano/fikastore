@@ -48,6 +48,7 @@ export default async function AdminPaqueteriaPage() {
           deliveryDays: c.deliveryDays,
           shippingSurcharge: c.shippingSurcharge,
           freeShippingMinimumSubtotal: c.freeShippingMinimumSubtotal,
+          freeShippingMinimumDeliveryTypes: c.freeShippingMinimumDeliveryTypes,
           configured: config?.configured ?? true,
           requiredCount: config?.requiredCount ?? 0,
           completedCount: config?.completedCount ?? 0,

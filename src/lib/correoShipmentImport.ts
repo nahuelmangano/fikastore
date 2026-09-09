@@ -83,7 +83,10 @@ export async function buildCorreoShipmentPayload(
   const { streetName, streetNumber } = splitAddress(order.shippingAddressLine);
   const recipientEmail =
     options.recipientEmail ||
-    order.user?.email || (await envString("CORREO_ARG_RECIPIENT_EMAIL")) || sender.email;
+    order.contactEmail ||
+    order.user?.email ||
+    (await envString("CORREO_ARG_RECIPIENT_EMAIL")) ||
+    sender.email;
   const recipientProvince =
     order.shippingProvinceCode ||
     (await envString("CORREO_ARG_RECIPIENT_PROVINCE_CODE")) ||
@@ -114,8 +117,8 @@ export async function buildCorreoShipmentPayload(
       address: {
         streetName,
         streetNumber,
-        floor: "",
-        apartment: "",
+        floor: order.shippingFloor || "",
+        apartment: order.shippingApartment || "",
         city: order.shippingCity,
         provinceCode: recipientProvince,
         postalCode: order.shippingZip,

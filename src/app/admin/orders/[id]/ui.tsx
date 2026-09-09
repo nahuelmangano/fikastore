@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Check, PackageCheck, Truck, Undo2, X } from "lucide-react";
+import { Building2, Check, CreditCard, FileText, Mail, MapPin, PackageCheck, Phone, Truck, Undo2, UserRound, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 function money(n: number) {
@@ -11,6 +11,7 @@ function money(n: number) {
 type PriceValue = number | string;
 
 type OrderPayment = {
+  provider?: string | null;
   status?: string | null;
   paymentId?: string | null;
 };
@@ -60,13 +61,20 @@ type AdminOrder = {
   createdAt: string | Date;
   shippedAt?: string | Date | null;
   deliveredAt?: string | Date | null;
+  contactEmail?: string | null;
+  dni?: string | null;
   shippingName?: string | null;
   shippingPhone?: string | null;
   shippingAddressLine?: string | null;
+  shippingFloor?: string | null;
+  shippingApartment?: string | null;
   shippingCity?: string | null;
   shippingProvince?: string | null;
   shippingZip?: string | null;
   shippingAmount?: PriceValue | null;
+  shippingMethod?: string | null;
+  shippingDeliveryType?: string | null;
+  shippingBranchName?: string | null;
   notes?: string | null;
   user?: OrderUser | null;
   items: OrderItem[];
@@ -100,6 +108,29 @@ function translatePaymentStatus(status?: string | null) {
   };
   if (!status) return "Sin pago";
   return map[status] ?? status;
+}
+
+function paymentMethodLabel(method?: string | null) {
+  const value = String(method || "").trim().toLowerCase();
+  const map: Record<string, string> = {
+    mercadopago: "Mercado Pago",
+    transfer: "Transferencia",
+    cash: "Efectivo",
+    agreement: "A convenir",
+  };
+  return map[value] ?? (method || "No informado");
+}
+
+function shippingMethodLabel(order: Pick<AdminOrder, "shippingMethod" | "shippingDeliveryType" | "shippingBranchName">) {
+  if (order.shippingMethod === "epick") return "Envío a domicilio (E-pick)";
+  if (order.shippingMethod === "andreani") return "Envío a domicilio (Andreani)";
+  if (order.shippingMethod === "correo") {
+    return order.shippingDeliveryType === "S"
+      ? `Correo Argentino - Sucursal${order.shippingBranchName ? ` (${order.shippingBranchName})` : ""}`
+      : "Correo Argentino - Domicilio";
+  }
+  if (order.shippingMethod === "pickup") return "Retiro en tienda";
+  return order.shippingMethod || "No informado";
 }
 
 export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
@@ -167,7 +198,7 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="mx-auto max-w-4xl px-4 py-10">
+      <div className="mx-auto max-w-6xl px-4 py-10">
         <div className="flex items-center justify-between">
           <Link href="/admin/orders" className="text-sm text-zinc-400 hover:text-zinc-200">
             ← Volver
@@ -207,21 +238,46 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
-              <div className="text-sm font-semibold">Cliente</div>
-              <div className="mt-2 text-sm text-zinc-300">{order.user?.name ?? "—"}</div>
-              <div className="mt-1 text-sm text-zinc-400">{order.user?.email ?? "—"}</div>
-            </div>
+          <div className="mt-6 grid gap-4 lg:grid-cols-3">
+            <InfoCard icon={<UserRound className="h-5 w-5" />} title="Cliente">
+              <InfoLine icon={<UserRound className="h-4 w-4" />} value={order.shippingName || order.user?.name || "—"} />
+              <InfoLine icon={<Phone className="h-4 w-4" />} value={order.shippingPhone || "—"} />
+              <InfoLine icon={<Mail className="h-4 w-4" />} value={order.contactEmail || order.user?.email || "—"} />
+              <InfoLine icon={<FileText className="h-4 w-4" />} value={`DNI ${order.dni || "—"}`} />
+            </InfoCard>
 
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
-              <div className="text-sm font-semibold">Envío</div>
-              <div className="mt-2 text-sm text-zinc-300">{order.shippingName}</div>
-              <div className="mt-1 text-sm text-zinc-400">{order.shippingPhone}</div>
-              <div className="mt-2 text-sm text-zinc-300">
-                {order.shippingAddressLine}, {order.shippingCity}, {order.shippingProvince} ({order.shippingZip})
+            <InfoCard icon={<Truck className="h-5 w-5" />} title="Envío">
+              <div className="mb-5 inline-flex rounded-full bg-[#f1e5d8] px-3 py-1.5 text-xs font-medium text-[#7b4a24]">
+                {shippingMethodLabel(order)}
               </div>
-            </div>
+              <InfoLine
+                icon={<MapPin className="h-4 w-4" />}
+                value={`${order.shippingAddressLine || "—"}, ${order.shippingCity || "—"}, ${order.shippingProvince || "—"} · CP ${order.shippingZip || "—"}`}
+              />
+              <InfoLine
+                muted
+                icon={<Building2 className="h-4 w-4" />}
+                value={`Piso/Depto: ${[order.shippingFloor, order.shippingApartment].filter(Boolean).join(" / ") || "—"}`}
+              />
+              <InfoLine muted icon={<FileText className="h-4 w-4" />} value={`Indicaciones: ${order.notes || "—"}`} />
+            </InfoCard>
+
+            <InfoCard icon={<CreditCard className="h-5 w-5" />} title="Pago">
+              <div className="text-base font-medium text-zinc-100">{paymentMethodLabel(lastPayment?.provider)}</div>
+              <div className="mt-2 inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">
+                {translatePaymentStatus(paymentStatus)}
+              </div>
+              <div className="my-5 border-t border-zinc-800" />
+              <div className="flex items-center justify-between text-base font-semibold text-zinc-100">
+                <span>Total</span>
+                <span>{money(Number(order.total))}</span>
+              </div>
+              <div className="mt-4 space-y-2 text-sm text-zinc-400">
+                <div className="flex justify-between"><span>Productos</span><span>{money(itemsSubtotal)}</span></div>
+                <div className="flex justify-between"><span>Envío</span><span>{shippingAmount > 0 ? money(shippingAmount) : "$0"}</span></div>
+                <div className="flex justify-between"><span>Descuento</span><span>$0</span></div>
+              </div>
+            </InfoCard>
           </div>
 
           {order.notes ? (
@@ -713,6 +769,29 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
         </div>
       </div>
     </main>
+  );
+}
+
+function InfoCard({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
+  return (
+    <section className="min-h-[300px] rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
+      <div className="flex items-center gap-4">
+        <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-zinc-200">
+          {icon}
+        </span>
+        <h2 className="text-lg font-semibold text-zinc-100">{title}</h2>
+      </div>
+      <div className="mt-5">{children}</div>
+    </section>
+  );
+}
+
+function InfoLine({ icon, value, muted = false }: { icon: ReactNode; value: string; muted?: boolean }) {
+  return (
+    <div className={`mb-4 flex items-start gap-3 text-sm leading-5 ${muted ? "text-zinc-500" : "text-zinc-200"}`}>
+      <span className="mt-0.5 shrink-0 text-zinc-400">{icon}</span>
+      <span className="break-words">{value}</span>
+    </div>
   );
 }
 

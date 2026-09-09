@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 
 export type ShippingCarrierKey = "epick" | "andreani" | "correo" | "pickup";
+export type ShippingDeliveryTypeKey = "D" | "S";
 export type ShippingCarrierView = {
   id: string;
   key: string;
@@ -15,6 +16,7 @@ export type ShippingCarrierView = {
   deliveryDays: string | null;
   shippingSurcharge: number;
   freeShippingMinimumSubtotal: number;
+  freeShippingMinimumDeliveryTypes: ShippingDeliveryTypeKey[];
 };
 
 const CUSTOM_SHIPPING_PROVIDER = "custom_shipping";
@@ -131,6 +133,26 @@ async function freeShippingMinimumSubtotalForCarrier(key: string) {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+function parseDeliveryTypes(value?: string | null): ShippingDeliveryTypeKey[] {
+  if (!value) return [];
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is ShippingDeliveryTypeKey => item === "D" || item === "S");
+  } catch {
+    return [];
+  }
+}
+
+async function freeShippingMinimumDeliveryTypesForCarrier(key: string) {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: { provider_key: { provider: key, key: "FREE_SHIPPING_MIN_DELIVERY_TYPES" } },
+    select: { value: true },
+  });
+  return parseDeliveryTypes(row?.value);
+}
+
 async function customCarrierSettingsMap() {
   const rows = await prisma.shippingProviderSetting.findMany({
     where: { provider: CUSTOM_SHIPPING_PROVIDER },
@@ -142,7 +164,14 @@ async function customCarrierSettingsMap() {
 async function withCustomCarrierSettings(
   carriers: Omit<
     ShippingCarrierView,
-    "custom" | "description" | "flatRate" | "pricingMode" | "deliveryDays" | "shippingSurcharge" | "freeShippingMinimumSubtotal"
+    | "custom"
+    | "description"
+    | "flatRate"
+    | "pricingMode"
+    | "deliveryDays"
+    | "shippingSurcharge"
+    | "freeShippingMinimumSubtotal"
+    | "freeShippingMinimumDeliveryTypes"
   >[],
 ): Promise<ShippingCarrierView[]> {
   const settings = await customCarrierSettingsMap();
@@ -161,6 +190,7 @@ async function withCustomCarrierSettings(
       deliveryDays: await deliveryDaysForCarrier(carrier.key),
       shippingSurcharge: await shippingSurchargeForCarrier(carrier.key),
       freeShippingMinimumSubtotal: await freeShippingMinimumSubtotalForCarrier(carrier.key),
+      freeShippingMinimumDeliveryTypes: await freeShippingMinimumDeliveryTypesForCarrier(carrier.key),
     };
   }));
 }

@@ -17,7 +17,7 @@ import {
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isAdminRole } from "@/lib/roles";
-import { getMailingSettings, getMetricsSettings } from "@/lib/storeSettings";
+import { getMailingSettings, getMetricsSettings, getSiteTitle } from "@/lib/storeSettings";
 
 type ActivityItem = {
   id: string;
@@ -73,7 +73,6 @@ export default async function AdminDashboardPage() {
   const session = await auth();
   const user = session?.user as { name?: string | null; email?: string | null; role?: string | null } | undefined;
   const isAdmin = isAdminRole(user?.role);
-  const displayName = user?.name?.trim() || "";
   const todayStart = startOfToday();
   const todayEnd = endOfToday();
   const metricsSettings = await getMetricsSettings();
@@ -96,6 +95,7 @@ export default async function AdminDashboardPage() {
     latestProducts,
     latestPromotions,
     mailing,
+    storeTitle,
   ] = await Promise.all([
     prisma.order.aggregate({
       where: {
@@ -144,6 +144,7 @@ export default async function AdminDashboardPage() {
       select: { id: true, name: true, updatedAt: true, isActive: true },
     }),
     getMailingSettings(),
+    getSiteTitle(),
   ]);
 
   const salesToday = Number(todaySales._sum.total ?? 0);
@@ -195,7 +196,7 @@ export default async function AdminDashboardPage() {
           <div>
             <p className="text-sm font-medium text-[#A37A55]">Dashboard</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#5F3B18]">
-              {displayName ? `Hola, ${displayName} 👋` : "Hola 👋"}
+              Hola, {storeTitle} 👋
             </h1>
             <p className="mt-2 text-base text-[#8F6A49]">Así está funcionando tu tienda hoy.</p>
             {metricsStartLabel ? <p className="mt-2 text-sm text-[#A37A55]">Métricas calculadas desde {metricsStartLabel}.</p> : null}
@@ -208,8 +209,8 @@ export default async function AdminDashboardPage() {
 
         <section className="mt-8 xl:mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard icon={BarChart3} title="Ventas hoy" value={money(salesToday)} subtitle="Total vendido hoy" featured />
-          <KpiCard icon={Package} title="Pedidos" value={String(totalOrders)} subtitle={`${pendingOrders} pendiente${pendingOrders === 1 ? "" : "s"}`} />
-          <KpiCard icon={Users} title="Clientes" value={String(customerCount)} subtitle="Clientes registrados" />
+          <KpiCard href="/admin/orders" icon={Package} title="Pedidos" value={String(totalOrders)} subtitle={`${pendingOrders} pendiente${pendingOrders === 1 ? "" : "s"}`} />
+          <KpiCard href="/admin/users" icon={Users} title="Clientes" value={String(customerCount)} subtitle="Clientes registrados" />
           <KpiCard icon={BarChart3} title="Conversión" value={conversionLabel} subtitle="Ventas sobre clientes" />
         </section>
 
@@ -337,14 +338,16 @@ function KpiCard({
   value,
   subtitle,
   featured = false,
+  href,
 }: {
   icon: LucideIcon;
   title: string;
   value: string;
   subtitle: string;
   featured?: boolean;
+  href?: string;
 }) {
-  return (
+  const card = (
     <div
       className={[
         "rounded-3xl border p-5 xl:p-4 shadow-[0_16px_40px_rgba(80,52,28,0.06)]",
@@ -365,6 +368,15 @@ function KpiCard({
       </div>
     </div>
   );
+
+  return href ? (
+    <Link
+      href={href}
+      className="block rounded-3xl transition hover:-translate-y-0.5 hover:shadow-[0_18px_44px_rgba(80,52,28,0.1)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8B5A2B]"
+    >
+      {card}
+    </Link>
+  ) : card;
 }
 
 function Panel({

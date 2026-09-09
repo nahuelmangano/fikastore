@@ -20,9 +20,12 @@ type Body = {
   items: { productId: string; productVariantId?: string | null; lineKey?: string; quantity: number }[];
   shipping: {
     name: string;
+    dni: string;
     email: string;
     phone: string;
     addressLine: string;
+    floor?: string;
+    apartment?: string;
     city: string;
     province: string;
     provinceCode: string;
@@ -107,12 +110,16 @@ export async function POST(req: Request) {
   const shippingBranch = body.shippingBranch;
   const notes = String(body.notes || "").replace(/\s+/g, " ").trim().slice(0, 1000);
   const contactEmail = normalizeOrderEmail(shipping?.email);
+  const dni = String(shipping?.dni || "").replace(/\D/g, "");
+  const shippingFloor = String(shipping?.floor || "").trim().slice(0, 3);
+  const shippingApartment = String(shipping?.apartment || "").trim().slice(0, 3);
   const metaTracking = getMetaTrackingContext(req);
 
   if (items.length === 0) return bad("El carrito esta vacio.");
-  if (!shipping?.name?.trim() || !contactEmail || !shipping?.phone?.trim()) {
-    return bad("Completa nombre, email y telefono del destinatario.");
+  if (!shipping?.name?.trim() || !dni || !contactEmail || !shipping?.phone?.trim()) {
+    return bad("Completa nombre, DNI, email y telefono del destinatario.");
   }
+  if (!/^\d{7,8}$/.test(dni)) return bad("Ingresá un DNI válido de 7 u 8 dígitos.");
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
     return bad("Ingresá un email válido.");
   }
@@ -276,11 +283,14 @@ export async function POST(req: Request) {
         data: {
           userId: userId || null,
           contactEmail,
+          dni,
           status: "pending_payment",
           total: total.add(new Prisma.Decimal(shippingAmount || 0)),
           shippingName: shipping.name.trim(),
           shippingPhone: shipping.phone.trim(),
           shippingAddressLine: effectiveShipping.addressLine,
+          shippingFloor,
+          shippingApartment,
           shippingCity: effectiveShipping.city,
           shippingProvince: effectiveShipping.province,
           shippingProvinceCode: effectiveShipping.provinceCode,

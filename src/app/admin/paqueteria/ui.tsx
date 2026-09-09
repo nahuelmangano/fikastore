@@ -21,6 +21,7 @@ type Carrier = {
   deliveryDays: string | null;
   shippingSurcharge: number;
   freeShippingMinimumSubtotal: number;
+  freeShippingMinimumDeliveryTypes: PromotionFreeShippingDeliveryType[];
   configured: boolean;
   requiredCount: number;
   completedCount: number;
@@ -407,6 +408,9 @@ function ProviderCard({
   const [shippingSurcharge, setShippingSurcharge] = useState(String(carrier.shippingSurcharge || 0));
   const [savingShippingSurcharge, setSavingShippingSurcharge] = useState(false);
   const [freeShippingMinimumSubtotal, setFreeShippingMinimumSubtotal] = useState(String(carrier.freeShippingMinimumSubtotal || 0));
+  const [freeShippingMinimumDeliveryTypes, setFreeShippingMinimumDeliveryTypes] = useState<PromotionFreeShippingDeliveryType[]>(
+    carrier.freeShippingMinimumDeliveryTypes || []
+  );
   const [savingFreeShippingMinimumSubtotal, setSavingFreeShippingMinimumSubtotal] = useState(false);
 
   useEffect(() => {
@@ -576,7 +580,11 @@ function ProviderCard({
     const res = await fetch("/api/admin/shipping/carriers", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key: carrier.key, freeShippingMinimumSubtotal: nextValue }),
+      body: JSON.stringify({
+        key: carrier.key,
+        freeShippingMinimumSubtotal: nextValue,
+        freeShippingMinimumDeliveryTypes,
+      }),
     });
     const data = await res.json().catch(() => ({}));
     setSavingFreeShippingMinimumSubtotal(false);
@@ -587,11 +595,16 @@ function ProviderCard({
     }
 
     setFreeShippingMinimumSubtotal(String(data?.carrier?.freeShippingMinimumSubtotal ?? nextValue));
+    setFreeShippingMinimumDeliveryTypes(data?.carrier?.freeShippingMinimumDeliveryTypes ?? freeShippingMinimumDeliveryTypes);
     setShippingPromotionsMsg(
       nextValue > 0
         ? `Envío gratis automático desde $${Number(data?.carrier?.freeShippingMinimumSubtotal ?? nextValue).toLocaleString("es-AR")}.`
         : "Monto mínimo para envío gratis desactivado."
     );
+  }
+
+  function toggleMinimumDeliveryType(type: PromotionFreeShippingDeliveryType) {
+    setFreeShippingMinimumDeliveryTypes((prev) => (prev.includes(type) ? prev.filter((item) => item !== type) : [...prev, type]));
   }
 
   return (
@@ -853,8 +866,30 @@ function ProviderCard({
                     {savingFreeShippingMinimumSubtotal ? "Guardando..." : "Guardar mínimo"}
                   </button>
                 </div>
+                <div className="mt-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Aplicar a</div>
+                  <div className="mt-2 flex flex-wrap gap-3">
+                    {freeShippingDeliveryTypeOptions.map((option) => {
+                      const selected = freeShippingMinimumDeliveryTypes.includes(option.key);
+                      return (
+                        <label
+                          key={option.key}
+                          className="inline-flex cursor-pointer items-center gap-2 rounded-2xl border border-[var(--admin-border)] bg-white px-3 py-2 text-sm text-[var(--admin-text)]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => toggleMinimumDeliveryType(option.key)}
+                            className="h-4 w-4 rounded border-[var(--admin-border)] text-[var(--admin-primary)] focus:ring-[var(--admin-primary)]"
+                          />
+                          {option.label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
                 <p className="mt-3 text-xs text-[var(--admin-muted)]">
-                  Si cargás un valor mayor a 0, el envío de Correo Argentino pasa a gratis automáticamente cuando el subtotal final lo alcanza.
+                  Si cargás un valor mayor a 0, el envío de Correo Argentino pasa a gratis automáticamente cuando el subtotal final lo alcanza. Si no seleccionás ningún tipo, aplica a domicilio y sucursal.
                 </p>
               </div>
             </div>
