@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildMetaPurchaseEventId } from "@/lib/meta/purchase";
 import { trackMetaPurchase } from "@/lib/metaPixelEvents";
+import { trackGA4Purchase } from "@/lib/ga4";
 
 type OrderResp =
   | { ok: true; order: OrderDetails }
@@ -14,10 +15,12 @@ type OrderDetails = {
   orderNumber?: number | null;
   status?: string | null;
   total: number | string;
+  shippingAmount?: number | string;
   items: Array<{
     productId?: string;
     productVariantId?: string | null;
     name: string;
+    variant?: string | null;
     quantity: number;
     unitPrice: number | string;
     subtotal: number | string;
@@ -68,6 +71,7 @@ export default function PayResultClient({
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<OrderResp | null>(null);
   const purchaseTrackedRef = useRef(false);
+  const ga4PurchaseTrackedRef = useRef(false);
 
   const ok = data?.ok === true;
 
@@ -143,6 +147,54 @@ export default function PayResultClient({
 
       purchaseTrackedRef.current = true;
       window.localStorage.setItem(storageKey, eventId);
+      return true;
+    };
+
+    if (tryTrack()) return;
+
+    const intervalId = window.setInterval(() => {
+      if (tryTrack()) window.clearInterval(intervalId);
+    }, 500);
+
+    const timeoutId = window.setTimeout(() => {
+      window.clearInterval(intervalId);
+    }, 30000);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [order, orderId, trackPurchase]);
+
+  useEffect(() => {
+    if (!trackPurchase || !order || ga4PurchaseTrackedRef.current || !canTrackApprovedPurchase(order)) return;
+    if (typeof window === "undefined") return;
+
+    const transactionId = order.id || orderId;
+    const storageKey = `fikastore_ga4_purchase_tracked_${transactionId}`;
+    if (window.localStorage.getItem(storageKey) === "1") {
+      ga4PurchaseTrackedRef.current = true;
+      return;
+    }
+
+    const payload = {
+      transactionId,
+      value: Number(order.total),
+      shipping: Number(order.shippingAmount ?? 0),
+      items: order.items.map((item) => ({
+        item_id: item.productVariantId || item.productId || item.name,
+        item_name: item.name,
+        item_variant: item.variant || undefined,
+        price: Number(item.unitPrice),
+        quantity: item.quantity,
+      })),
+    };
+
+    const tryTrack = () => {
+      const sent = trackGA4Purchase(payload);
+      if (!sent) return false;
+      ga4PurchaseTrackedRef.current = true;
+      window.localStorage.setItem(storageKey, "1");
       return true;
     };
 

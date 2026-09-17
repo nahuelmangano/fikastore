@@ -8,6 +8,7 @@ import { Banknote, Clock3, CreditCard, Handshake, Landmark, Mail, type LucideIco
 import { CartItem, clearCart, clearPromoCode, readCart, readPromoCode } from "@/lib/cart";
 import { validateArgentinaPostalCodeProvince } from "@/lib/argentinaPostalCode";
 import { trackMetaInitiateCheckout } from "@/lib/metaPixelEvents";
+import { trackGA4BeginCheckout } from "@/lib/ga4";
 import { transferInstructionsWithBankDetails } from "@/lib/manualPaymentInstructions";
 
 type Shipping = {
@@ -74,6 +75,7 @@ type PricingItem = {
   finalPrice?: number;
   totalPercent?: number;
   autoPercent?: number;
+  autoPromotionName?: string | null;
   codePercent?: number;
   finalSubtotal?: number;
 };
@@ -85,6 +87,7 @@ type PricingData = {
     subtotalDiscounted?: number;
     discountAmount?: number;
     autoDiscountAmount?: number;
+    autoPromotionNames?: string[];
     codeDiscountAmount?: number;
     freeShipping?: boolean;
     freeShippingPromotionName?: string | null;
@@ -226,6 +229,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
   const [pricing, setPricing] = useState<PricingData | null>(null);
   const [pricingError, setPricingError] = useState<string | null>(null);
   const checkoutTracked = useRef(false);
+  const ga4CheckoutTracked = useRef(false);
 
   useEffect(() => {
     const sync = () => {
@@ -401,6 +405,25 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
     for (const it of pricing?.items ?? []) map.set(it.lineKey, it);
     return map;
   }, [pricing]);
+
+  useEffect(() => {
+    if (ga4CheckoutTracked.current || items.length === 0 || !pricing) return;
+    ga4CheckoutTracked.current = true;
+    trackGA4BeginCheckout(
+      items.map((item) => {
+        const priced = pricingById.get(item.lineKey);
+        const finalPrice = Number(priced?.finalPrice ?? item.price);
+        return {
+          item_id: item.productVariantId || item.productId,
+          item_name: item.variantLabel ? `${item.name} · ${item.variantLabel}` : item.name,
+          item_variant: item.variantLabel || undefined,
+          price: finalPrice,
+          quantity: item.quantity,
+        };
+      }),
+      Number(pricing.summary?.subtotalDiscounted ?? subtotalFallback)
+    );
+  }, [items, pricing, pricingById, subtotalFallback]);
 
   useEffect(() => {
     let cancelled = false;
@@ -711,7 +734,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                             ${final.toLocaleString("es-AR")}{" "}
                             <span className="text-xs text-zinc-500">({percent}% OFF)</span>
                             <div className="text-xs text-zinc-500">
-                              {Number(pi?.autoPercent ?? 0) > 0 && <span>Promo tienda {pi?.autoPercent}%</span>}
+                              {Number(pi?.autoPercent ?? 0) > 0 && <span>{pi?.autoPromotionName || "Promo tienda"} {pi?.autoPercent}%</span>}
                               {Number(pi?.autoPercent ?? 0) > 0 && Number(pi?.codePercent ?? 0) > 0 && <span> + </span>}
                               {Number(pi?.codePercent ?? 0) > 0 && <span>Codigo {pi?.codePercent}%</span>}
                             </div>
@@ -740,7 +763,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
               )}
               {autoDiscountAmount > 0 && (
                 <div className="mt-1 flex items-center justify-between text-xs">
-                  <span className="text-zinc-500">- Promo tienda</span>
+                  <span className="text-zinc-500">- {pricing?.summary?.autoPromotionNames?.join(" · ") || "Promo tienda"}</span>
                   <span className="text-zinc-400">-${autoDiscountAmount.toLocaleString("es-AR")}</span>
                 </div>
               )}

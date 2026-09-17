@@ -22,6 +22,7 @@ export type PricedItem = {
   finalPrice: number;
   quantity: number;
   autoPercent: number;
+  autoPromotionName: string | null;
   codePercent: number;
   totalPercent: number;
   baseSubtotal: number;
@@ -35,6 +36,7 @@ export type PricingSummary = {
   subtotalDiscounted: number;
   discountAmount: number;
   autoDiscountAmount: number;
+  autoPromotionNames: string[];
   codeDiscountAmount: number;
   freeShipping: boolean;
   freeShippingPromotionName: string | null;
@@ -170,16 +172,21 @@ function promotionMatchesPaymentMethod(
   return effectiveMethods.includes(paymentMethod as PromotionPaymentMethod);
 }
 
-export async function getAutomaticDiscountsForProducts(productIds: string[], paymentMethod?: string | null) {
+async function getAutomaticDiscountDetailsForProducts(
+  productIds: string[],
+  paymentMethod?: string | null,
+  includeGlobal = true,
+  onlyGlobal = false
+) {
   const ids = [...new Set(productIds.map((id) => id.trim()).filter(Boolean))];
-  const map = new Map<string, number>();
+  const map = new Map<string, { percent: number; name: string | null }>();
   if (ids.length === 0) return map;
 
   const now = new Date();
   const promos = await prisma.promotion.findMany({
     where: {
       isActive: true,
-      type: { in: ["global", "product"] },
+      type: onlyGlobal ? "global" : includeGlobal ? { in: ["global", "product"] } : "product",
       ...activeWindowWhere(now),
     },
     include: {
@@ -193,20 +200,35 @@ export async function getAutomaticDiscountsForProducts(productIds: string[], pay
     promotionMatchesPaymentMethod(promo.paymentMethods, paymentMethod, promo.name)
   );
 
-  const globalMax = matchingPromos
-    .filter((p) => p.type === "global")
-    .reduce((acc, p) => Math.max(acc, p.percent), 0);
+  const globalPromo = includeGlobal
+    ? matchingPromos.filter((p) => p.type === "global").sort((a, b) => b.percent - a.percent)[0] ?? null
+    : null;
 
-  for (const id of ids) map.set(id, globalMax);
+  for (const id of ids) {
+    map.set(id, { percent: globalPromo?.percent ?? 0, name: globalPromo?.name ?? null });
+  }
 
   for (const promo of matchingPromos) {
-    if (promo.type !== "product") continue;
+    if (promo.type !== "product" || onlyGlobal) continue;
     for (const pp of promo.products) {
-      map.set(pp.productId, Math.max(map.get(pp.productId) ?? 0, promo.percent));
+      const current = map.get(pp.productId);
+      if (!current || promo.percent > current.percent) {
+        map.set(pp.productId, { percent: promo.percent, name: promo.name });
+      }
     }
   }
 
   return map;
+}
+
+export async function getAutomaticDiscountsForProducts(
+  productIds: string[],
+  paymentMethod?: string | null,
+  includeGlobal = true,
+  onlyGlobal = false
+) {
+  const details = await getAutomaticDiscountDetailsForProducts(productIds, paymentMethod, includeGlobal, onlyGlobal);
+  return new Map([...details].map(([id, value]) => [id, value.percent]));
 }
 
 async function getCodeDiscountPercent(code: string | null, paymentMethod?: string | null) {
@@ -273,6 +295,7 @@ export async function priceCartItems(
         subtotalDiscounted: 0,
         discountAmount: 0,
         autoDiscountAmount: 0,
+        autoPromotionNames: [],
         codeDiscountAmount: 0,
         freeShipping: false,
         freeShippingPromotionName: null,
@@ -307,7 +330,8 @@ export async function priceCartItems(
     : [];
   const variantsById = new Map(variants.map((variant) => [variant.id, variant]));
 
-  const autoMap = await getAutomaticDiscountsForProducts(merged.map((m) => m.productId), paymentMethod);
+  const productAutoMap = await getAutomaticDiscountDetailsForProducts(merged.map((m) => m.productId), paymentMethod, false);
+  const globalAutoMap = await getAutomaticDiscountDetailsForProducts(merged.map((m) => m.productId), paymentMethod, true, true);
   const normalizedCode = normalizePromoCode(promoCode);
   const codeInfo = await getCodeDiscountPercent(normalizedCode, paymentMethod);
   const items: PricedItem[] = [];
@@ -319,14 +343,18 @@ export async function priceCartItems(
     if (it.productVariantId && (!variant || variant.productId !== it.productId)) continue;
 
     const basePrice = variant?.priceOverride !== null && variant?.priceOverride !== undefined ? Number(variant.priceOverride) : Number(product.price);
-    const autoPercent = autoMap.get(it.productId) ?? 0;
+    const productDiscount = productAutoMap.get(it.productId) ?? { percent: 0, name: null };
+    const globalDiscount = globalAutoMap.get(it.productId) ?? { percent: 0, name: null };
+    const autoPrice = round2(basePrice * (1 - productDiscount.percent / 100) * (1 - globalDiscount.percent / 100));
+    const autoPercent = basePrice > 0 ? round2((1 - autoPrice / basePrice) * 100) : 0;
+    const autoPromotionName = productDiscount.percent > 0 ? productDiscount.name : globalDiscount.name;
     const codePercent = codeInfo.percent;
     const totalPercent = Math.max(0, Math.min(90, autoPercent + codePercent));
-    const finalPrice = round2(basePrice * (1 - totalPercent / 100));
+    const finalPrice = round2(autoPrice * (1 - codePercent / 100));
     const baseSubtotal = round2(basePrice * it.quantity);
     const finalSubtotal = round2(finalPrice * it.quantity);
-    const autoDiscountAmount = round2(baseSubtotal * (autoPercent / 100));
-    const codeDiscountAmount = round2(baseSubtotal * (codePercent / 100));
+    const autoDiscountAmount = round2(baseSubtotal - autoPrice * it.quantity);
+    const codeDiscountAmount = round2((autoPrice * it.quantity) - finalSubtotal);
 
     items.push({
       lineKey: it.lineKey,
@@ -337,6 +365,7 @@ export async function priceCartItems(
       finalPrice,
       quantity: it.quantity,
       autoPercent,
+      autoPromotionName,
       codePercent,
       totalPercent,
       baseSubtotal,
@@ -350,6 +379,7 @@ export async function priceCartItems(
   const subtotalDiscounted = round2(items.reduce((acc, it) => acc + it.finalSubtotal, 0));
   const discountAmount = round2(subtotalBase - subtotalDiscounted);
   const autoDiscountAmount = round2(items.reduce((acc, it) => acc + it.autoDiscountAmount, 0));
+  const autoPromotionNames = [...new Set(items.map((it) => it.autoPromotionName).filter(Boolean) as string[])];
   const codeDiscountAmount = round2(items.reduce((acc, it) => acc + it.codeDiscountAmount, 0));
   const freeShippingPromo = await getFreeShippingPromotionForCart(merged, normalizedCode, paymentMethod, deliveryType, carrierKey);
   const minimumSubtotalFreeShipping = await getCarrierMinimumSubtotalFreeShipping(subtotalDiscounted, carrierKey, deliveryType);
@@ -366,6 +396,7 @@ export async function priceCartItems(
       subtotalDiscounted,
       discountAmount,
       autoDiscountAmount,
+      autoPromotionNames,
       codeDiscountAmount,
       freeShipping: freeShipping.applies,
       freeShippingPromotionName: freeShipping.promotionName,

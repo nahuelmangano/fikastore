@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { addToCart } from "@/lib/cart";
 import { trackMetaAddToCart } from "@/lib/metaPixelEvents";
+import { trackGA4AddToCart } from "@/lib/ga4";
 import { lineItemKey } from "@/lib/productVariants";
 
 type Props = {
@@ -42,6 +43,12 @@ export default function AddToCartButton({ product }: Props) {
         trackMetaAddToCart({
           id: product.id,
           name: product.name,
+          price: product.price,
+          quantity: 1,
+        });
+        trackGA4AddToCart({
+          item_id: product.id,
+          item_name: product.name,
           price: product.price,
           quantity: 1,
         });

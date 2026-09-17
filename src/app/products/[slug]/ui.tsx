@@ -21,6 +21,7 @@ import { lineItemKey } from "@/lib/productVariants";
 import SiteHeader from "@/components/SiteHeader";
 import { sanitizeRichText } from "@/lib/richText";
 import { trackMetaAddToCart, trackMetaViewContent } from "@/lib/metaPixelEvents";
+import { trackGA4AddToCart, trackGA4ViewItem } from "@/lib/ga4";
 
 function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
@@ -158,7 +159,9 @@ export default function ProductDetailClient({
   initialModernVariantId = null,
   promoPercent = 0,
   promoPercents = {},
+  productPromoPercents = {},
   promoPercentsByPaymentMethod = {},
+  globalPromoPercentsByPaymentMethod = {},
   paymentSettings = {
     mercadopagoEnabled: false,
     installmentPlans: [{ installments: 3, minimumAmount: 50000 }],
@@ -177,7 +180,9 @@ export default function ProductDetailClient({
   initialModernVariantId?: string | null;
   promoPercent?: number;
   promoPercents?: Record<string, number>;
+  productPromoPercents?: Record<string, number>;
   promoPercentsByPaymentMethod?: Partial<Record<PaymentMethodKey, Record<string, number>>>;
+  globalPromoPercentsByPaymentMethod?: Partial<Record<PaymentMethodKey, Record<string, number>>>;
   paymentSettings?: PaymentSettings;
 }) {
   const isModernVariantProduct = modernVariantOptions.length > 0 && modernVariants.length > 0;
@@ -259,7 +264,14 @@ export default function ProductDetailClient({
     Number(promoPercentsByPaymentMethod.transfer?.[promotionTargetId] ?? 0)
   );
   const promo = cashTransferPromo || Number(promoPercents[promotionTargetId] ?? promoPercent ?? 0);
-  const finalPrice = promo > 0 ? Math.round(price * (1 - promo / 100) * 100) / 100 : price;
+  const productPromo = Number(productPromoPercents[promotionTargetId] ?? 0);
+  const productFinalPrice = productPromo > 0 ? Math.round(price * (1 - productPromo / 100) * 100) / 100 : price;
+  const globalPromo = Math.max(
+    Number(globalPromoPercentsByPaymentMethod.cash?.[promotionTargetId] ?? 0),
+    Number(globalPromoPercentsByPaymentMethod.transfer?.[promotionTargetId] ?? 0)
+  );
+  const combinedFinalPrice = Math.round(productFinalPrice * (1 - globalPromo / 100) * 100) / 100;
+  const finalPrice = promo > 0 ? combinedFinalPrice : price;
   const eligibleInstallmentPlans = paymentSettings.installmentPlans.filter((plan) => price >= plan.minimumAmount);
   const installmentPlan = [...eligibleInstallmentPlans].sort((a, b) => b.installments - a.installments)[0] ?? null;
   const installmentAmount = installmentPlan ? Math.round((price / installmentPlan.installments) * 100) / 100 : 0;
@@ -287,10 +299,21 @@ export default function ProductDetailClient({
     const trackingId = isModernVariantProduct ? selectedModernVariant?.id || product.id : selected.id;
     if (lastTrackedViewContentId.current === trackingId) return;
     lastTrackedViewContentId.current = trackingId;
+    const trackingName = isModernVariantProduct ? `${product.name}${selectedModernVariant?.label ? ` · ${selectedModernVariant.label}` : ""}` : selected.name;
+    const trackingVariant = isModernVariantProduct
+      ? selectedModernVariant?.label ?? undefined
+      : splitProductName(selected.name).variantName || undefined;
     trackMetaViewContent({
       id: trackingId,
-      name: isModernVariantProduct ? `${product.name}${selectedModernVariant?.label ? ` · ${selectedModernVariant.label}` : ""}` : selected.name,
+      name: trackingName,
       price: finalPrice,
+    });
+    trackGA4ViewItem({
+      item_id: trackingId,
+      item_name: trackingName,
+      item_variant: trackingVariant,
+      price: finalPrice,
+      quantity: 1,
     });
   }, [finalPrice, isModernVariantProduct, product.id, product.name, selected.id, selected.name, selectedModernVariant?.id, selectedModernVariant?.label]);
 
@@ -308,12 +331,16 @@ export default function ProductDetailClient({
   }
 
   function finalPriceForPaymentMethod(method: PaymentMethodKey) {
-    const methodPromo = Number(promoPercentsByPaymentMethod[method]?.[promotionTargetId] ?? 0);
-    return methodPromo > 0 ? Math.round(price * (1 - methodPromo / 100) * 100) / 100 : price;
+    const methodProductPromo = Number(promoPercentsByPaymentMethod[method]?.[promotionTargetId] ?? 0);
+    const methodGlobalPromo = Number(globalPromoPercentsByPaymentMethod[method]?.[promotionTargetId] ?? 0);
+    const methodProductPrice = price * (1 - methodProductPromo / 100);
+    return Math.round(methodProductPrice * (1 - methodGlobalPromo / 100) * 100) / 100;
   }
 
   function promoForPaymentMethod(method: PaymentMethodKey) {
-    return Number(promoPercentsByPaymentMethod[method]?.[promotionTargetId] ?? 0);
+    const productPercent = Number(promoPercentsByPaymentMethod[method]?.[promotionTargetId] ?? 0);
+    const globalPercent = Number(globalPromoPercentsByPaymentMethod[method]?.[promotionTargetId] ?? 0);
+    return Math.round((1 - (1 - productPercent / 100) * (1 - globalPercent / 100)) * 10000) / 100;
   }
 
   const showImageAt = useCallback((index: number) => {
@@ -570,7 +597,22 @@ export default function ProductDetailClient({
             <h1 className="text-2xl font-semibold">{baseName}</h1>
 
             <div className="mt-4">
-              {promo > 0 ? (
+              {productPromo > 0 ? (
+                <div>
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <span className="text-lg font-medium text-zinc-400 line-through decoration-zinc-500 sm:text-xl">
+                      {money(price)}
+                    </span>
+                    <span className="text-3xl font-bold tracking-normal text-zinc-100 sm:text-[2.15rem]">
+                      {money(productFinalPrice)}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2 text-sm font-semibold text-orange-300 sm:text-[15px]">
+                    <Tag className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>{productPromo}% OFF por promoción del producto</span>
+                  </div>
+                </div>
+              ) : promo > 0 ? (
                 <div>
                   <div className="text-3xl font-bold tracking-normal text-zinc-100 sm:text-[2.15rem]">
                     {money(price)}
@@ -818,6 +860,13 @@ export default function ProductDetailClient({
                     trackMetaAddToCart({
                       id: selectedVariantId || product.id,
                       name: selectedVariantLabel ? `${product.name} · ${selectedVariantLabel}` : product.name,
+                      price: finalPrice,
+                      quantity: qty,
+                    });
+                    trackGA4AddToCart({
+                      item_id: selectedVariantId || product.id,
+                      item_name: selectedVariantLabel ? `${product.name} · ${selectedVariantLabel}` : product.name,
+                      item_variant: selectedVariantLabel || undefined,
                       price: finalPrice,
                       quantity: qty,
                     });

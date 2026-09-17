@@ -96,12 +96,18 @@ export default async function ProductDetailPage({
 
   const activeVariants = sortVariantsBySize(legacyVariants.length > 0 ? legacyVariants : [product]);
   const discountTargetIds = product.hasVariants ? [product.id] : activeVariants.map((variant) => variant.id);
-  const [paymentSettings, cashPromoMap, transferPromoMap, mercadoPagoPromoMap, agreementPromoMap] = await Promise.all([
+  const [paymentSettings, cashPromoMap, transferPromoMap, mercadoPagoPromoMap, agreementPromoMap, productCashPromoMap, productTransferPromoMap, globalCashPromoMap, globalTransferPromoMap, globalMercadoPagoPromoMap, globalAgreementPromoMap] = await Promise.all([
     getCheckoutPaymentSettings(),
     getAutomaticDiscountsForProducts(discountTargetIds, "cash"),
     getAutomaticDiscountsForProducts(discountTargetIds, "transfer"),
     getAutomaticDiscountsForProducts(discountTargetIds, "mercadopago"),
     getAutomaticDiscountsForProducts(discountTargetIds, "agreement"),
+    getAutomaticDiscountsForProducts(discountTargetIds, "cash", false),
+    getAutomaticDiscountsForProducts(discountTargetIds, "transfer", false),
+    getAutomaticDiscountsForProducts(discountTargetIds, "cash", true, true),
+    getAutomaticDiscountsForProducts(discountTargetIds, "transfer", true, true),
+    getAutomaticDiscountsForProducts(discountTargetIds, "mercadopago", true, true),
+    getAutomaticDiscountsForProducts(discountTargetIds, "agreement", true, true),
   ]);
   const promoMap = new Map(
     discountTargetIds.map((id) => [
@@ -115,6 +121,9 @@ export default async function ProductDetailPage({
     ])
   );
   const promoPercent = promoMap.get(product.id) ?? 0;
+  const productPromoPercents = Object.fromEntries(
+    discountTargetIds.map((id) => [id, Math.max(productCashPromoMap.get(id) ?? 0, productTransferPromoMap.get(id) ?? 0)])
+  );
 
   return (
     <ProductDetailClient
@@ -141,12 +150,19 @@ export default async function ProductDetailPage({
         }))}
       initialModernVariantId={initialVariantId}
       promoPercent={promoPercent}
+      productPromoPercents={productPromoPercents}
       promoPercents={Object.fromEntries(product.hasVariants ? [[product.id, promoPercent]] : promoMap)}
       promoPercentsByPaymentMethod={{
         cash: Object.fromEntries(cashPromoMap),
         transfer: Object.fromEntries(transferPromoMap),
         mercadopago: Object.fromEntries(mercadoPagoPromoMap),
         agreement: Object.fromEntries(agreementPromoMap),
+      }}
+      globalPromoPercentsByPaymentMethod={{
+        cash: Object.fromEntries(globalCashPromoMap),
+        transfer: Object.fromEntries(globalTransferPromoMap),
+        mercadopago: Object.fromEntries(globalMercadoPagoPromoMap),
+        agreement: Object.fromEntries(globalAgreementPromoMap),
       }}
       paymentSettings={paymentSettings}
     />

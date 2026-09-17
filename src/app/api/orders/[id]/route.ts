@@ -44,11 +44,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       orderNumber: order.orderNumber,
       status: order.status,
       total: Number(order.total),
+      shippingAmount: Number(order.shippingAmount),
       createdAt: order.createdAt,
       items: order.items.map((it) => ({
         productId: it.productId,
         productVariantId: it.productVariantId,
         name: it.nameSnapshot,
+        variant: it.variantSnapshot,
         quantity: it.quantity,
         unitPrice: Number(it.unitPrice),
         subtotal: Number(it.subtotal),
