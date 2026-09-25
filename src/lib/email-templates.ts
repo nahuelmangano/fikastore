@@ -7,6 +7,7 @@ function formatDate(value?: Date | string) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleDateString("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
     day: "2-digit",
     month: "long",
     year: "numeric",
@@ -29,6 +30,9 @@ function textToHtml(value: string) {
     .map((line) => `<p style="margin:10px 0 0;color:#444;">${line}</p>`)
     .join("");
 }
+
+const DEFAULT_PURCHASE_MESSAGE = "Te vamos a avisar cuando despachemos tu pedido.";
+const DEFAULT_PICKUP_PURCHASE_MESSAGE = "Te vamos a avisar cuando tu pedido esté listo para retirar.";
 
 function addressBlock(input?: {
   name?: string;
@@ -98,9 +102,15 @@ export function orderPaidTemplate(input: {
   const subtotal = input.subtotal ?? input.items.reduce((acc, it) => acc + it.subtotal, 0);
   const shippingAmount = input.shipping?.amount ?? 0;
   const discount = Math.max(0, input.discount ?? 0);
-  const isPickup = input.shipping?.method === "pickup";
+  const isPickup = input.shipping?.method === "pickup" || input.shipping?.method === "custom-acordar-envio";
   const isBranchPickup = input.shipping?.deliveryType === "S";
   const deliveryTitle = isPickup || isBranchPickup ? "Retiro" : "Envio";
+  const purchaseMessage =
+    input.message && input.message.trim() !== DEFAULT_PURCHASE_MESSAGE
+      ? input.message
+      : isPickup
+        ? DEFAULT_PICKUP_PURCHASE_MESSAGE
+        : DEFAULT_PURCHASE_MESSAGE;
   const shippingText =
     isPickup
       ? "Retiro en punto de retiro"
@@ -237,7 +247,7 @@ export function orderPaidTemplate(input: {
     </div>
 
     <div style="margin-top:18px;">
-        ${textToHtml(input.message || "Te vamos a avisar cuando despachemos tu pedido.")}
+        ${textToHtml(purchaseMessage)}
       </div>
       <p style="margin:14px 0 0;font-size:12px;color:#777;">FikaStore</p>
     </div>

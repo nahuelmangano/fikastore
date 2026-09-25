@@ -17,6 +17,12 @@ export type ShippingCarrierView = {
   shippingSurcharge: number;
   freeShippingMinimumSubtotal: number;
   freeShippingMinimumDeliveryTypes: ShippingDeliveryTypeKey[];
+  pickupPoints: ShippingPickupPoint[];
+};
+export type ShippingPickupPoint = {
+  id: string;
+  name: string;
+  notes: string;
 };
 
 const CUSTOM_SHIPPING_PROVIDER = "custom_shipping";
@@ -25,7 +31,7 @@ const DEFAULT_CARRIERS: { key: ShippingCarrierKey; name: string; enabled: boolea
   { key: "epick", name: "E-pick", enabled: true, visibleToMerchant: true },
   { key: "andreani", name: "Andreani", enabled: false, visibleToMerchant: false },
   { key: "correo", name: "Correo Argentino", enabled: true, visibleToMerchant: true },
-  { key: "pickup", name: "Retiro en comercio", enabled: true, visibleToMerchant: true },
+  { key: "pickup", name: "Punto de Retiro", enabled: false, visibleToMerchant: false },
 ];
 
 function orderByDefault(a: { key: string }, b: { key: string }) {
@@ -69,6 +75,45 @@ async function setCarrierVisibilityIfSupported(key: string, visibleToMerchant: b
   }
 }
 
+async function updateCarrierBase(key: string, data: { name?: string; enabled?: boolean; visibleToMerchant?: boolean }) {
+  try {
+    await prisma.shippingCarrier.update({
+      where: { key },
+      data,
+      select: { key: true },
+    });
+  } catch (error) {
+    if (!isMissingVisibleToMerchantError(error) || typeof data.visibleToMerchant !== "boolean") throw error;
+
+    await prisma.shippingCarrier.update({
+      where: { key },
+      data: {
+        ...(typeof data.name === "string" ? { name: data.name } : {}),
+        ...(typeof data.enabled === "boolean" ? { enabled: data.enabled } : {}),
+      },
+      select: { key: true },
+    });
+  }
+}
+
+async function reconcileShippingCarrierDefaults(carriers: ShippingCarrierView[]) {
+  const pickup = carriers.find((carrier) => carrier.key === "pickup");
+  if (pickup && (pickup.name !== "Punto de Retiro" || pickup.enabled || pickup.visibleToMerchant)) {
+    await updateCarrierBase("pickup", { name: "Punto de Retiro", enabled: false, visibleToMerchant: false });
+  }
+
+  const legacyAgreementCarrier = carriers.find(
+    (carrier) =>
+      carrier.key === "custom-acordar-envio" ||
+      carrier.name.trim().toLowerCase() === "acordar envio" ||
+      carrier.name.trim().toLowerCase() === "acordar envío",
+  );
+
+  if (legacyAgreementCarrier && legacyAgreementCarrier.name !== "Punto de Retiro") {
+    await updateCarrierBase(legacyAgreementCarrier.key, { name: "Punto de Retiro" });
+  }
+}
+
 async function createCarrierBase(input: { key: string; name: string; enabled: boolean }) {
   try {
     return await prisma.shippingCarrier.create({
@@ -101,8 +146,33 @@ function slugifyCustomCarrierName(name: string) {
     .slice(0, 48);
 }
 
-function customSettingKey(carrierKey: string, field: "description" | "flatRate" | "pricingMode") {
+function customSettingKey(carrierKey: string, field: "description" | "flatRate" | "pricingMode" | "pickupPoints") {
   return `${carrierKey}:${field}`;
+}
+
+function normalizePickupPoints(value: unknown): ShippingPickupPoint[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item, index) => {
+      const raw = item && typeof item === "object" ? item as Partial<ShippingPickupPoint> : {};
+      const name = String(raw.name || "").trim().slice(0, 80);
+      if (!name) return null;
+      return {
+        id: String(raw.id || `point-${index + 1}`).trim().slice(0, 80),
+        name,
+        notes: String(raw.notes || "").trim().slice(0, 180),
+      };
+    })
+    .filter((item): item is ShippingPickupPoint => Boolean(item));
+}
+
+function parsePickupPoints(value?: string | null) {
+  if (!value) return [];
+  try {
+    return normalizePickupPoints(JSON.parse(value));
+  } catch {
+    return [];
+  }
 }
 
 async function deliveryDaysForCarrier(key: string) {
@@ -172,6 +242,7 @@ async function withCustomCarrierSettings(
     | "shippingSurcharge"
     | "freeShippingMinimumSubtotal"
     | "freeShippingMinimumDeliveryTypes"
+    | "pickupPoints"
   >[],
 ): Promise<ShippingCarrierView[]> {
   const settings = await customCarrierSettingsMap();
@@ -179,6 +250,7 @@ async function withCustomCarrierSettings(
     const custom = isCustomShippingCarrierKey(carrier.key);
     const rawRate = Number(settings.get(customSettingKey(carrier.key, "flatRate")) || 0);
     const rawPricingMode = String(settings.get(customSettingKey(carrier.key, "pricingMode")) || "fixed");
+    const pickupPoints = custom ? parsePickupPoints(settings.get(customSettingKey(carrier.key, "pickupPoints"))) : [];
     return {
       ...carrier,
       custom,
@@ -191,6 +263,7 @@ async function withCustomCarrierSettings(
       shippingSurcharge: await shippingSurchargeForCarrier(carrier.key),
       freeShippingMinimumSubtotal: await freeShippingMinimumSubtotalForCarrier(carrier.key),
       freeShippingMinimumDeliveryTypes: await freeShippingMinimumDeliveryTypesForCarrier(carrier.key),
+      pickupPoints,
     };
   }));
 }
@@ -247,6 +320,7 @@ export async function getShippingCarriers(options?: { visibleToMerchantOnly?: bo
     }
   }
 
+  await reconcileShippingCarrierDefaults(await readShippingCarriers());
   const list = await readShippingCarriers(options);
   return list.sort(orderByDefault);
 }
@@ -262,6 +336,7 @@ export async function createCustomShippingCarrier(input: {
   description?: string;
   flatRate?: number;
   pricingMode?: "fixed" | "agreement" | "free";
+  pickupPoints?: ShippingPickupPoint[];
 }) {
   const name = String(input.name || "").trim().slice(0, 80);
   if (!name) throw new Error("Nombre requerido.");
@@ -284,20 +359,21 @@ export async function createCustomShippingCarrier(input: {
   const carrier = await createCarrierBase({ key, name, enabled: true });
   await setCarrierVisibilityIfSupported(key, true);
 
-  await setCustomShippingCarrierSettings(key, { description, flatRate, pricingMode: input.pricingMode });
+  await setCustomShippingCarrierSettings(key, { description, flatRate, pricingMode: input.pricingMode, pickupPoints: input.pickupPoints });
   const carriers = await getShippingCarriers();
   return carriers.find((item) => item.key === carrier.key) || carriers[0];
 }
 
 export async function setCustomShippingCarrierSettings(
   carrierKey: string,
-  input: { description?: string; flatRate?: number; pricingMode?: "fixed" | "agreement" | "free" },
+  input: { description?: string; flatRate?: number; pricingMode?: "fixed" | "agreement" | "free"; pickupPoints?: ShippingPickupPoint[] },
 ) {
   if (!isCustomShippingCarrierKey(carrierKey)) throw new Error("Método personalizado inválido.");
 
   const flatRate = Math.max(0, Number(input.flatRate || 0));
   const description = String(input.description || "Entrega personalizada.").trim().slice(0, 200);
   const pricingMode = input.pricingMode === "agreement" ? "agreement" : input.pricingMode === "free" ? "free" : "fixed";
+  const pickupPoints = normalizePickupPoints(input.pickupPoints);
 
   await prisma.$transaction([
     prisma.shippingProviderSetting.upsert({
@@ -329,6 +405,16 @@ export async function setCustomShippingCarrierSettings(
         isSecret: false,
       },
       update: { value: pricingMode, isSecret: false },
+    }),
+    prisma.shippingProviderSetting.upsert({
+      where: { provider_key: { provider: CUSTOM_SHIPPING_PROVIDER, key: customSettingKey(carrierKey, "pickupPoints") } },
+      create: {
+        provider: CUSTOM_SHIPPING_PROVIDER,
+        key: customSettingKey(carrierKey, "pickupPoints"),
+        value: JSON.stringify(pickupPoints),
+        isSecret: false,
+      },
+      update: { value: JSON.stringify(pickupPoints), isSecret: false },
     }),
   ]);
 }

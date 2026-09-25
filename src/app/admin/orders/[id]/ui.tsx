@@ -8,7 +8,7 @@ function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
 }
 
-type PriceValue = number | string;
+type PriceValue = number | string | { toString(): string };
 
 type OrderPayment = {
   provider?: string | null;
@@ -27,6 +27,9 @@ type OrderItem = {
   quantity: number;
   unitPrice: PriceValue;
   subtotal: PriceValue;
+  product?: {
+    images?: { url: string }[];
+  } | null;
 };
 
 type EPickShipmentState = {
@@ -161,6 +164,8 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
     0
   );
   const shippingAmount = Number(order.shippingAmount || 0);
+  const isCorreoShipping = order.shippingMethod === "correo";
+  const isEpickShipping = order.shippingMethod === "epick";
 
   async function loadShipEmailPreview(customMessage = shipEmailMessage) {
     setShipEmailMsg(null);
@@ -295,10 +300,26 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
                   key={it.id}
                   className="flex items-start justify-between rounded-xl border border-zinc-800 bg-zinc-950/40 p-4"
                 >
-                  <div>
-                    <div className="font-medium">{it.nameSnapshot}</div>
-                    <div className="mt-1 text-sm text-zinc-400">
-                      {it.quantity} × {money(Number(it.unitPrice))}
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
+                      {it.product?.images?.[0]?.url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={it.product.images[0].url}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-zinc-600">
+                          <PackageCheck className="h-5 w-5" aria-hidden="true" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-medium">{it.nameSnapshot}</div>
+                      <div className="mt-1 text-sm text-zinc-400">
+                        {it.quantity} × {money(Number(it.unitPrice))}
+                      </div>
                     </div>
                   </div>
                   <div className="text-sm text-zinc-200">{money(Number(it.subtotal))}</div>
@@ -520,6 +541,7 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
           )}
         </div>
 
+        {isCorreoShipping && (
         <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -651,7 +673,9 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
             </button>
           </div>
         </div>
+        )}
 
+        {isEpickShipping && (
         <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -767,6 +791,7 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
             </a>
           </div>
         </div>
+        )}
       </div>
     </main>
   );

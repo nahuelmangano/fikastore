@@ -9,8 +9,9 @@ export default async function AdminPaqueteriaPage() {
   const role = (session?.user as { role?: string } | undefined)?.role;
   const isAdmin = isAdminRole(role);
   const carriers = await getShippingCarriers({ visibleToMerchantOnly: !isAdmin });
+  const panelCarriers = carriers.filter((carrier) => carrier.key !== "pickup");
   const configs = await Promise.all(
-    carriers.map(async (carrier) => {
+    panelCarriers.map(async (carrier) => {
       if (carrier.custom) {
         return {
           key: carrier.key,
@@ -34,7 +35,7 @@ export default async function AdminPaqueteriaPage() {
 
   return (
     <AdminPaqueteria
-      carriers={carriers.map((c) => {
+      carriers={panelCarriers.map((c) => {
         const config = configByKey.get(c.key);
         return {
           key: c.key,
@@ -45,6 +46,7 @@ export default async function AdminPaqueteriaPage() {
           description: c.description,
           flatRate: c.flatRate,
           pricingMode: c.pricingMode,
+          pickupPoints: c.pickupPoints,
           deliveryDays: c.deliveryDays,
           shippingSurcharge: c.shippingSurcharge,
           freeShippingMinimumSubtotal: c.freeShippingMinimumSubtotal,

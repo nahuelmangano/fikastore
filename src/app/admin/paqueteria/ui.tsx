@@ -18,6 +18,7 @@ type Carrier = {
   description: string;
   flatRate: number;
   pricingMode: "fixed" | "agreement" | "free";
+  pickupPoints: PickupPoint[];
   deliveryDays: string | null;
   shippingSurcharge: number;
   freeShippingMinimumSubtotal: number;
@@ -25,6 +26,12 @@ type Carrier = {
   configured: boolean;
   requiredCount: number;
   completedCount: number;
+};
+
+type PickupPoint = {
+  id: string;
+  name: string;
+  notes: string;
 };
 
 type PromotionPaymentMethod = "mercadopago" | "agreement" | "cash" | "transfer";
@@ -85,7 +92,8 @@ const providerMeta: Record<string, { description: string; group: "delivery" | "p
   epick: { description: "Envíos a domicilio con gestión de tracking.", group: "delivery", icon: Truck },
   andreani: { description: "Correo y distribución nacional.", group: "delivery", icon: PackageCheck },
   correo: { description: "Correo nacional con entrega a domicilio o sucursal.", group: "delivery", icon: Building2 },
-  pickup: { description: "Retiro presencial en comercio.", group: "pickup", icon: Store },
+  pickup: { description: "Retiro en punto de retiro.", group: "pickup", icon: Store },
+  "custom-acordar-envio": { description: "Retiro en punto de retiro.", group: "pickup", icon: Store },
 };
 
 export default function AdminPaqueteria({
@@ -211,6 +219,7 @@ export default function AdminPaqueteria({
         description: patch.description ?? carrier.description,
         flatRate: patch.flatRate ?? carrier.flatRate,
         pricingMode: patch.pricingMode ?? carrier.pricingMode,
+        pickupPoints: patch.pickupPoints ?? carrier.pickupPoints,
         ...(typeof patch.deliveryDays === "string" ? { deliveryDays: patch.deliveryDays } : {}),
       }),
     });
@@ -322,7 +331,7 @@ export default function AdminPaqueteria({
         ) : (
           <div className="mt-8 xl:mt-6 space-y-6">
             {deliveryCarriers.length > 0 ? (
-              <ProviderGroup title="Envíos a domicilio" description="Métodos que entregan el pedido al cliente o permiten despacho por correo.">
+              <ProviderGroup title="Envíos a domicilio" description="Métodos que entregan el pedido al cliente o permiten despacho por correo." fullWidth>
                 {deliveryCarriers.map((carrier) => (
                   <ProviderCard
                     key={carrier.key}
@@ -338,7 +347,7 @@ export default function AdminPaqueteria({
             ) : null}
 
             {pickupCarriers.length > 0 ? (
-              <ProviderGroup title="Retiro" description="Opciones para que el cliente retire su compra.">
+              <ProviderGroup title="Retiro" description="Opciones para que el cliente retire su compra." fullWidth>
                 {pickupCarriers.map((carrier) => (
                   <ProviderCard
                     key={carrier.key}
@@ -359,10 +368,20 @@ export default function AdminPaqueteria({
   );
 }
 
-function ProviderGroup({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+function ProviderGroup({
+  title,
+  description,
+  children,
+  fullWidth = false,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+  fullWidth?: boolean;
+}) {
   return (
     <SectionCard title={title} description={description}>
-      <div className="grid gap-4 lg:grid-cols-2">{children}</div>
+      <div className={fullWidth ? "grid gap-4" : "grid gap-4 lg:grid-cols-2"}>{children}</div>
     </SectionCard>
   );
 }
@@ -389,9 +408,12 @@ function ProviderCard({
   const [customDescription, setCustomDescription] = useState(carrier.description);
   const [customFlatRate, setCustomFlatRate] = useState(String(carrier.flatRate || 0));
   const [customPricingMode, setCustomPricingMode] = useState<"fixed" | "agreement" | "free">(carrier.pricingMode);
+  const [pickupPoints, setPickupPoints] = useState<PickupPoint[]>(carrier.pickupPoints || []);
   const [deliveryDays, setDeliveryDays] = useState(carrier.deliveryDays ?? "");
+  const [expanded, setExpanded] = useState(false);
   const supportsDeliveryDays = carrier.key === "epick" || carrier.key === "correo";
   const supportsFreeShippingPromotions = carrier.key === "correo";
+  const supportsPickupPoints = meta.group === "pickup";
   const [shippingPromotions, setShippingPromotions] = useState<ShippingPromotion[]>([]);
   const [shippingPromotionsLoading, setShippingPromotionsLoading] = useState(false);
   const [shippingPromotionsBusyId, setShippingPromotionsBusyId] = useState<string | null>(null);
@@ -640,6 +662,26 @@ function ProviderCard({
     setFreeShippingMinimumDeliveryTypes((prev) => (prev.includes(type) ? prev.filter((item) => item !== type) : [...prev, type]));
   }
 
+  function addPickupPoint() {
+    const index = pickupPoints.length + 1;
+    setPickupPoints((prev) => [
+      ...prev,
+      {
+        id: `point-${Date.now()}-${index}`,
+        name: `Punto de Retiro ${index}`,
+        notes: "",
+      },
+    ]);
+  }
+
+  function updatePickupPoint(id: string, patch: Partial<PickupPoint>) {
+    setPickupPoints((prev) => prev.map((point) => (point.id === id ? { ...point, ...patch } : point)));
+  }
+
+  function removePickupPoint(id: string) {
+    setPickupPoints((prev) => prev.filter((point) => point.id !== id));
+  }
+
   return (
     <article className="rounded-3xl border border-[var(--admin-border)] bg-[var(--admin-background)] p-5 xl:p-4 transition duration-150 hover:shadow-[var(--admin-shadow)]">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -704,9 +746,19 @@ function ProviderCard({
               {carrier.visibleToMerchant ? "Visible merchant" : "Oculto merchant"}
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={() => setExpanded((current) => !current)}
+            className="inline-flex min-w-36 items-center justify-center rounded-2xl border border-[var(--admin-border)] px-4 py-2 xl:py-1.5 text-sm font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--admin-primary)]/30"
+            aria-expanded={expanded}
+          >
+            {expanded ? "Ocultar" : "Mostrar"}
+          </button>
         </div>
       </div>
 
+      {expanded ? (
+        <>
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <div className="rounded-2xl border border-[var(--admin-border)] bg-white/60 p-3">
           <div className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Estado operativo</div>
@@ -1104,6 +1156,7 @@ function ProviderCard({
                     description: customDescription,
                     flatRate: Number(customFlatRate || 0),
                     pricingMode: customPricingMode,
+                    pickupPoints,
                   })
                 }
                 className="inline-flex min-h-[44px] w-full items-center justify-center rounded-2xl bg-[var(--admin-primary)] px-5 py-2 text-sm font-semibold text-white shadow-sm transition duration-150 hover:bg-[var(--admin-primary-hover)] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
@@ -1112,6 +1165,74 @@ function ProviderCard({
               </button>
             </div>
           </div>
+          {supportsPickupPoints ? (
+            <div className="mt-5 border-t border-[var(--admin-border)] pt-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-[var(--admin-text)]">Puntos de retiro</div>
+                  <p className="mt-1 text-sm text-[var(--admin-muted)]">Estos puntos aparecen para que el cliente elija dónde retirar.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={addPickupPoint}
+                  className="inline-flex min-h-[40px] items-center justify-center rounded-2xl border border-[var(--admin-border)] px-4 py-2 text-sm font-semibold text-[var(--admin-primary)] transition duration-150 hover:bg-[var(--admin-surface-muted)]"
+                >
+                  Agregar punto
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {pickupPoints.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-[var(--admin-border)] bg-white/50 p-4 text-sm text-[var(--admin-muted)]">
+                    Todavía no cargaste puntos de retiro.
+                  </div>
+                ) : (
+                  pickupPoints.map((point, index) => (
+                    <div key={point.id} className="rounded-2xl border border-[var(--admin-border)] bg-white/70 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-semibold text-[var(--admin-text)]">Punto {index + 1}</div>
+                        <button
+                          type="button"
+                          onClick={() => removePickupPoint(point.id)}
+                          className="text-sm font-semibold text-red-700 hover:text-red-800"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <label className="block">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Nombre</span>
+                          <input value={point.name} onChange={(event) => updatePickupPoint(point.id, { name: event.target.value })} className="admin-input mt-2" />
+                        </label>
+                        <label className="block">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Notas</span>
+                          <input value={point.notes} onChange={(event) => updatePickupPoint(point.id, { notes: event.target.value })} className="admin-input mt-2" />
+                        </label>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  disabled={busy || !customName.trim()}
+                  onClick={() =>
+                    onSaveCustom({
+                      name: customName,
+                      description: customDescription,
+                      flatRate: Number(customFlatRate || 0),
+                      pricingMode: customPricingMode,
+                      pickupPoints,
+                    })
+                  }
+                  className="inline-flex min-h-[44px] w-full items-center justify-center rounded-2xl bg-[var(--admin-primary)] px-5 py-2 text-sm font-semibold text-white shadow-sm transition duration-150 hover:bg-[var(--admin-primary-hover)] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                >
+                  Guardar puntos
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -1130,6 +1251,8 @@ function ProviderCard({
           </Link>
         )}
       </div>
+        </>
+      ) : null}
     </article>
   );
 }

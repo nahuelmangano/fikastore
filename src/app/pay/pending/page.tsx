@@ -39,8 +39,8 @@ function shippingLabel(order: {
   if (order.shippingMethod === "epick") return "E-pick";
   if (order.shippingMethod === "andreani") return "Andreani";
   if (order.shippingMethod === "correo") return order.shippingDeliveryType === "S" ? "Correo Argentino - Sucursal" : "Correo Argentino - Domicilio";
-  if (order.shippingMethod === "pickup") return "Retiro en comercio";
-  return order.shippingMethod || "Acordar envío";
+  if (order.shippingMethod === "pickup") return "Punto de Retiro";
+  return order.shippingMethod || "Punto de Retiro";
 }
 
 function shippingAddress(order: {
@@ -52,7 +52,7 @@ function shippingAddress(order: {
   shippingProvince: string;
   shippingZip: string;
 }) {
-  if (order.shippingMethod === "pickup") return "Retiro en comercio";
+  if (order.shippingMethod === "pickup") return "Punto de Retiro";
   if (order.shippingMethod === "correo" && order.shippingDeliveryType === "S") {
     return [
       order.shippingBranchName ? `Sucursal: ${order.shippingBranchName}` : "Sucursal Correo Argentino",

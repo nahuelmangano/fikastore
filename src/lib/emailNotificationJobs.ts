@@ -55,8 +55,8 @@ function emailShippingLabel(method: string, carrierName?: string | null, deliver
   if (method === "epick") return "E-pick";
   if (method === "andreani") return "Andreani";
   if (method === "correo") return deliveryType === "S" ? "Correo Argentino - Sucursal" : "Correo Argentino - Domicilio";
-  if (method === "pickup") return "Retiro en comercio";
-  return carrierName || "Acordar envío";
+  if (method === "pickup") return "Punto de Retiro";
+  return carrierName || "Punto de Retiro";
 }
 
 async function processInitialMercadoPagoPending(payload: Record<string, unknown>, req: Request) {
@@ -95,7 +95,7 @@ async function processInitialMercadoPagoPending(payload: Record<string, unknown>
   const shippingLabel = emailShippingLabel(order.shippingMethod || "", selectedCarrier?.name, order.shippingDeliveryType);
   const shippingAddressLines =
     order.shippingMethod === "pickup"
-      ? ["Retiro en comercio.", "Te vamos a contactar cuando el pedido esté listo para retirar."]
+      ? ["Punto de Retiro.", "Te vamos a contactar cuando el pedido esté listo para retirar."]
       : order.shippingMethod === "correo" && order.shippingDeliveryType === "S"
         ? [
             order.shippingBranchName ? `Sucursal: ${order.shippingBranchName}` : "Retiro en sucursal de Correo Argentino.",

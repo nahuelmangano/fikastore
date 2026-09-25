@@ -12,6 +12,7 @@ type AdminMailingPageProps = {
   canManageSmtp: boolean;
   canManageAutomaticEmails: boolean;
   canManageAutomaticEmailAdminActions: boolean;
+  canViewMerchantEmails: boolean;
 };
 
 type AutomaticEmailTemplate = {
@@ -50,6 +51,7 @@ export default function AdminMailingPage({
   canManageSmtp,
   canManageAutomaticEmails,
   canManageAutomaticEmailAdminActions,
+  canViewMerchantEmails,
 }: AdminMailingPageProps) {
   const [settings, setSettings] = useState(initialSettings);
   const [smtpPass, setSmtpPass] = useState("");
@@ -60,6 +62,8 @@ export default function AdminMailingPage({
   const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
   const [automaticTemplates, setAutomaticTemplates] = useState<AutomaticEmailTemplate[]>([]);
   const [jobSettings, setJobSettings] = useState<EmailJobSettings | null>(null);
+  const [jobSettingsOpen, setJobSettingsOpen] = useState(false);
+  const [automaticListOpen, setAutomaticListOpen] = useState(false);
   const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(null);
   const [templateDraft, setTemplateDraft] = useState<{ subject: string; html: string; text: string } | null>(null);
   const [automaticLoading, setAutomaticLoading] = useState(false);
@@ -305,6 +309,27 @@ export default function AdminMailingPage({
     }
   }
 
+  async function merchantEmailAction(action: "preview", merchantKey: string) {
+    setAutomaticBusy({ action: `merchant-${action}`, key: merchantKey });
+    setAutomaticMsg("");
+    try {
+      const res = await fetch("/api/admin/mailing/automatic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "merchant-preview", merchantKey }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        setAutomaticMsg(String(data?.error || "No se pudo cargar el preview merchant."));
+        return;
+      }
+      shouldScrollToPreviewRef.current = true;
+      setPreview(data.preview);
+    } finally {
+      setAutomaticBusy(null);
+    }
+  }
+
   async function saveJobSettings() {
     if (!canManageAutomaticEmailAdminActions) return;
     if (!jobSettings) return;
@@ -384,77 +409,119 @@ export default function AdminMailingPage({
 
           {jobSettings ? (
             <div className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
-              <h3 className="font-semibold text-zinc-100">Procesos programados</h3>
-              <div className="mt-4 grid gap-4 md:grid-cols-3">
-                <label className="text-sm font-medium text-zinc-200">
-                  Recordatorios activos
-                  <select
-                    value={jobSettings.paymentRemindersEnabled ? "on" : "off"}
-                    onChange={(e) => setJobSettings((current) => current ? { ...current, paymentRemindersEnabled: e.target.value === "on" } : current)}
-                    disabled={!canManageAutomaticEmailAdminActions}
-                    className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
-                  >
-                    <option value="on">Habilitado</option>
-                    <option value="off">Deshabilitado</option>
-                  </select>
-                </label>
-                <TextInput
-                  label="Horas recordatorio"
-                  value={jobSettings.paymentReminderHours.join(",")}
-                  onChange={(value) => setJobSettings((current) => current ? { ...current, paymentReminderHours: value.split(",").map((item) => Number(item.trim())).filter((item) => Number.isFinite(item)) } : current)}
-                  placeholder="24,48"
-                  disabled={!canManageAutomaticEmailAdminActions}
-                />
-                <TextInput
-                  label="Maximo recordatorios"
-                  value={String(jobSettings.maxPaymentReminders)}
-                  onChange={(value) => setJobSettings((current) => current ? { ...current, maxPaymentReminders: Number(value) } : current)}
-                  disabled={!canManageAutomaticEmailAdminActions}
-                />
-                <label className="text-sm font-medium text-zinc-200">
-                  Opiniones activas
-                  <select
-                    value={jobSettings.reviewRequestEnabled ? "on" : "off"}
-                    onChange={(e) => setJobSettings((current) => current ? { ...current, reviewRequestEnabled: e.target.value === "on" } : current)}
-                    disabled={!canManageAutomaticEmailAdminActions}
-                    className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
-                  >
-                    <option value="on">Habilitado</option>
-                    <option value="off">Deshabilitado</option>
-                  </select>
-                </label>
-                <TextInput
-                  label="Dias para opinion"
-                  value={String(jobSettings.reviewRequestDelayDays)}
-                  onChange={(value) => setJobSettings((current) => current ? { ...current, reviewRequestDelayDays: Number(value) } : current)}
-                  disabled={!canManageAutomaticEmailAdminActions}
-                />
-                <label className="text-sm font-medium text-zinc-200">
-                  Cumpleanos activos
-                  <select
-                    value={jobSettings.birthdayCouponEnabled ? "on" : "off"}
-                    onChange={(e) => setJobSettings((current) => current ? { ...current, birthdayCouponEnabled: e.target.value === "on" } : current)}
-                    disabled={!canManageAutomaticEmailAdminActions}
-                    className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
-                  >
-                    <option value="on">Habilitado</option>
-                    <option value="off">Deshabilitado</option>
-                  </select>
-                </label>
-                <TextInput label="Offset cumpleanos" value={String(jobSettings.birthdayCouponOffsetDays)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponOffsetDays: Number(value) } : current)} disabled={!canManageAutomaticEmailAdminActions} />
-                <TextInput label="Descuento cumpleanos" value={String(jobSettings.birthdayCouponDiscountValue)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponDiscountValue: Number(value) } : current)} disabled={!canManageAutomaticEmailAdminActions} />
-                <TextInput label="Duracion cupon dias" value={String(jobSettings.birthdayCouponDurationDays)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponDurationDays: Number(value) } : current)} disabled={!canManageAutomaticEmailAdminActions} />
-              </div>
-              {canManageAutomaticEmailAdminActions ? (
-                <button type="button" onClick={saveJobSettings} className="mt-4 rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white">
-                  Guardar procesos
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-zinc-100">Procesos programados</h3>
+                  <p className="mt-1 text-xs text-zinc-400">
+                    Recordatorios {jobSettings.paymentRemindersEnabled ? "habilitados" : "deshabilitados"} · Opiniones{" "}
+                    {jobSettings.reviewRequestEnabled ? "habilitadas" : "deshabilitadas"} · Cumpleanos{" "}
+                    {jobSettings.birthdayCouponEnabled ? "habilitados" : "deshabilitados"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setJobSettingsOpen((current) => !current)}
+                  className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900"
+                  aria-expanded={jobSettingsOpen}
+                >
+                  {jobSettingsOpen ? "Ocultar" : "Mostrar"}
                 </button>
+              </div>
+
+              {jobSettingsOpen ? (
+                <>
+                  <div className="mt-4 grid gap-4 md:grid-cols-3">
+                    <label className="text-sm font-medium text-zinc-200">
+                      Recordatorios activos
+                      <select
+                        value={jobSettings.paymentRemindersEnabled ? "on" : "off"}
+                        onChange={(e) => setJobSettings((current) => current ? { ...current, paymentRemindersEnabled: e.target.value === "on" } : current)}
+                        disabled={!canManageAutomaticEmailAdminActions}
+                        className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
+                      >
+                        <option value="on">Habilitado</option>
+                        <option value="off">Deshabilitado</option>
+                      </select>
+                    </label>
+                    <TextInput
+                      label="Horas recordatorio"
+                      value={jobSettings.paymentReminderHours.join(",")}
+                      onChange={(value) => setJobSettings((current) => current ? { ...current, paymentReminderHours: value.split(",").map((item) => Number(item.trim())).filter((item) => Number.isFinite(item)) } : current)}
+                      placeholder="24,48"
+                      disabled={!canManageAutomaticEmailAdminActions}
+                    />
+                    <TextInput
+                      label="Maximo recordatorios"
+                      value={String(jobSettings.maxPaymentReminders)}
+                      onChange={(value) => setJobSettings((current) => current ? { ...current, maxPaymentReminders: Number(value) } : current)}
+                      disabled={!canManageAutomaticEmailAdminActions}
+                    />
+                    <label className="text-sm font-medium text-zinc-200">
+                      Opiniones activas
+                      <select
+                        value={jobSettings.reviewRequestEnabled ? "on" : "off"}
+                        onChange={(e) => setJobSettings((current) => current ? { ...current, reviewRequestEnabled: e.target.value === "on" } : current)}
+                        disabled={!canManageAutomaticEmailAdminActions}
+                        className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
+                      >
+                        <option value="on">Habilitado</option>
+                        <option value="off">Deshabilitado</option>
+                      </select>
+                    </label>
+                    <TextInput
+                      label="Dias para opinion"
+                      value={String(jobSettings.reviewRequestDelayDays)}
+                      onChange={(value) => setJobSettings((current) => current ? { ...current, reviewRequestDelayDays: Number(value) } : current)}
+                      disabled={!canManageAutomaticEmailAdminActions}
+                    />
+                    <label className="text-sm font-medium text-zinc-200">
+                      Cumpleanos activos
+                      <select
+                        value={jobSettings.birthdayCouponEnabled ? "on" : "off"}
+                        onChange={(e) => setJobSettings((current) => current ? { ...current, birthdayCouponEnabled: e.target.value === "on" } : current)}
+                        disabled={!canManageAutomaticEmailAdminActions}
+                        className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
+                      >
+                        <option value="on">Habilitado</option>
+                        <option value="off">Deshabilitado</option>
+                      </select>
+                    </label>
+                    <TextInput label="Offset cumpleanos" value={String(jobSettings.birthdayCouponOffsetDays)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponOffsetDays: Number(value) } : current)} disabled={!canManageAutomaticEmailAdminActions} />
+                    <TextInput label="Descuento cumpleanos" value={String(jobSettings.birthdayCouponDiscountValue)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponDiscountValue: Number(value) } : current)} disabled={!canManageAutomaticEmailAdminActions} />
+                    <TextInput label="Duracion cupon dias" value={String(jobSettings.birthdayCouponDurationDays)} onChange={(value) => setJobSettings((current) => current ? { ...current, birthdayCouponDurationDays: Number(value) } : current)} disabled={!canManageAutomaticEmailAdminActions} />
+                  </div>
+                  {canManageAutomaticEmailAdminActions ? (
+                    <button type="button" onClick={saveJobSettings} className="mt-4 rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white">
+                      Guardar procesos
+                    </button>
+                  ) : null}
+                </>
               ) : null}
             </div>
           ) : null}
 
-          <div className="mt-5 overflow-x-auto">
-            <table className="w-full min-w-[900px] border-collapse text-sm">
+          <div className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold text-zinc-100">Lista de mails</h3>
+                <p className="mt-1 text-xs text-zinc-400">
+                  {automaticTemplateRows.length} emails · {automaticTemplateRows.filter((template) => template.enabled).length} habilitados ·{" "}
+                  {automaticTemplateRows.reduce((total, template) => total + template.sentCount, 0)} envios
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAutomaticListOpen((current) => !current)}
+                className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-900"
+                aria-expanded={automaticListOpen}
+              >
+                {automaticListOpen ? "Ocultar" : "Mostrar"}
+              </button>
+            </div>
+
+            {automaticListOpen ? (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full min-w-[900px] border-collapse text-sm">
               <thead className="text-left text-zinc-400">
                 <tr className="border-b border-zinc-800">
                   <th className="py-3 pr-3">Email</th>
@@ -533,8 +600,10 @@ export default function AdminMailingPage({
                   );
                 })}
               </tbody>
-            </table>
-            {automaticLoading ? <p className="mt-4 text-sm text-zinc-400">Cargando...</p> : null}
+              </table>
+              {automaticLoading ? <p className="mt-4 text-sm text-zinc-400">Cargando...</p> : null}
+            </div>
+            ) : null}
           </div>
 
           {selectedTemplateKey && templateDraft ? (
@@ -593,6 +662,46 @@ export default function AdminMailingPage({
             </div>
           ) : null}
         </section>
+
+        {canViewMerchantEmails ? (
+          <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5 xl:p-4">
+            <div>
+              <h2 className="text-base font-semibold">Emails al merchant</h2>
+              <p className="mt-1 text-sm text-zinc-400">
+                Notificaciones internas que recibe la tienda cuando hay ventas o cambios importantes.
+              </p>
+            </div>
+            <div className="mt-5 overflow-x-auto">
+              <table className="w-full min-w-[700px] border-collapse text-sm">
+                <thead className="text-left text-zinc-400">
+                  <tr className="border-b border-zinc-800">
+                    <th className="py-3 pr-3">Email</th>
+                    <th className="py-3 pr-3">Cuándo se envía</th>
+                    <th className="py-3 pr-3">Destinatario</th>
+                    <th className="py-3">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-zinc-800/70">
+                    <td className="py-3 pr-3 font-semibold text-zinc-100">Pago acreditado</td>
+                    <td className="py-3 pr-3 text-zinc-300">Cuando una venta queda pagada y confirmada.</td>
+                    <td className="py-3 pr-3 text-zinc-300">Email de notificaciones / tienda</td>
+                    <td className="py-3">
+                      <button
+                        type="button"
+                        onClick={() => merchantEmailAction("preview", "merchant-payment-approved")}
+                        disabled={automaticBusy !== null}
+                        className="rounded-xl border border-zinc-700 px-3 py-1.5 font-semibold text-zinc-100 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {automaticBusy?.key === "merchant-payment-approved" ? "Cargando..." : "Preview"}
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
 
         <MailPreview ref={previewRef} preview={preview} onClose={() => setPreview(null)} />
 

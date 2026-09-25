@@ -86,8 +86,8 @@ function emailShippingLabel(method: string, carrierName?: string | null, deliver
   if (method === "epick") return "E-pick";
   if (method === "andreani") return "Andreani";
   if (method === "correo") return deliveryType === "S" ? "Correo Argentino - Sucursal" : "Correo Argentino - Domicilio";
-  if (method === "pickup") return "Retiro en comercio";
-  return carrierName || "Acordar envío";
+  if (method === "pickup") return "Punto de Retiro";
+  return carrierName || "Punto de Retiro";
 }
 
 export async function POST(req: Request) {
@@ -124,8 +124,18 @@ export async function POST(req: Request) {
     return bad("Ingresá un email válido.");
   }
 
+  const promoCode = normalizePromoCode(body.promoCode ?? null);
+  const checkoutCarriers = await getShippingCarriers({ visibleToMerchantOnly: true });
+  const selectedCarrier = checkoutCarriers.find((carrier) => carrier.key === shippingMethod && carrier.enabled);
+  if (!selectedCarrier) return bad("Seleccioná un método de envío válido.");
+
   const isPickup = shippingMethod === "pickup";
   const isCorreoBranch = shippingMethod === "correo" && shippingDeliveryType === "S";
+  const selectedCustomPickupPoint =
+    selectedCarrier.custom && selectedCarrier.pickupPoints.length > 0
+      ? selectedCarrier.pickupPoints.find((point) => point.id === String(shippingBranch?.code || "").trim())
+      : null;
+  const isCustomPickupPoint = Boolean(selectedCustomPickupPoint);
   const effectiveShipping = isCorreoBranch
     ? {
         addressLine: String(shippingBranch?.addressLine || "").trim(),
@@ -134,6 +144,14 @@ export async function POST(req: Request) {
         provinceCode: String(shippingBranch?.provinceCode || "").trim().toUpperCase(),
         zip: String(shippingBranch?.zip || "").trim(),
       }
+    : selectedCustomPickupPoint
+      ? {
+          addressLine: selectedCustomPickupPoint.notes || selectedCustomPickupPoint.name,
+          city: "",
+          province: "",
+          provinceCode: "",
+          zip: "",
+        }
     : {
         addressLine: String(shipping?.addressLine || "").trim(),
         city: String(shipping?.city || "").trim(),
@@ -146,8 +164,13 @@ export async function POST(req: Request) {
     return bad("Selecciona una sucursal de Correo Argentino.");
   }
 
+  if (selectedCarrier.custom && selectedCarrier.pickupPoints.length > 0 && !selectedCustomPickupPoint) {
+    return bad("Seleccioná un punto de retiro.");
+  }
+
   if (
     !isPickup &&
+    !isCustomPickupPoint &&
     (!effectiveShipping.addressLine ||
       !effectiveShipping.city ||
       !effectiveShipping.province ||
@@ -157,18 +180,18 @@ export async function POST(req: Request) {
     return bad("Completa todos los datos de envio.");
   }
 
-  if (!isPickup) {
-    const postalCodeProvinceError = validateArgentinaPostalCodeProvince(
-      effectiveShipping.zip,
-      effectiveShipping.provinceCode
-    );
-    if (postalCodeProvinceError) return bad(postalCodeProvinceError);
-  }
-
-  const promoCode = normalizePromoCode(body.promoCode ?? null);
-  const checkoutCarriers = await getShippingCarriers({ visibleToMerchantOnly: true });
-  const selectedCarrier = checkoutCarriers.find((carrier) => carrier.key === shippingMethod && carrier.enabled);
-  if (!selectedCarrier) return bad("Seleccioná un método de envío válido.");
+  const postalCodeValidationSource =
+    isPickup || isCustomPickupPoint
+      ? {
+          zip: String(shipping?.zip || "").trim(),
+          provinceCode: String(shipping?.provinceCode || "").trim().toUpperCase(),
+        }
+      : effectiveShipping;
+  const postalCodeProvinceError = validateArgentinaPostalCodeProvince(
+    postalCodeValidationSource.zip,
+    postalCodeValidationSource.provinceCode
+  );
+  if (postalCodeProvinceError) return bad(postalCodeProvinceError);
 
   const rawShippingAmount = Number(body.shippingAmount);
   const quotedShippingAmount = selectedCarrier.custom
@@ -297,8 +320,8 @@ export async function POST(req: Request) {
           shippingZip: effectiveShipping.zip,
           shippingMethod: shippingMethod || null,
           shippingDeliveryType: shippingMethod === "correo" ? shippingDeliveryType || "D" : null,
-          shippingBranchCode: isCorreoBranch ? String(shippingBranch?.code || "").trim() : null,
-          shippingBranchName: isCorreoBranch ? String(shippingBranch?.name || "").trim() : null,
+          shippingBranchCode: isCorreoBranch || isCustomPickupPoint ? String(shippingBranch?.code || "").trim() : null,
+          shippingBranchName: isCorreoBranch || isCustomPickupPoint ? String(shippingBranch?.name || selectedCustomPickupPoint?.name || "").trim() : null,
           shippingAmount: new Prisma.Decimal(shippingAmount || 0),
           notes: notes ? `Nota del cliente: ${notes}` : null,
           metaFbp: metaTracking.fbp,
@@ -367,7 +390,7 @@ export async function POST(req: Request) {
       const shippingLabel = emailShippingLabel(shippingMethod, selectedCarrier.name, createdOrder.shippingDeliveryType);
       const shippingAddressLines =
         createdOrder.shippingMethod === "pickup"
-          ? ["Retiro en comercio.", "Te vamos a contactar cuando el pedido esté listo para retirar."]
+          ? ["Punto de Retiro.", "Te vamos a contactar cuando el pedido esté listo para retirar."]
           : createdOrder.shippingMethod === "correo" && createdOrder.shippingDeliveryType === "S"
             ? [
                 createdOrder.shippingBranchName ? `Sucursal: ${createdOrder.shippingBranchName}` : "Retiro en sucursal de Correo Argentino.",

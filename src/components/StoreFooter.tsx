@@ -23,7 +23,7 @@ const SHIPPING_LOGOS = [
   { label: "E-pick", url: "https://dk0k1i3js6c49.cloudfront.net/iconos-envio/e-pick.png" },
   { label: "Correo Argentino", url: "https://dk0k1i3js6c49.cloudfront.net/iconos-envio/correo-argentino.png" },
   { label: "Envío personalizado", url: "https://dk0k1i3js6c49.cloudfront.net/iconos-envio/personalizado.png" },
-  { label: "Acordar envío", url: "https://dk0k1i3js6c49.cloudfront.net/iconos-envio/acordar.png" },
+  { label: "Punto de Retiro", url: "https://dk0k1i3js6c49.cloudfront.net/iconos-envio/acordar.png" },
 ];
 
 export default async function StoreFooter() {

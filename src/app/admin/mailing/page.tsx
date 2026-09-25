@@ -18,6 +18,7 @@ export default async function MailingPage() {
       canManageSmtp={isAdmin}
       canManageAutomaticEmails
       canManageAutomaticEmailAdminActions={isAdmin}
+      canViewMerchantEmails={isAdmin}
     />
   );
 }

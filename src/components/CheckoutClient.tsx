@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Banknote, Clock3, CreditCard, Handshake, Landmark, Mail, type LucideIcon } from "lucide-react";
+import { Banknote, Clock3, CreditCard, Handshake, Landmark, Mail, Store, type LucideIcon } from "lucide-react";
 import { CartItem, clearCart, clearPromoCode, readCart, readPromoCode } from "@/lib/cart";
 import { validateArgentinaPostalCodeProvince } from "@/lib/argentinaPostalCode";
 import { trackMetaInitiateCheckout } from "@/lib/metaPixelEvents";
@@ -125,7 +125,14 @@ type CheckoutCarrier = {
   description?: string;
   flatRate?: number;
   pricingMode?: "fixed" | "agreement" | "free";
+  pickupPoints?: PickupPoint[];
   deliveryDays?: string | null;
+};
+
+type PickupPoint = {
+  id: string;
+  name: string;
+  notes: string;
 };
 
 const PROVINCES = [
@@ -215,6 +222,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
   const [correoAgenciesLoading, setCorreoAgenciesLoading] = useState(false);
   const [correoAgenciesError, setCorreoAgenciesError] = useState<string | null>(null);
   const [selectedCorreoAgencyCode, setSelectedCorreoAgencyCode] = useState("");
+  const [selectedPickupPointId, setSelectedPickupPointId] = useState("");
   const [shippingMethod, setShippingMethod] = useState<ShippingMethod>("epick");
   const [customerNotes, setCustomerNotes] = useState("");
   const [confirmedShipping, setConfirmedShipping] = useState<Shipping | null>(null);
@@ -300,10 +308,9 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
   const correoBranchAmount = Number(correoBranchRate?.price ?? 0);
   const selectedCorreoAgency = correoAgencies.find((agency) => agency.code === selectedCorreoAgencyCode) || null;
   const postalCodeProvinceError = validateArgentinaPostalCodeProvince(shipping.zip, shipping.provinceCode);
-  const epickEnabled = carriers ? carriers.epick !== false : true;
-  const andreaniEnabled = carriers ? carriers.andreani !== false : true;
-  const correoEnabled = carriers ? carriers.correo !== false : true;
-  const pickupEnabled = carriers ? carriers.pickup !== false : true;
+  const epickEnabled = carriers ? carriers.epick === true : false;
+  const andreaniEnabled = carriers ? carriers.andreani === true : false;
+  const correoEnabled = carriers ? carriers.correo === true : false;
   const customCarriers = useMemo(
     () => checkoutCarriers.filter((carrier) => carrier.custom && carrier.enabled),
     [checkoutCarriers],
@@ -315,6 +322,11 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
     return days ? `${days} días hábiles luego de ser despachado` : "Luego de ser despachado";
   };
   const selectedShippingIsAgreement = selectedCustomCarrier?.pricingMode === "agreement";
+  const selectedPickupPoint =
+    selectedCustomCarrier?.pickupPoints?.find((point) => point.id === selectedPickupPointId) ||
+    selectedCustomCarrier?.pickupPoints?.[0] ||
+    null;
+  const customPickupNeedsPoint = Boolean(selectedCustomCarrier?.pickupPoints?.length && !selectedPickupPoint);
   const promotionDeliveryType =
     shippingMethod === "correo" ? correoDeliveryType : shippingMethod === "pickup" ? null : "D";
   const sortedCorreoAgencies = useMemo(() => {
@@ -348,6 +360,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
   const freeShippingApplies = pricing?.summary?.freeShipping === true;
   const epickFreeShipping = freeShippingApplies && shippingMethod === "epick" && epickAmount > 0;
   const andreaniFreeShipping = freeShippingApplies && shippingMethod === "andreani" && andreaniAmount > 0;
+
   const correoHomeFreeShipping =
     freeShippingApplies && shippingMethod === "correo" && correoDeliveryType === "D" && correoHomeAmount > 0;
   const correoBranchFreeShipping =
@@ -355,8 +368,10 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
   const activeCorreoFreeShipping = correoDeliveryType === "S" ? correoBranchFreeShipping : correoHomeFreeShipping;
   const effectiveShippingAmount = freeShippingApplies ? 0 : shippingAmount;
   const total = subtotalDiscounted + effectiveShippingAmount;
-  const requiresAddress = shippingMethod !== "pickup";
-  const branchReady = shippingMethod !== "correo" || correoDeliveryType !== "S" || Boolean(selectedCorreoAgency);
+  const requiresAddress = shippingMethod !== "pickup" && !selectedCustomCarrier?.pickupPoints?.length;
+  const branchReady =
+    (shippingMethod !== "correo" || correoDeliveryType !== "S" || Boolean(selectedCorreoAgency)) &&
+    !customPickupNeedsPoint;
   const enabledManualPaymentMethods = paymentSettings.manualMethods.filter((method) => method.enabled);
   const selectedManualPaymentMethod = enabledManualPaymentMethods.find((method) => method.key === paymentMethod) || null;
   const hasPaymentMethods = paymentSettings.mercadopagoEnabled || enabledManualPaymentMethods.length > 0;
@@ -641,14 +656,14 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
     shipping.dni.trim() &&
     shipping.email.trim() &&
     shipping.phone.trim() &&
-    shipping.provinceCode.trim() &&
     (requiresAddress
       ? shipping.addressLine.trim() &&
         shipping.city.trim() &&
         shipping.province.trim() &&
-        shipping.zip.trim() &&
-        !postalCodeProvinceError
+        shipping.provinceCode.trim() &&
+        shipping.zip.trim()
       : true) &&
+    !postalCodeProvinceError &&
     branchReady;
 
   async function createOrder() {
@@ -672,6 +687,11 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
           shippingBranch:
             shippingMethod === "correo" && correoDeliveryType === "S" && selectedCorreoAgency
               ? selectedCorreoAgency
+              : selectedPickupPoint
+                ? {
+                    code: selectedPickupPoint.id,
+                    name: selectedPickupPoint.name,
+                  }
               : undefined,
           shippingAmount: effectiveShippingAmount,
           paymentMethod,
@@ -904,7 +924,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                 </select>
               </div>
 
-              {requiresAddress && postalCodeProvinceError && (
+              {postalCodeProvinceError && (
                 <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
                   {postalCodeProvinceError}
                 </div>
@@ -1108,62 +1128,70 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                   </div>
                 )}
 
-                {pickupEnabled && (
-                  <label className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                    <div className="flex items-start gap-3">
-                      <input
-                        type="radio"
-                        name="shippingMethod"
-                        checked={shippingMethod === "pickup"}
-                        onChange={() => setShippingMethod("pickup")}
-                        className="mt-1"
-                      />
-                      <div>
-                        <div className="flex items-center gap-2 text-sm font-medium">
-                          <ShippingMethodLogo method="pickup" />
-                          <span>Retiro en comercio</span>
-                        </div>
-                        <div className="text-xs text-zinc-500">Sin costo de envio</div>
-                      </div>
-                    </div>
-                    <div className="text-sm font-semibold">Gratis</div>
-                  </label>
-                )}
-
                 {customCarriers.map((carrier) => {
                   const amount = Number(carrier.flatRate || 0);
                   const isAgreement = carrier.pricingMode === "agreement";
                   const customFreeShipping = freeShippingApplies && shippingMethod === carrier.key && amount > 0 && !isAgreement;
+                  const points = carrier.pickupPoints ?? [];
                   return (
-                    <label key={carrier.key} className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                      <div className="flex items-start gap-3">
-                        <input
-                          type="radio"
-                          name="shippingMethod"
-                          checked={shippingMethod === carrier.key}
-                          onChange={() => setShippingMethod(carrier.key)}
-                          className="mt-1"
-                        />
-                        <div>
-                          <div className="flex items-center gap-2 text-sm font-medium">
-                            <ShippingMethodLogo method={carrier.key} />
-                            <span>{carrier.name}</span>
-                          </div>
-                          <div className="text-xs text-zinc-500">
-                            {isAgreement ? "Coordinamos el costo después de la compra." : carrier.description || "Método de entrega personalizado"}
+                    <div key={carrier.key} className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+                      <label className="flex cursor-pointer items-start justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="radio"
+                            name="shippingMethod"
+                            checked={shippingMethod === carrier.key}
+                            onChange={() => setShippingMethod(carrier.key)}
+                            className="mt-1"
+                          />
+                          <div>
+                            <div className="flex items-center gap-2 text-sm font-medium">
+                              <ShippingMethodLogo method={carrier.key} pickupPoint={points.length > 0} />
+                              <span>{carrier.name}</span>
+                            </div>
+                            {points.length === 0 ? (
+                              <div className="text-xs text-zinc-500">
+                                {isAgreement ? "Coordinamos el costo después de la compra." : carrier.description || "Método de entrega personalizado"}
+                              </div>
+                            ) : null}
                           </div>
                         </div>
-                      </div>
-                      <div className="text-sm font-semibold">
-                        {isAgreement ? (
-                          "A convenir"
-                        ) : amount > 0 ? (
-                          <ShippingAmount amount={amount} freeShipping={customFreeShipping} />
-                        ) : (
-                          "Gratis"
-                        )}
-                      </div>
-                    </label>
+                        <div className="text-sm font-semibold">
+                          {isAgreement ? (
+                            "A convenir"
+                          ) : amount > 0 ? (
+                            <ShippingAmount amount={amount} freeShipping={customFreeShipping} />
+                          ) : (
+                            "Gratis"
+                          )}
+                        </div>
+                      </label>
+
+                      {shippingMethod === carrier.key && points.length > 0 ? (
+                        <div className="mt-3 space-y-2 border-t border-zinc-800 pt-3">
+                          <label className="block text-xs font-medium text-zinc-400">
+                            Punto de retiro
+                            <select
+                              value={selectedPickupPoint?.id ?? ""}
+                              onChange={(event) => setSelectedPickupPointId(event.target.value)}
+                              className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+                            >
+                              {points.map((point) => (
+                                <option key={point.id} value={point.id}>
+                                  {point.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          {selectedPickupPoint ? (
+                            <div className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 text-xs text-zinc-400">
+                              <div className="font-medium text-zinc-200">{selectedPickupPoint.name}</div>
+                              {selectedPickupPoint.notes ? <div className="mt-1">{selectedPickupPoint.notes}</div> : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
                   );
                 })}
               </div>
@@ -1443,7 +1471,7 @@ function ManualPaymentConfirmation({
             label="Domicilio"
             value={
               shippingMethod === "pickup"
-                ? "Retiro en comercio"
+                ? "Punto de Retiro"
                 : `${shipping.addressLine}, ${shipping.city}, ${shipping.province}, CP${shipping.zip}`
             }
           />
@@ -1477,7 +1505,7 @@ function shippingMethodLabel(method: ShippingMethod) {
   if (method === "epick") return "E-pick";
   if (method === "andreani") return "Andreani";
   if (method === "correo") return "Correo Argentino";
-  if (method === "pickup") return "Retiro en comercio";
+  if (method === "pickup") return "Punto de Retiro";
   return "Envío personalizado";
 }
 
@@ -1491,7 +1519,15 @@ function shippingLogoUrl(method: string) {
   return `${SHIPPING_LOGO_BASE_URL}/personalizado.png`;
 }
 
-function ShippingMethodLogo({ method }: { method: string }) {
+function ShippingMethodLogo({ method, pickupPoint = false }: { method: string; pickupPoint?: boolean }) {
+  if (pickupPoint || method === "pickup") {
+    return (
+      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#F8EFE4] text-[#9A6028]">
+        <Store className="h-3.5 w-3.5" aria-hidden="true" />
+      </span>
+    );
+  }
+
   return (
     <Image
       src={shippingLogoUrl(method)}

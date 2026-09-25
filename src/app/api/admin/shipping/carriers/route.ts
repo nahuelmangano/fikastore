@@ -9,6 +9,7 @@ import {
   setCustomShippingCarrierSettings,
   type ShippingCarrierKey,
   type ShippingDeliveryTypeKey,
+  type ShippingPickupPoint,
 } from "@/lib/shippingCarriers";
 import { isAdminRole, isStaffRole } from "@/lib/roles";
 
@@ -49,6 +50,7 @@ export async function GET() {
       description: c.description,
       flatRate: c.flatRate,
       pricingMode: c.pricingMode,
+      pickupPoints: c.pickupPoints,
       deliveryDays: c.deliveryDays,
       shippingSurcharge: c.shippingSurcharge,
       freeShippingMinimumSubtotal: c.freeShippingMinimumSubtotal,
@@ -67,6 +69,7 @@ export async function POST(req: Request) {
     description?: string;
     flatRate?: number;
     pricingMode?: "fixed" | "agreement" | "free";
+    pickupPoints?: ShippingPickupPoint[];
     deliveryDays?: string;
     shippingSurcharge?: number;
     freeShippingMinimumSubtotal?: number;
@@ -79,6 +82,7 @@ export async function POST(req: Request) {
       description: String(body?.description || ""),
       flatRate: Number(body?.flatRate || 0),
       pricingMode: body?.pricingMode === "agreement" ? "agreement" : body?.pricingMode === "free" ? "free" : "fixed",
+      pickupPoints: Array.isArray(body?.pickupPoints) ? body.pickupPoints : [],
     });
     return NextResponse.json({ ok: true, carrier });
   } catch (error) {
@@ -103,6 +107,7 @@ export async function PATCH(req: Request) {
     description?: string;
     flatRate?: number;
     pricingMode?: "fixed" | "agreement" | "free";
+    pickupPoints?: ShippingPickupPoint[];
     deliveryDays?: string;
     shippingSurcharge?: number;
     freeShippingMinimumSubtotal?: number;
@@ -115,6 +120,7 @@ export async function PATCH(req: Request) {
   const description = body?.description;
   const flatRate = body?.flatRate;
   const pricingMode = body?.pricingMode;
+  const pickupPoints = body?.pickupPoints;
   const deliveryDays = body?.deliveryDays;
   const shippingSurcharge = body?.shippingSurcharge;
   const freeShippingMinimumSubtotal = body?.freeShippingMinimumSubtotal;
@@ -127,6 +133,7 @@ export async function PATCH(req: Request) {
       typeof name !== "string" &&
       typeof description !== "string" &&
       typeof flatRate !== "number" &&
+      !Array.isArray(pickupPoints) &&
       typeof shippingSurcharge !== "number" &&
       typeof freeShippingMinimumSubtotal !== "number" &&
       !Array.isArray(body?.freeShippingMinimumDeliveryTypes) &&
@@ -152,7 +159,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: false, error: "Método no disponible para merchant." }, { status: 403 });
   }
 
-  if ((typeof description === "string" || typeof flatRate === "number") && !found.custom) {
+  if ((typeof description === "string" || typeof flatRate === "number" || Array.isArray(pickupPoints)) && !found.custom) {
     return NextResponse.json({ ok: false, error: "Solo se puede editar precio y descripción en métodos personalizados." }, { status: 400 });
   }
 
@@ -239,6 +246,7 @@ export async function PATCH(req: Request) {
     found.custom &&
     (typeof description === "string" ||
       typeof flatRate === "number" ||
+      Array.isArray(pickupPoints) ||
       pricingMode === "fixed" ||
       pricingMode === "agreement" ||
       pricingMode === "free")
@@ -247,6 +255,7 @@ export async function PATCH(req: Request) {
       description: typeof description === "string" ? description : found.description,
       flatRate: typeof flatRate === "number" ? flatRate : found.flatRate,
       pricingMode: pricingMode === "fixed" || pricingMode === "agreement" || pricingMode === "free" ? pricingMode : found.pricingMode,
+      pickupPoints: Array.isArray(pickupPoints) ? pickupPoints : found.pickupPoints,
     });
   }
 
@@ -264,6 +273,7 @@ export async function PATCH(req: Request) {
       description: found.description,
       flatRate: found.flatRate,
       pricingMode: found.pricingMode,
+      pickupPoints: found.pickupPoints,
       shippingSurcharge: found.shippingSurcharge,
       freeShippingMinimumSubtotal: found.freeShippingMinimumSubtotal,
       freeShippingMinimumDeliveryTypes: found.freeShippingMinimumDeliveryTypes,

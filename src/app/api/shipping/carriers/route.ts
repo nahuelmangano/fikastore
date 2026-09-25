@@ -4,7 +4,7 @@ import { getShippingCarriers } from "@/lib/shippingCarriers";
 export const runtime = "nodejs";
 
 export async function GET() {
-  const carriers = await getShippingCarriers();
+  const carriers = await getShippingCarriers({ visibleToMerchantOnly: true });
   return NextResponse.json({
     ok: true,
     carriers: carriers.map((c) => ({
@@ -15,6 +15,7 @@ export async function GET() {
       description: c.description,
       flatRate: c.flatRate,
       pricingMode: c.pricingMode,
+      pickupPoints: c.pickupPoints,
       deliveryDays: c.deliveryDays,
     })),
   });

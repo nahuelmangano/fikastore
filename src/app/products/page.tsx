@@ -179,7 +179,13 @@ export default async function ProductsPage({
 
   const total = productGroups.length;
   const products = productGroups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const promoMap = await getAutomaticDiscountsForProducts(products.map((p) => p.id));
+
+  const currentProductIds = products.flatMap((product) => product.products.map((variant) => variant.id));
+  const [promoMap, productCashPromoMap, productTransferPromoMap] = await Promise.all([
+    getAutomaticDiscountsForProducts(currentProductIds),
+    getAutomaticDiscountsForProducts(currentProductIds, "cash", false),
+    getAutomaticDiscountsForProducts(currentProductIds, "transfer", false),
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const baseParams = { q, availability, sort, category };
@@ -247,7 +253,12 @@ export default async function ProductsPage({
                       p.images[0]?.url ?? "https://placehold.co/900x900/png?text=Fika";
                     const isOos = p.stock <= 0;
                     const basePrice = p.price;
-                    const promoPercent = promoMap.get(p.id) ?? 0;
+                    const promoPercent = Math.max(...p.products.map((variant) => promoMap.get(variant.id) ?? 0));
+                    const productPromoPercent = Math.max(
+                      ...p.products.map((variant) =>
+                        Math.max(productCashPromoMap.get(variant.id) ?? 0, productTransferPromoMap.get(variant.id) ?? 0)
+                      )
+                    );
                     const finalPrice =
                       promoPercent > 0 ? Math.round(basePrice * (1 - promoPercent / 100) * 100) / 100 : basePrice;
 
@@ -278,18 +289,33 @@ export default async function ProductsPage({
                         <div className="min-w-0 px-3 pb-3 pt-3">
                           <h2 className="truncate text-sm font-semibold leading-5 text-[#4F2D16]">{p.name}</h2>
 
-                          <div className="mt-3 text-xl font-semibold leading-6 text-zinc-950">
-                            {moneyNoCents(basePrice)}
-                          </div>
+                          {productPromoPercent > 0 ? (
+                            <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                              <span className="text-sm font-medium leading-5 text-zinc-500 line-through decoration-zinc-500">
+                                {moneyNoCents(basePrice)}
+                              </span>
+                              <span className="text-xl font-semibold leading-6 text-[#8B551F]">
+                                {moneyNoCents(finalPrice)}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="mt-3 text-xl font-semibold leading-6 text-zinc-950">
+                              {moneyNoCents(basePrice)}
+                            </div>
+                          )}
 
                           {promoPercent > 0 ? (
                             <>
                               <p className="mt-1 truncate text-[11px] leading-4 text-zinc-700">
-                                {promoPercent}% OFF con transferencia o efectivo
+                                {productPromoPercent > 0
+                                  ? `${productPromoPercent}% OFF por promoción del producto`
+                                  : `${promoPercent}% OFF con transferencia o efectivo`}
                               </p>
-                              <p className="mt-1 text-sm font-semibold leading-5 text-[#8B551F]">
-                                {moneyNoCents(finalPrice)}
-                              </p>
+                              {productPromoPercent <= 0 ? (
+                                <p className="mt-1 text-sm font-semibold leading-5 text-[#8B551F]">
+                                  {moneyNoCents(finalPrice)}
+                                </p>
+                              ) : null}
                             </>
                           ) : null}
 
