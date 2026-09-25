@@ -32,6 +32,8 @@ type ListedOrder = {
   createdAt: Date;
   shippedAt: Date | null;
   shippingMethod: string | null;
+  shippingName: string | null;
+  contactEmail: string | null;
   user: { name: string | null; email: string | null } | null;
   items: Array<{ id: string; nameSnapshot: string; quantity: number }>;
   payments: Array<{ status: string; paymentId: string | null }>;
@@ -141,6 +143,12 @@ function paymentOptionLabel(status: string) {
   return paymentStatus(status).label;
 }
 
+function customerInfo(order: ListedOrder) {
+  const name = order.user?.name || order.shippingName || order.user?.email || order.contactEmail || "Sin nombre";
+  const email = order.user?.email || order.contactEmail || "";
+  return { name, email, hasAccount: Boolean(order.user) };
+}
+
 function formatMetricsStartAt(value: string | null) {
   if (!value) return null;
   return new Intl.DateTimeFormat("es-AR", { dateStyle: "long", timeStyle: "short" }).format(new Date(value));
@@ -166,6 +174,8 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
         { id: { contains: q } },
         { user: { email: { contains: q } } },
         { user: { name: { contains: q } } },
+        { shippingName: { contains: q } },
+        { contactEmail: { contains: q } },
         ...(Number.isFinite(maybeNumber) ? [{ orderNumber: Math.floor(maybeNumber) }] : []),
       ],
     });
@@ -190,6 +200,8 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
         createdAt: true,
         shippedAt: true,
         shippingMethod: true,
+        shippingName: true,
+        contactEmail: true,
         items: {
           take: 3,
           select: { id: true, nameSnapshot: true, quantity: true },
@@ -246,12 +258,18 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
     {
       key: "customer",
       header: "Cliente",
-      cell: (order) => (
-        <OrderTableCellLink orderId={order.id}>
-          <div className="font-semibold text-[var(--admin-text)]">{order.user?.name || order.user?.email || "Sin cliente"}</div>
-          {order.user?.name && order.user?.email ? <div className="mt-1 text-xs text-[var(--admin-muted)]">{order.user.email}</div> : null}
-        </OrderTableCellLink>
-      ),
+      cell: (order) => {
+        const customer = customerInfo(order);
+        return (
+          <OrderTableCellLink orderId={order.id}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-[var(--admin-text)]">{customer.name}</span>
+              {!customer.hasAccount ? <span className="rounded-full bg-[var(--admin-surface-muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--admin-muted)]">Sin cuenta</span> : null}
+            </div>
+            {customer.email && customer.email !== customer.name ? <div className="mt-1 text-xs text-[var(--admin-muted)]">{customer.email}</div> : null}
+          </OrderTableCellLink>
+        );
+      },
     },
     {
       key: "date",
@@ -493,6 +511,7 @@ function OrderMobileCard({ order }: { order: ListedOrder }) {
   const paymentInfo = paymentStatus(order.payments[0]?.status);
   const shippingInfo = shippingStatus(order);
   const date = formatDate(order.createdAt);
+  const customer = customerInfo(order);
 
   return (
     <article className="rounded-3xl border border-[var(--admin-border)] bg-[var(--admin-surface)] p-4 shadow-[var(--admin-shadow)]">
@@ -501,7 +520,11 @@ function OrderMobileCard({ order }: { order: ListedOrder }) {
           <Link href={`/admin/orders/${order.id}`} className="font-semibold text-[var(--admin-primary)]">
             Pedido #{order.orderNumber}
           </Link>
-          <div className="mt-1 text-sm text-[var(--admin-muted)]">{order.user?.name || order.user?.email || "Sin cliente"}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[var(--admin-muted)]">
+            <span>{customer.name}</span>
+            {!customer.hasAccount ? <span className="rounded-full bg-[var(--admin-surface-muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">Sin cuenta</span> : null}
+          </div>
+          {customer.email && customer.email !== customer.name ? <div className="mt-1 text-xs text-[var(--admin-muted)]">{customer.email}</div> : null}
           <div className="mt-1 text-xs text-[var(--admin-muted)]">
             {date.day} · {date.time}
           </div>

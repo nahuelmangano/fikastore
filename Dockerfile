@@ -6,7 +6,7 @@ RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /v
 
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 FROM node:22-bookworm-slim AS builder
 

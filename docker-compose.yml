@@ -65,6 +65,7 @@ services:
       APP_SECRET_ENCRYPTION_KEY: ${APP_SECRET_ENCRYPTION_KEY:-}
       CRON_SECRET: ${CRON_SECRET:-}
       INTERNAL_CRON_SECRET: ${INTERNAL_CRON_SECRET:-${CRON_SECRET:-}}
+      PENDING_ORDER_AUTO_CANCEL_HOURS: ${PENDING_ORDER_AUTO_CANCEL_HOURS:-48}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
@@ -119,6 +120,30 @@ services:
           curl -fsS -X POST http://app:3000/api/internal/email-jobs/process \
             -H "Authorization: Bearer $$INTERNAL_CRON_SECRET" || true
           sleep "$$EMAIL_JOBS_CRON_INTERVAL_SECONDS"
+        done
+    restart: unless-stopped
+
+  pending-orders-cron:
+    image: curlimages/curl:8.10.1
+    container_name: fikastore-pending-orders-cron
+    depends_on:
+      app:
+        condition: service_started
+    environment:
+      INTERNAL_CRON_SECRET: ${INTERNAL_CRON_SECRET:-${CRON_SECRET:-}}
+      PENDING_ORDERS_CRON_INTERVAL_SECONDS: ${PENDING_ORDERS_CRON_INTERVAL_SECONDS:-3600}
+    command:
+      - sh
+      - -c
+      - |
+        if [ -z "$$INTERNAL_CRON_SECRET" ]; then
+          echo "INTERNAL_CRON_SECRET no configurado; no se inicia el cancelador de pedidos pendientes."
+          exit 1
+        fi
+        while true; do
+          curl -fsS -X POST http://app:3000/api/cron/cancel-pending-orders \
+            -H "Authorization: Bearer $$INTERNAL_CRON_SECRET" || true
+          sleep "$$PENDING_ORDERS_CRON_INTERVAL_SECONDS"
         done
     restart: unless-stopped
 
