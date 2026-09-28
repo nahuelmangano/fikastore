@@ -469,7 +469,7 @@ export default function AdminOrderDetail({ order, whatsappMessageTemplate }: { o
 
                 setStatus(data.order.status);
                 setShippedAt(data.order.shippedAt);
-                setMsg("✅ Pedido marcado como enviado.");
+                setMsg("✅ Pedido marcado como enviado. El mail todavía no se envió: revisalo y agregá el seguimiento antes de enviarlo.");
                 setShipEmailOpen(true);
                 await loadShipEmailPreview("");
               }}
@@ -543,6 +543,75 @@ export default function AdminOrderDetail({ order, whatsappMessageTemplate }: { o
             </p>
           )}
 
+          {shipEmailOpen && (
+            <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-zinc-100">Mail de pedido enviado</h2>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Agregá el número o enlace de seguimiento y revisá el contenido. El mail se envía únicamente al tocar “Enviar mail”.
+                  </p>
+                </div>
+                {shipEmailPreview?.to ? (
+                  <div className="text-right text-xs text-zinc-500">
+                    Para: <span className="text-zinc-300">{shipEmailPreview.to}</span>
+                  </div>
+                ) : null}
+              </div>
+
+              <label className="mt-4 block text-sm text-zinc-300">
+                Mensaje adicional / seguimiento
+                <textarea
+                  value={shipEmailMessage}
+                  onChange={(event) => setShipEmailMessage(event.target.value)}
+                  placeholder="Ej: Tu número de seguimiento es 123456789. Podés seguir tu envío en: https://..."
+                  maxLength={2000}
+                  rows={4}
+                  className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+                />
+              </label>
+
+              <div className="mt-3 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  disabled={shipEmailLoading}
+                  onClick={() => loadShipEmailPreview()}
+                  className="rounded-2xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60 disabled:opacity-50"
+                >
+                  {shipEmailLoading ? "Actualizando..." : "Actualizar preview"}
+                </button>
+                <button
+                  type="button"
+                  disabled={shipEmailLoading || !shipEmailPreview}
+                  onClick={sendShipEmail}
+                  className="rounded-2xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
+                >
+                  {shipEmailLoading ? "Enviando..." : "Enviar mail"}
+                </button>
+              </div>
+
+              {shipEmailMsg ? (
+                <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-zinc-200">
+                  {shipEmailMsg}
+                </div>
+              ) : null}
+
+              {shipEmailPreview ? (
+                <div className="mt-4 overflow-hidden rounded-xl border border-zinc-800 bg-white text-zinc-900">
+                  <div className="border-b border-zinc-200 px-4 py-3 text-sm">
+                    <div className="font-semibold">Asunto</div>
+                    <div className="mt-1 text-zinc-700">{shipEmailPreview.subject}</div>
+                  </div>
+                  <iframe
+                    title="Preview mail pedido enviado"
+                    srcDoc={shipEmailPreview.html || ""}
+                    className="h-[460px] w-full bg-white"
+                  />
+                </div>
+              ) : null}
+            </section>
+          )}
+
           <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -593,74 +662,6 @@ export default function AdminOrderDetail({ order, whatsappMessageTemplate }: { o
               </div>
             ) : null}
           </section>
-
-          {shipEmailOpen && (
-            <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-semibold text-zinc-100">Mail de pedido enviado</h2>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    Revisá el contenido, agregá una nota si hace falta y envialo manualmente.
-                  </p>
-                </div>
-                {shipEmailPreview?.to ? (
-                  <div className="text-right text-xs text-zinc-500">
-                    Para: <span className="text-zinc-300">{shipEmailPreview.to}</span>
-                  </div>
-                ) : null}
-              </div>
-
-              <label className="mt-4 block text-sm text-zinc-300">
-                Mensaje adicional
-                <textarea
-                  value={shipEmailMessage}
-                  onChange={(event) => setShipEmailMessage(event.target.value)}
-                  placeholder="Ej: Te compartimos el aviso de despacho. En breve vas a poder seguir el envío desde el detalle del pedido."
-                  rows={4}
-                  className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500"
-                />
-              </label>
-
-              <div className="mt-3 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  disabled={shipEmailLoading}
-                  onClick={() => loadShipEmailPreview()}
-                  className="rounded-2xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60 disabled:opacity-50"
-                >
-                  {shipEmailLoading ? "Actualizando..." : "Actualizar preview"}
-                </button>
-                <button
-                  type="button"
-                  disabled={shipEmailLoading || !shipEmailPreview}
-                  onClick={sendShipEmail}
-                  className="rounded-2xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
-                >
-                  {shipEmailLoading ? "Enviando..." : "Enviar mail"}
-                </button>
-              </div>
-
-              {shipEmailMsg ? (
-                <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-zinc-200">
-                  {shipEmailMsg}
-                </div>
-              ) : null}
-
-              {shipEmailPreview ? (
-                <div className="mt-4 overflow-hidden rounded-xl border border-zinc-800 bg-white text-zinc-900">
-                  <div className="border-b border-zinc-200 px-4 py-3 text-sm">
-                    <div className="font-semibold">Asunto</div>
-                    <div className="mt-1 text-zinc-700">{shipEmailPreview.subject}</div>
-                  </div>
-                  <iframe
-                    title="Preview mail pedido enviado"
-                    srcDoc={shipEmailPreview.html || ""}
-                    className="h-[460px] w-full bg-white"
-                  />
-                </div>
-              ) : null}
-            </section>
-          )}
         </div>
 
         {isCorreoShipping && (
