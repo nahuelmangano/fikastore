@@ -19,6 +19,7 @@ import {
   LayoutGrid,
   LinkIcon,
   Monitor,
+  MessageCircle,
   Paintbrush,
   Plus,
   RefreshCw,
@@ -34,6 +35,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { sanitizeRichText } from "@/lib/richText";
+import WhatsappSettings from "./WhatsappSettings";
 
 type CategoryOption = {
   id: string;
@@ -151,7 +153,7 @@ type BrowserCryptoWithUuid = Crypto & {
   randomUUID?: () => string;
 };
 
-type SettingsTab = "appearance" | "home" | "content" | "pages" | "categories" | "payments" | "social" | "domain" | "analytics";
+type SettingsTab = "appearance" | "home" | "content" | "pages" | "categories" | "payments" | "social" | "whatsapp" | "domain" | "analytics";
 
 const tabs: { key: SettingsTab; label: string; icon: LucideIcon }[] = [
   { key: "appearance", label: "Apariencia", icon: Paintbrush },
@@ -161,6 +163,7 @@ const tabs: { key: SettingsTab; label: string; icon: LucideIcon }[] = [
   { key: "categories", label: "Categorías", icon: LayoutGrid },
   { key: "payments", label: "Medios de pago", icon: CreditCard },
   { key: "social", label: "Redes", icon: Share2 },
+  { key: "whatsapp", label: "WhatsApp", icon: MessageCircle },
   { key: "domain", label: "Dominio", icon: Globe },
   { key: "analytics", label: "Analíticas", icon: BarChart3 },
 ];
@@ -254,6 +257,7 @@ function slugify(value: string) {
 }
 
 export default function AdminSettingsPage({
+  whatsappMessageTemplate,
   announcementText,
   logoUrl,
   homeBannerSettings,
@@ -273,6 +277,7 @@ export default function AdminSettingsPage({
   categories,
 }: {
   announcementText: string;
+  whatsappMessageTemplate: string;
   logoUrl: string;
   homeBannerSettings: HomeBannerSettings;
   homeCategoryTiles: HomeCategoryTile[];
@@ -1073,27 +1078,6 @@ export default function AdminSettingsPage({
           </Link>
         </header>
 
-        <div className="mt-8 xl:mt-6 flex gap-2 overflow-x-auto rounded-3xl border border-[#E5D7C8] bg-white/70 p-2 shadow-[0_16px_40px_rgba(80,52,28,0.05)]">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const active = activeTab === tab.key;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setActiveTab(tab.key)}
-                className={[
-                  "inline-flex shrink-0 items-center gap-2 rounded-2xl px-4 py-2.5 xl:py-2 text-sm font-semibold transition duration-150",
-                  active ? "bg-[#8B5A2B] text-white shadow-sm" : "text-[#7B522E] hover:bg-[#F2ECE5]",
-                ].join(" ")}
-              >
-                <Icon className="h-4 w-4" aria-hidden="true" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-
         {activeTab === "appearance" ? (
           <div className="mt-8 xl:mt-6 grid gap-6 xl:gap-4 xl:grid-cols-[1.15fr_0.85fr]">
             <div className="space-y-6">
@@ -1554,6 +1538,12 @@ export default function AdminSettingsPage({
             onSave={saveCustomDomainSettings}
             onVerify={verifyCustomDomainSettings}
           />
+        ) : null}
+
+        {activeTab === "whatsapp" ? (
+          <SectionCard title="WhatsApp" description="Personalizá el mensaje para contactar a tus clientes desde los pedidos." icon={MessageCircle}>
+            <WhatsappSettings initialMessage={whatsappMessageTemplate} />
+          </SectionCard>
         ) : null}
 
         {activeTab === "social" ? (

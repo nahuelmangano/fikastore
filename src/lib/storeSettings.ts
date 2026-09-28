@@ -1,5 +1,22 @@
 import { prisma } from "@/lib/prisma";
 import crypto from "crypto";
+import { DEFAULT_WHATSAPP_MESSAGE } from "@/lib/whatsapp";
+
+export async function getWhatsappMessageTemplate(): Promise<string> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: { provider_key: { provider: "storefront", key: "whatsapp_message" } },
+    select: { value: true },
+  });
+  return row?.value ?? DEFAULT_WHATSAPP_MESSAGE;
+}
+
+export async function setWhatsappMessageTemplate(value: string) {
+  await prisma.shippingProviderSetting.upsert({
+    where: { provider_key: { provider: "storefront", key: "whatsapp_message" } },
+    create: { provider: "storefront", key: "whatsapp_message", value, isSecret: false },
+    update: { value, isSecret: false },
+  });
+}
 
 const STOREFRONT_SETTINGS_PROVIDER = "storefront";
 const ANNOUNCEMENT_TEXT_KEY = "announcement_text";

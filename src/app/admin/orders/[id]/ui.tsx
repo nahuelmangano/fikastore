@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Building2, Check, CreditCard, FileText, Mail, MapPin, PackageCheck, Phone, Truck, Undo2, UserRound, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { whatsappHref } from "@/lib/whatsapp";
+import { formatWhatsappMessage, whatsappHref } from "@/lib/whatsapp";
 
 function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
@@ -88,6 +88,7 @@ type AdminOrder = {
   shippingMethod?: string | null;
   shippingDeliveryType?: string | null;
   shippingBranchName?: string | null;
+  shippingBranchCode?: string | null;
   notes?: string | null;
   user?: OrderUser | null;
   items: OrderItem[];
@@ -146,7 +147,7 @@ function shippingMethodLabel(order: Pick<AdminOrder, "shippingMethod" | "shippin
   return order.shippingMethod || "No informado";
 }
 
-export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
+export default function AdminOrderDetail({ order, whatsappMessageTemplate }: { order: AdminOrder; whatsappMessageTemplate: string }) {
   const [status, setStatus] = useState<string>(order.status);
   const [paymentStatus, setPaymentStatus] = useState<string>(order.payments?.[0]?.status ?? "—");
   const [shippedAt, setShippedAt] = useState<string | null>(order.shippedAt ? String(order.shippedAt) : null);
@@ -180,6 +181,8 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
   const shippingAmount = Number(order.shippingAmount || 0);
   const isCorreoShipping = order.shippingMethod === "correo";
   const isEpickShipping = order.shippingMethod === "epick";
+  const isBranchShipping = order.shippingDeliveryType === "S" || Boolean(order.shippingBranchCode || order.shippingBranchName);
+  const isStorePickup = order.shippingMethod === "pickup";
   const billingName = order.billingName || order.shippingName || order.user?.name || "—";
   const billingPhone = order.billingPhone || order.shippingPhone || "—";
   const billingAddressLine = order.billingAddressLine || order.shippingAddressLine || "";
@@ -188,6 +191,8 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
   const billingProvince = order.billingProvince || order.shippingProvince || "";
   const billingZip = order.billingZip || order.shippingZip || "";
   const customerPhone = order.shippingPhone || "";
+  const customerName = (order.shippingName || order.user?.name || "").trim();
+  const whatsappMessage = formatWhatsappMessage(whatsappMessageTemplate, customerName, order.orderNumber);
   const customerEmail = order.contactEmail || order.user?.email || "";
 
   async function loadShipEmailPreview(customMessage = shipEmailMessage) {
@@ -289,7 +294,7 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
           <div className="mt-6 grid gap-4 lg:grid-cols-4">
             <InfoCard icon={<UserRound className="h-5 w-5" />} title="Cliente">
               <InfoLine icon={<UserRound className="h-4 w-4" />} value={order.shippingName || order.user?.name || "—"} />
-              <InfoLine icon={<Phone className="h-4 w-4" />} value={customerPhone || "—"} href={customerPhone ? whatsappHref(customerPhone) : undefined} external />
+              <InfoLine icon={<Phone className="h-4 w-4" />} value={customerPhone || "—"} href={customerPhone ? whatsappHref(customerPhone, whatsappMessage) : undefined} external />
               <InfoLine icon={<Mail className="h-4 w-4" />} value={customerEmail || "—"} href={customerEmail ? `mailto:${customerEmail}` : undefined} />
               <InfoLine icon={<FileText className="h-4 w-4" />} value={`DNI ${order.dni || "—"}`} />
             </InfoCard>
@@ -308,15 +313,28 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
               <div className="mb-5 inline-flex rounded-full bg-[#f1e5d8] px-3 py-1.5 text-xs font-medium text-[#7b4a24]">
                 {shippingMethodLabel(order)}
               </div>
-              <InfoLine
-                icon={<MapPin className="h-4 w-4" />}
-                value={`${order.shippingAddressLine || "—"}, ${order.shippingCity || "—"}, ${order.shippingProvince || "—"} · CP ${order.shippingZip || "—"}`}
-              />
-              <InfoLine
-                muted
-                icon={<Building2 className="h-4 w-4" />}
-                value={`Piso/Depto: ${[order.shippingFloor, order.shippingApartment].filter(Boolean).join(" / ") || "—"}`}
-              />
+              {isBranchShipping ? (
+                <>
+                  <InfoLine icon={<MapPin className="h-4 w-4" />} value={`Sucursal / punto de retiro: ${order.shippingBranchName || "No informado"}`} />
+                  {order.shippingBranchCode ? (
+                    <InfoLine muted icon={<Building2 className="h-4 w-4" />} value={`Código de sucursal: ${order.shippingBranchCode}`} />
+                  ) : null}
+                </>
+              ) : isStorePickup ? (
+                <InfoLine icon={<MapPin className="h-4 w-4" />} value="Retiro en tienda" />
+              ) : (
+                <>
+                  <InfoLine
+                    icon={<MapPin className="h-4 w-4" />}
+                    value={`${order.shippingAddressLine || "—"}, ${order.shippingCity || "—"}, ${order.shippingProvince || "—"} · CP ${order.shippingZip || "—"}`}
+                  />
+                  <InfoLine
+                    muted
+                    icon={<Building2 className="h-4 w-4" />}
+                    value={`Piso/Depto: ${[order.shippingFloor, order.shippingApartment].filter(Boolean).join(" / ") || "—"}`}
+                  />
+                </>
+              )}
               <InfoLine muted icon={<FileText className="h-4 w-4" />} value={`Indicaciones: ${order.notes || "—"}`} />
             </InfoCard>
 

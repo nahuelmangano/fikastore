@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { notFound } from "next/navigation";
 import AdminOrderDetail from "./ui";
+import { getWhatsappMessageTemplate } from "@/lib/storeSettings";
 
 type AdminOrderDetailPayload = Prisma.OrderGetPayload<{
   include: {
@@ -60,5 +61,6 @@ export default async function AdminOrderDetailPage({
 
   if (!order) return notFound();
 
-  return <AdminOrderDetail order={order as AdminOrderDetailPayload} />;
+  const whatsappMessageTemplate = await getWhatsappMessageTemplate();
+  return <AdminOrderDetail order={order as AdminOrderDetailPayload} whatsappMessageTemplate={whatsappMessageTemplate} />;
 }

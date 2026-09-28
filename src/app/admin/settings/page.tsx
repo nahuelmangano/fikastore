@@ -3,6 +3,7 @@ import { flattenCategories } from "@/lib/categories";
 import { auth } from "@/auth";
 import {
   getAnnouncementText,
+  getWhatsappMessageTemplate,
   getAnalyticsSettings,
   getFaviconUrl,
   getHomeBannerSettings,
@@ -25,6 +26,7 @@ export default async function SettingsPage() {
   const currentUserRole = (session?.user as { role?: string } | undefined)?.role || "";
   const [
     announcementText,
+    whatsappMessageTemplate,
     logoUrl,
     homeBannerSettings,
     homeCategoryTiles,
@@ -42,6 +44,7 @@ export default async function SettingsPage() {
     categories,
   ] = await Promise.all([
     getAnnouncementText(),
+    getWhatsappMessageTemplate(),
     getStoreLogoUrl(),
     getHomeBannerSettings(),
     getHomeCategoryTiles(),
@@ -65,6 +68,7 @@ export default async function SettingsPage() {
   return (
     <AdminSettingsPage
       announcementText={announcementText}
+      whatsappMessageTemplate={whatsappMessageTemplate}
       logoUrl={logoUrl}
       homeBannerSettings={homeBannerSettings}
       homeCategoryTiles={homeCategoryTiles}

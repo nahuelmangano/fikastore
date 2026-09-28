@@ -16,6 +16,9 @@ import {
   LogOut,
   Mail,
   Monitor,
+  MessageCircle,
+  Menu,
+  X,
   Package,
   Paintbrush,
   RefreshCw,
@@ -27,7 +30,7 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type AdminSideNavProps = {
   isAdmin: boolean;
@@ -57,10 +60,21 @@ function navHref(item: NavItem) {
 }
 
 export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
+  const mobileDialog = useRef<HTMLDialogElement>(null);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [settingsOpen, setSettingsOpen] = useState(pathname.startsWith("/admin/settings"));
   const [promotionsOpen, setPromotionsOpen] = useState(pathname.startsWith("/admin/promociones"));
+
+  useEffect(() => {
+    const dialog = mobileDialog.current;
+    const desktop = window.matchMedia("(min-width: 768px)");
+    const closeOnDesktop = () => {
+      if (desktop.matches) dialog?.close();
+    };
+    desktop.addEventListener("change", closeOnDesktop);
+    return () => desktop.removeEventListener("change", closeOnDesktop);
+  }, []);
 
   const isItemActive = (item: NavItem) =>
     item.query
@@ -75,6 +89,7 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
     { href: "/admin/settings", query: "categories", label: "Categorías", icon: LayoutGrid },
     { href: "/admin/settings", query: "payments", label: "Medios de pago", icon: CreditCard },
     { href: "/admin/settings", query: "social", label: "Redes", icon: Share2 },
+    { href: "/admin/settings", query: "whatsapp", label: "WhatsApp", icon: MessageCircle },
     { href: "/admin/settings", query: "domain", label: "Dominio", icon: Globe },
     { href: "/admin/settings", query: "analytics", label: "Analíticas", icon: BarChart3 },
   ];
@@ -122,45 +137,8 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
     },
   ];
 
-  const items = groups.flatMap((group) => group.items.flatMap((item) => [item, ...(item.children || [])]));
-
-  return (
+  const navigation = (
     <>
-      <div className="sticky top-0 z-40 border-b border-[#E5D7C8] bg-[#FAF8F5]/95 px-3 py-3 text-[#8B5A2B] backdrop-blur md:hidden">
-        <div className="flex gap-2 overflow-x-auto">
-          {items.map((item) => {
-            const active = isItemActive(item);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={navHref(item)}
-                href={navHref(item)}
-                target={item.newTab ? "_blank" : undefined}
-                rel={item.newTab ? "noopener noreferrer" : undefined}
-                className={[
-                  "flex whitespace-nowrap rounded-xl border px-3 py-2 text-sm transition duration-150",
-                  active
-                    ? "border-[#8B5A2B] bg-[#8B5A2B] font-semibold text-white"
-                    : "border-[#E5D7C8] text-[#8B5A2B] hover:bg-[#F2ECE5]",
-                ].join(" ")}
-              >
-                <Icon className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
-                {item.label}
-              </Link>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => signOut({ callbackUrl: "/" })}
-            className="flex whitespace-nowrap rounded-xl border border-[#E5D7C8] px-3 py-2 text-sm text-[#8B5A2B] transition duration-150 hover:bg-[#F2ECE5]"
-          >
-            <LogOut className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
-            Cerrar sesión
-          </button>
-        </div>
-      </div>
-
-      <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-[#E5D7C8] bg-[#FAF8F5] px-4 py-5 text-[#8B5A2B] shadow-[4px_0_24px_rgba(80,52,28,0.06)] md:flex md:flex-col">
         <div className="flex items-center gap-3 rounded-2xl border border-[#EADCCD] bg-white/55 px-3 py-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#8B5A2B] text-white shadow-sm">
             <Store className="h-5 w-5" aria-hidden="true" />
@@ -171,7 +149,7 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
           </div>
         </div>
 
-        <nav className="mt-6 flex-1 space-y-6 overflow-y-auto pr-1">
+        <nav aria-label="Navegación principal" className="mt-6 min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain pr-1">
           {groups.map((group) => (
             <div key={group.label}>
               <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wider text-[#B18B68]">
@@ -254,6 +232,57 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
             Cerrar sesión
           </button>
         </div>
+    </>
+  );
+
+  function closeMobileMenu() {
+    mobileDialog.current?.close();
+  }
+
+  return (
+    <>
+      <div className="sticky top-0 z-40 flex items-center gap-3 border-b border-[#E5D7C8] bg-[#FAF8F5]/95 px-3 py-3 text-[#8B5A2B] backdrop-blur md:hidden">
+        <button
+          type="button"
+          aria-label="Abrir menú de navegación"
+          aria-haspopup="dialog"
+          aria-controls="admin-mobile-navigation"
+          onClick={() => mobileDialog.current?.showModal()}
+          className="flex items-center gap-2 rounded-xl border border-[#E5D7C8] px-3 py-2 text-sm font-semibold"
+        >
+          <Menu className="h-5 w-5" aria-hidden="true" />
+          Menú
+        </button>
+        <span className="text-sm font-semibold">FIKA · Admin Panel</span>
+      </div>
+
+      <dialog
+        ref={mobileDialog}
+        id="admin-mobile-navigation"
+        aria-label="Navegación del panel"
+        className="fixed inset-y-0 left-0 right-auto m-0 h-dvh max-h-none w-80 max-w-[90vw] border-0 bg-[#FAF8F5] p-0 text-[#8B5A2B] shadow-xl backdrop:bg-black/40"
+        onClick={(event) => {
+          if (event.target === event.currentTarget) closeMobileMenu();
+          if ((event.target as HTMLElement).closest("a")) closeMobileMenu();
+        }}
+      >
+        <div className="flex h-full min-h-0 flex-col px-4 pb-5 pt-3">
+          <button
+            type="button"
+            autoFocus
+            onClick={closeMobileMenu}
+            className="mb-3 flex shrink-0 items-center gap-2 self-end rounded-xl px-3 py-2 text-sm hover:bg-[#F2ECE5]"
+          >
+            <X className="h-5 w-5" aria-hidden="true" />
+            Cerrar menú
+          </button>
+          {navigation}
+        </div>
+      </dialog>
+      <style>{`body:has(#admin-mobile-navigation[open]) { overflow: hidden; }`}</style>
+
+      <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-[#E5D7C8] bg-[#FAF8F5] px-4 py-5 text-[#8B5A2B] shadow-[4px_0_24px_rgba(80,52,28,0.06)] md:flex">
+        {navigation}
       </aside>
     </>
   );
