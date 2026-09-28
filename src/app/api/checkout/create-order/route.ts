@@ -443,8 +443,8 @@ export async function POST(req: Request) {
           payload: {
             customerName: getOrderCustomerName(createdOrder),
             orderNumber: `#${createdOrder.orderNumber}`,
-            productsHtml: emailOrderItemsHtml(createdOrder.items, baseUrl, { subtotal: itemsSubtotal, shipping: createdOrder.shippingAmount, total: createdOrder.total }),
-            productsText: emailOrderItemsText(createdOrder.items, { subtotal: itemsSubtotal, shipping: createdOrder.shippingAmount, total: createdOrder.total }),
+            productsHtml: emailOrderItemsHtml(createdOrder.items, baseUrl, { subtotal: itemsSubtotal, shipping: createdOrder.shippingAmount, shippingPricingMode: selectedCarrier.pricingMode, total: createdOrder.total }),
+            productsText: emailOrderItemsText(createdOrder.items, { subtotal: itemsSubtotal, shipping: createdOrder.shippingAmount, shippingPricingMode: selectedCarrier.pricingMode, total: createdOrder.total }),
             paymentAmount: `$${Number(createdOrder.total).toLocaleString("es-AR")}`,
             paymentMethod: paymentLabel,
             paymentInstructions,

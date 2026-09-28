@@ -87,8 +87,8 @@ async function processInitialMercadoPagoPending(payload: Record<string, unknown>
     return { skipped: true };
   }
 
-  const checkoutCarriers = await getShippingCarriers({ visibleToMerchantOnly: true });
-  const selectedCarrier = checkoutCarriers.find((carrier) => carrier.key === (order.shippingMethod || "") && carrier.enabled);
+  const checkoutCarriers = await getShippingCarriers();
+  const selectedCarrier = checkoutCarriers.find((carrier) => carrier.key === (order.shippingMethod || ""));
   const baseUrl = publicBaseUrl(req);
   const publicOrderUrl = buildPublicOrderUrl(baseUrl, order);
   const itemsSubtotal = order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
@@ -126,8 +126,8 @@ async function processInitialMercadoPagoPending(payload: Record<string, unknown>
     payload: {
       customerName: getOrderCustomerName(order),
       orderNumber: `#${order.orderNumber}`,
-      productsHtml: emailOrderItemsHtml(order.items, baseUrl, { subtotal: itemsSubtotal, shipping: order.shippingAmount, total: order.total }),
-      productsText: emailOrderItemsText(order.items, { subtotal: itemsSubtotal, shipping: order.shippingAmount, total: order.total }),
+      productsHtml: emailOrderItemsHtml(order.items, baseUrl, { subtotal: itemsSubtotal, shipping: order.shippingAmount, shippingPricingMode: selectedCarrier?.pricingMode, total: order.total }),
+      productsText: emailOrderItemsText(order.items, { subtotal: itemsSubtotal, shipping: order.shippingAmount, shippingPricingMode: selectedCarrier?.pricingMode, total: order.total }),
       paymentAmount: money(Number(order.total)),
       paymentMethod: "Mercado Pago",
       paymentInstructions: "Podés completar el pago desde el enlace de tu pedido.",
@@ -210,6 +210,8 @@ async function processPaymentReminder(payload: Record<string, unknown>, req: Req
   const orderEmail = getOrderContactEmail(payment.order);
   if (!orderEmail) return { skipped: true };
   const publicOrderUrl = buildPublicOrderUrl(baseUrl, payment.order);
+  const carriers = await getShippingCarriers();
+  const selectedCarrier = carriers.find((carrier) => carrier.key === payment.order.shippingMethod);
   const itemsSubtotal = payment.order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
   await queueAndSendEmailNotification({
     templateKey: "payment-pending-reminder",
@@ -221,8 +223,8 @@ async function processPaymentReminder(payload: Record<string, unknown>, req: Req
     payload: {
       customerName: getOrderCustomerName(payment.order),
       orderNumber: payment.order.orderNumber ? `#${payment.order.orderNumber}` : payment.order.id,
-      productsHtml: emailOrderItemsHtml(payment.order.items, baseUrl, { subtotal: itemsSubtotal, shipping: payment.order.shippingAmount, total: payment.order.total }),
-      productsText: emailOrderItemsText(payment.order.items, { subtotal: itemsSubtotal, shipping: payment.order.shippingAmount, total: payment.order.total }),
+      productsHtml: emailOrderItemsHtml(payment.order.items, baseUrl, { subtotal: itemsSubtotal, shipping: payment.order.shippingAmount, shippingPricingMode: selectedCarrier?.pricingMode, total: payment.order.total }),
+      productsText: emailOrderItemsText(payment.order.items, { subtotal: itemsSubtotal, shipping: payment.order.shippingAmount, shippingPricingMode: selectedCarrier?.pricingMode, total: payment.order.total }),
       paymentAmount: money(Number(payment.order.total)),
       reminderNumber: String(reminderNumber),
       paymentUrl: publicOrderUrl,

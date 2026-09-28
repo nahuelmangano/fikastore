@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { notFound } from "next/navigation";
 import AdminOrderDetail from "./ui";
 import { getWhatsappMessageTemplate } from "@/lib/storeSettings";
+import { getShippingCarriers } from "@/lib/shippingCarriers";
 
 type AdminOrderDetailPayload = Prisma.OrderGetPayload<{
   include: {
@@ -61,6 +62,14 @@ export default async function AdminOrderDetailPage({
 
   if (!order) return notFound();
 
-  const whatsappMessageTemplate = await getWhatsappMessageTemplate();
-  return <AdminOrderDetail order={order as AdminOrderDetailPayload} whatsappMessageTemplate={whatsappMessageTemplate} />;
+  const [whatsappMessageTemplate, carriers] = await Promise.all([
+    getWhatsappMessageTemplate(),
+    getShippingCarriers(),
+  ]);
+  const carrier = carriers.find((item) => item.key === order.shippingMethod);
+  return <AdminOrderDetail
+    order={order as AdminOrderDetailPayload}
+    whatsappMessageTemplate={whatsappMessageTemplate}
+    shippingCarrier={carrier ? { name: carrier.name, pricingMode: carrier.pricingMode } : undefined}
+  />;
 }

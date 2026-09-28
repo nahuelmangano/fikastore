@@ -1,3 +1,4 @@
+import { getShippingCarriers } from "@/lib/shippingCarriers";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -91,6 +92,8 @@ async function sendDetailedPaidEmail(input: {
   const publicOrderUrl = buildPublicOrderUrl(baseUrl, order);
   const subtotal = order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
   const shippingAmount = Number(order.shippingAmount);
+  const carriers = await getShippingCarriers();
+  const shippingCarrier = carriers.find((carrier) => carrier.key === order.shippingMethod);
   const paymentAmount = Number(input.payment.transaction_amount || order.total);
   const paymentMethod = input.payment.payment_method_id ? String(input.payment.payment_method_id) : "";
   const subjectPayload = {
@@ -124,6 +127,7 @@ async function sendDetailedPaidEmail(input: {
         amount: paymentAmount,
       },
       shipping: {
+        pricingMode: shippingCarrier?.pricingMode,
         method: order.shippingMethod,
         deliveryType: order.shippingDeliveryType,
         branchName: order.shippingBranchName,

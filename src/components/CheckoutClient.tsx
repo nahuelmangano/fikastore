@@ -1149,14 +1149,14 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                               <ShippingMethodLogo method={carrier.key} pickupPoint={points.length > 0} />
                               <span>{carrier.name}</span>
                             </div>
-                            {points.length === 0 ? (
-                              <div className="text-xs text-zinc-500">
-                                {isAgreement ? "Coordinamos el costo después de la compra." : carrier.description || "Método de entrega personalizado"}
+                            {points.length === 0 && carrier.description?.trim() ? (
+                              <div className="whitespace-pre-line text-xs text-zinc-500">
+                                {carrier.description}
                               </div>
                             ) : null}
                           </div>
                         </div>
-                        <div className="text-sm font-semibold">
+                        <div className="shrink-0 whitespace-nowrap text-sm font-semibold">
                           {isAgreement ? (
                             "A convenir"
                           ) : amount > 0 ? (

@@ -1,3 +1,5 @@
+import { shippingCostLabel } from "@/lib/shippingCostLabel";
+
 function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
 }
@@ -75,6 +77,7 @@ export function orderPaidTemplate(input: {
     amount?: number;
   };
   shipping?: {
+    pricingMode?: string;
     method?: string | null;
     deliveryType?: string | null;
     branchName?: string | null;
@@ -237,7 +240,7 @@ export function orderPaidTemplate(input: {
           </tr>` : ""}
           <tr>
             <td style="padding:5px 0;font-size:14px;color:#444;">Envio</td>
-            <td style="padding:5px 0;text-align:right;font-size:14px;color:#111;">${shippingAmount > 0 ? money(shippingAmount) : "$0"}</td>
+            <td style="padding:5px 0;text-align:right;font-size:14px;color:#111;">${shippingCostLabel(shippingAmount, input.shipping?.pricingMode)}</td>
           </tr>
         <tr>
             <td style="padding:12px 0 0;font-size:22px;font-weight:800;color:#111;">Total pagado</td>

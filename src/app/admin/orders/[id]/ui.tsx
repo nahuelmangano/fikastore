@@ -147,7 +147,11 @@ function shippingMethodLabel(order: Pick<AdminOrder, "shippingMethod" | "shippin
   return order.shippingMethod || "No informado";
 }
 
-export default function AdminOrderDetail({ order, whatsappMessageTemplate }: { order: AdminOrder; whatsappMessageTemplate: string }) {
+export default function AdminOrderDetail({ order, whatsappMessageTemplate, shippingCarrier }: {
+  order: AdminOrder;
+  whatsappMessageTemplate: string;
+  shippingCarrier?: { name: string; pricingMode: "fixed" | "agreement" | "free" };
+}) {
   const [status, setStatus] = useState<string>(order.status);
   const [paymentStatus, setPaymentStatus] = useState<string>(order.payments?.[0]?.status ?? "—");
   const [shippedAt, setShippedAt] = useState<string | null>(order.shippedAt ? String(order.shippedAt) : null);
@@ -179,6 +183,9 @@ export default function AdminOrderDetail({ order, whatsappMessageTemplate }: { o
     0
   );
   const shippingAmount = Number(order.shippingAmount || 0);
+  const shippingCostLabel = shippingAmount > 0
+    ? money(shippingAmount)
+    : shippingCarrier?.pricingMode === "agreement" ? "A convenir" : "Gratis";
   const isCorreoShipping = order.shippingMethod === "correo";
   const isEpickShipping = order.shippingMethod === "epick";
   const isBranchShipping = order.shippingDeliveryType === "S" || Boolean(order.shippingBranchCode || order.shippingBranchName);
@@ -311,7 +318,7 @@ export default function AdminOrderDetail({ order, whatsappMessageTemplate }: { o
 
             <InfoCard icon={<Truck className="h-5 w-5" />} title="Envío">
               <div className="mb-5 inline-flex rounded-full bg-[#f1e5d8] px-3 py-1.5 text-xs font-medium text-[#7b4a24]">
-                {shippingMethodLabel(order)}
+                {order.shippingMethod?.startsWith("custom-") && shippingCarrier ? shippingCarrier.name : shippingMethodLabel(order)}
               </div>
               {isBranchShipping ? (
                 <>
@@ -350,7 +357,7 @@ export default function AdminOrderDetail({ order, whatsappMessageTemplate }: { o
               </div>
               <div className="mt-4 space-y-2 text-sm text-zinc-400">
                 <div className="flex justify-between"><span>Productos</span><span>{money(itemsSubtotal)}</span></div>
-                <div className="flex justify-between"><span>Envío</span><span>{shippingAmount > 0 ? money(shippingAmount) : "$0"}</span></div>
+                <div className="flex justify-between"><span>Envío</span><span>{shippingCostLabel}</span></div>
                 <div className="flex justify-between"><span>Descuento</span><span>$0</span></div>
               </div>
             </InfoCard>
@@ -405,7 +412,7 @@ export default function AdminOrderDetail({ order, whatsappMessageTemplate }: { o
               </div>
               <div className="mt-2 flex items-center justify-between text-sm text-zinc-400">
                 <span>Envío</span>
-                <span>{shippingAmount > 0 ? money(shippingAmount) : "Gratis"}</span>
+                <span>{shippingCostLabel}</span>
               </div>
               <div className="mt-3 flex items-center justify-between">
                 <span className="text-zinc-300">Total</span>
