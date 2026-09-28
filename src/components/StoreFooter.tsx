@@ -2,6 +2,7 @@ import Image from "next/image";
 import { Mail, MapPin, Phone } from "lucide-react";
 import RegretButtonModal from "@/components/RegretButtonModal";
 import { getSocialLinksSettings } from "@/lib/storeSettings";
+import { whatsappHref } from "@/lib/whatsapp";
 
 const PAYMENT_LOGOS = [
   { label: "Mercado Pago", url: "https://dk0k1i3js6c49.cloudfront.net/applications/logos/payment-icons/mercadopago.png" },
@@ -29,6 +30,7 @@ const SHIPPING_LOGOS = [
 export default async function StoreFooter() {
   const email = process.env.NEXT_PUBLIC_STORE_CONTACT_EMAIL || process.env.SUPPORT_EMAIL || "fika.arg@hotmail.com";
   const phone = process.env.NEXT_PUBLIC_STORE_CONTACT_PHONE || "1128460302";
+  const phoneWhatsappHref = whatsappHref(phone);
   const location = process.env.NEXT_PUBLIC_STORE_CONTACT_LOCATION || "Buenos Aires, Argentina";
   const socialLinks = await getSocialLinksSettings();
 
@@ -82,7 +84,7 @@ export default async function StoreFooter() {
             <h2 className="text-base font-normal uppercase">Contacto</h2>
             <div className="mt-3 space-y-1.5 text-sm text-[var(--foreground)]">
               <a href={`mailto:${email}`} className="flex items-center gap-2 text-inherit hover:text-zinc-600"><Mail className="h-4 w-4" /> {email}</a>
-              <a href={`tel:${phone}`} className="flex items-center gap-2 text-inherit hover:text-zinc-600"><Phone className="h-4 w-4" /> {phone}</a>
+              <a href={phoneWhatsappHref} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-inherit hover:text-zinc-600"><Phone className="h-4 w-4" /> {phone}</a>
               <div className="flex items-center gap-2 text-inherit"><MapPin className="h-4 w-4" /> {location}</div>
               <RegretButtonModal />
             </div>

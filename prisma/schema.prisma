@@ -234,6 +234,15 @@ model Order {
   userId       String?
   contactEmail String?
   dni          String?
+  billingName         String?
+  billingPhone        String?
+  billingAddressLine  String?
+  billingFloor        String  @default("")
+  billingApartment    String  @default("")
+  billingCity         String?
+  billingZip          String?
+  billingProvince     String? @default("")
+  billingProvinceCode String? @default("")
   status       String  @default("pending_payment") // pending_payment|paid|shipped|cancelled|refunded
   total        Decimal @db.Decimal(18, 2)
 
@@ -261,9 +270,10 @@ model Order {
   metaClientIpAddress   String?
   metaClientUserAgent   String?
 
-  shippedAt   DateTime? // ✅ cuando lo marcás como enviado
-  deliveredAt DateTime?
-  notes       String? // ✅ notas internas/admin (opcional)
+  shippedAt     DateTime? // ✅ cuando lo marcás como enviado
+  deliveredAt   DateTime?
+  notes         String? // nota del cliente/indicaciones de envío
+  merchantNotes String?   @db.NVarChar(max)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

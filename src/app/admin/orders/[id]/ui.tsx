@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Building2, Check, CreditCard, FileText, Mail, MapPin, PackageCheck, Phone, Truck, Undo2, UserRound, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { whatsappHref } from "@/lib/whatsapp";
 
 function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
@@ -64,8 +65,17 @@ type AdminOrder = {
   createdAt: string | Date;
   shippedAt?: string | Date | null;
   deliveredAt?: string | Date | null;
+  merchantNotes?: string | null;
   contactEmail?: string | null;
   dni?: string | null;
+  billingName?: string | null;
+  billingPhone?: string | null;
+  billingAddressLine?: string | null;
+  billingFloor?: string | null;
+  billingApartment?: string | null;
+  billingCity?: string | null;
+  billingProvince?: string | null;
+  billingZip?: string | null;
   shippingName?: string | null;
   shippingPhone?: string | null;
   shippingAddressLine?: string | null;
@@ -157,6 +167,10 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
   const [shipEmailPreview, setShipEmailPreview] = useState<{ to?: string; subject?: string; html?: string } | null>(null);
   const [shipEmailLoading, setShipEmailLoading] = useState(false);
   const [shipEmailMsg, setShipEmailMsg] = useState<string | null>(null);
+  const [merchantNotes, setMerchantNotes] = useState(order.merchantNotes || "");
+  const [savedMerchantNotes, setSavedMerchantNotes] = useState(order.merchantNotes || "");
+  const [merchantNotesLoading, setMerchantNotesLoading] = useState(false);
+  const [merchantNotesMsg, setMerchantNotesMsg] = useState<string | null>(null);
 
   const lastPayment = order.payments?.[0];
   const itemsSubtotal = order.items.reduce(
@@ -166,6 +180,15 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
   const shippingAmount = Number(order.shippingAmount || 0);
   const isCorreoShipping = order.shippingMethod === "correo";
   const isEpickShipping = order.shippingMethod === "epick";
+  const billingName = order.billingName || order.shippingName || order.user?.name || "—";
+  const billingPhone = order.billingPhone || order.shippingPhone || "—";
+  const billingAddressLine = order.billingAddressLine || order.shippingAddressLine || "";
+  const billingFloorApartment = [order.billingFloor, order.billingApartment].filter(Boolean).join(" / ");
+  const billingCity = order.billingCity || order.shippingCity || "";
+  const billingProvince = order.billingProvince || order.shippingProvince || "";
+  const billingZip = order.billingZip || order.shippingZip || "";
+  const customerPhone = order.shippingPhone || "";
+  const customerEmail = order.contactEmail || order.user?.email || "";
 
   async function loadShipEmailPreview(customMessage = shipEmailMessage) {
     setShipEmailMsg(null);
@@ -199,6 +222,26 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
       return;
     }
     setShipEmailMsg("✅ Mail de pedido enviado enviado al cliente.");
+  }
+
+  async function saveMerchantNotes() {
+    setMerchantNotesMsg(null);
+    setMerchantNotesLoading(true);
+    const res = await fetch(`/api/admin/orders/${order.id}/notes`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ merchantNotes }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setMerchantNotesLoading(false);
+    if (!res.ok) {
+      setMerchantNotesMsg(data?.error || "No se pudo guardar la nota.");
+      return;
+    }
+    const nextNotes = data?.order?.merchantNotes || "";
+    setMerchantNotes(nextNotes);
+    setSavedMerchantNotes(nextNotes);
+    setMerchantNotesMsg("Nota guardada.");
   }
 
   return (
@@ -243,12 +286,22 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-4 lg:grid-cols-3">
+          <div className="mt-6 grid gap-4 lg:grid-cols-4">
             <InfoCard icon={<UserRound className="h-5 w-5" />} title="Cliente">
               <InfoLine icon={<UserRound className="h-4 w-4" />} value={order.shippingName || order.user?.name || "—"} />
-              <InfoLine icon={<Phone className="h-4 w-4" />} value={order.shippingPhone || "—"} />
-              <InfoLine icon={<Mail className="h-4 w-4" />} value={order.contactEmail || order.user?.email || "—"} />
+              <InfoLine icon={<Phone className="h-4 w-4" />} value={customerPhone || "—"} href={customerPhone ? whatsappHref(customerPhone) : undefined} external />
+              <InfoLine icon={<Mail className="h-4 w-4" />} value={customerEmail || "—"} href={customerEmail ? `mailto:${customerEmail}` : undefined} />
               <InfoLine icon={<FileText className="h-4 w-4" />} value={`DNI ${order.dni || "—"}`} />
+            </InfoCard>
+
+            <InfoCard icon={<Building2 className="h-5 w-5" />} title="Facturación">
+              <InfoLine icon={<UserRound className="h-4 w-4" />} value={billingName} />
+              <InfoLine icon={<Phone className="h-4 w-4" />} value={billingPhone} />
+              <InfoLine icon={<FileText className="h-4 w-4" />} value={`DNI ${order.dni || "—"}`} />
+              <InfoLine icon={<MapPin className="h-4 w-4" />} value={`Dirección: ${billingAddressLine || "—"}`} />
+              <InfoLine muted icon={<Building2 className="h-4 w-4" />} value={`Piso/Depto: ${billingFloorApartment || "—"}`} />
+              <InfoLine muted icon={<MapPin className="h-4 w-4" />} value={`CP ${billingZip || "—"} · ${billingCity || "—"}, ${billingProvince || "—"}`} />
+              <InfoLine muted icon={<FileText className="h-4 w-4" />} value="País: Argentina" />
             </InfoCard>
 
             <InfoCard icon={<Truck className="h-5 w-5" />} title="Envío">
@@ -471,6 +524,57 @@ export default function AdminOrderDetail({ order }: { order: AdminOrder }) {
               * “Marcar como enviado” requiere estado <b>Pagado</b>. “Marcar como entregado” permite <b>Pagado</b> o <b>Enviado</b>.
             </p>
           )}
+
+          <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-zinc-100">Notas internas del pedido</h2>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Anotaciones para el merchant. No se muestran al cliente.
+                </p>
+              </div>
+              {savedMerchantNotes !== merchantNotes ? (
+                <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">Sin guardar</span>
+              ) : null}
+            </div>
+            <textarea
+              value={merchantNotes}
+              onChange={(event) => setMerchantNotes(event.target.value)}
+              placeholder="Ej: cliente pidió cambio de talle, coordinar retiro por la tarde, revisar stock antes de preparar..."
+              rows={5}
+              maxLength={5000}
+              className="mt-4 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+            />
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-xs text-zinc-500">{merchantNotes.length}/5000</div>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  disabled={merchantNotesLoading || savedMerchantNotes === merchantNotes}
+                  onClick={() => {
+                    setMerchantNotes(savedMerchantNotes);
+                    setMerchantNotesMsg(null);
+                  }}
+                  className="rounded-2xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60 disabled:opacity-50"
+                >
+                  Descartar
+                </button>
+                <button
+                  type="button"
+                  disabled={merchantNotesLoading || savedMerchantNotes === merchantNotes}
+                  onClick={saveMerchantNotes}
+                  className="rounded-2xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
+                >
+                  {merchantNotesLoading ? "Guardando..." : "Guardar nota"}
+                </button>
+              </div>
+            </div>
+            {merchantNotesMsg ? (
+              <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-zinc-200">
+                {merchantNotesMsg}
+              </div>
+            ) : null}
+          </section>
 
           {shipEmailOpen && (
             <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
@@ -811,13 +915,24 @@ function InfoCard({ icon, title, children }: { icon: ReactNode; title: string; c
   );
 }
 
-function InfoLine({ icon, value, muted = false }: { icon: ReactNode; value: string; muted?: boolean }) {
-  return (
-    <div className={`mb-4 flex items-start gap-3 text-sm leading-5 ${muted ? "text-zinc-500" : "text-zinc-200"}`}>
+function InfoLine({ icon, value, muted = false, href, external = false }: { icon: ReactNode; value: string; muted?: boolean; href?: string; external?: boolean }) {
+  const className = `mb-4 flex items-start gap-3 text-sm leading-5 ${muted ? "text-zinc-500" : "text-zinc-200"}`;
+  const content = (
+    <>
       <span className="mt-0.5 shrink-0 text-zinc-400">{icon}</span>
       <span className="break-words">{value}</span>
-    </div>
+    </>
   );
+
+  if (href) {
+    return (
+      <a href={href} target={external ? "_blank" : undefined} rel={external ? "noreferrer" : undefined} className={`${className} transition hover:text-zinc-100`}>
+        {content}
+      </a>
+    );
+  }
+
+  return <div className={className}>{content}</div>;
 }
 
 function Badge({ label }: { label: string }) {

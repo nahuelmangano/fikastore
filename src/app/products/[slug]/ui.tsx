@@ -13,6 +13,7 @@ import {
   CreditCard,
   Handshake,
   Landmark,
+  Store,
   Tag,
   X,
 } from "lucide-react";
@@ -39,6 +40,49 @@ function shippingLogoUrl(method: string) {
   if (method === "andreani") return `${SHIPPING_LOGO_BASE_URL}/andreani.png`;
   if (method === "pickup") return `${SHIPPING_LOGO_BASE_URL}/acordar.png`;
   return `${SHIPPING_LOGO_BASE_URL}/personalizado.png`;
+}
+
+function isPickupCarrier(row: Pick<ShippingQuoteRow, "carrierKey" | "label" | "description">) {
+  const text = `${row.carrierKey} ${row.label} ${row.description || ""}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return row.carrierKey === "pickup" || text.includes("punto de retiro") || text.includes("retiro");
+}
+
+function shippingQuoteOrder(row: ShippingQuoteRow) {
+  const text = `${row.carrierKey} ${row.label} ${row.description || ""}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (row.carrierKey === "epick") return 0;
+  if (row.carrierKey === "correo" && row.deliveryType === "S") return 1;
+  if (row.carrierKey === "correo" && row.deliveryType === "D") return 2;
+  if (isPickupCarrier(row)) return 3;
+  if (text.includes("moto mensajeria") || text.includes("motomensajeria")) return 4;
+  return 5;
+}
+
+function ShippingMethodLogo({ row }: { row: Pick<ShippingQuoteRow, "carrierKey" | "label" | "description"> }) {
+  if (isPickupCarrier(row)) {
+    return (
+      <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#F8EFE4] text-[#9A6028]">
+        <Store className="h-3.5 w-3.5" aria-hidden="true" />
+      </span>
+    );
+  }
+
+  return (
+    <Image
+      src={shippingLogoUrl(row.carrierKey)}
+      alt=""
+      width={28}
+      height={28}
+      unoptimized
+      className="mt-0.5 h-7 w-7 rounded-full object-contain"
+    />
+  );
 }
 
 function splitProductName(name: string) {
@@ -123,9 +167,16 @@ type ShippingRate = {
   price?: unknown;
 };
 
+type PickupPoint = {
+  id: string;
+  name: string;
+  notes: string;
+};
+
 type ShippingQuoteRow = {
   label: string;
   description?: string;
+  pickupPoints?: PickupPoint[];
   amount: number;
   carrierKey: string;
   deliveryType: "D" | "S" | null;
@@ -482,6 +533,7 @@ export default function ProductDetailClient({
       rows.push({
         label: String(carrier?.name || key),
         description: String(carrier?.description || "").trim() || undefined,
+        pickupPoints: Array.isArray(carrier?.pickupPoints) ? carrier.pickupPoints : [],
         amount,
         carrierKey: key,
         deliveryType: null,
@@ -516,10 +568,7 @@ export default function ProductDetailClient({
       })
     );
 
-    rowsWithPromos.sort((a, b) => {
-      if (a.freeShipping !== b.freeShipping) return a.freeShipping ? -1 : 1;
-      return a.amount - b.amount;
-    });
+    rowsWithPromos.sort((a, b) => shippingQuoteOrder(a) - shippingQuoteOrder(b) || a.amount - b.amount);
     setQuoteRows(rowsWithPromos);
     setQuoteLoading(false);
 
@@ -937,19 +986,27 @@ export default function ProductDetailClient({
                         className="flex items-start justify-between gap-3 rounded-xl border border-zinc-800 bg-[var(--surface)] p-3"
                       >
                         <span className="flex items-start gap-2">
-                          <Image
-                            src={shippingLogoUrl(row.carrierKey)}
-                            alt=""
-                            width={28}
-                            height={28}
-                            unoptimized
-                            className="mt-0.5 h-7 w-7 rounded-full object-contain"
-                          />
+                          <ShippingMethodLogo row={row} />
                           <span className="text-zinc-100">
                             <span className="font-medium">{row.label}</span>
-                          {row.description && (
-                            <span className="mt-0.5 block text-xs text-zinc-500">{row.description}</span>
-                          )}
+                            {row.description && !isPickupCarrier(row) && (
+                              <span className="mt-0.5 block text-xs text-zinc-500">{row.description}</span>
+                            )}
+                            {row.pickupPoints?.length ? (
+                              <details className="group mt-2 text-xs text-zinc-500">
+                                <summary className="cursor-pointer list-none font-medium text-zinc-300 transition hover:text-zinc-100">
+                                  Ver puntos de retiro
+                                </summary>
+                                <span className="mt-2 block space-y-1.5 rounded-xl border border-zinc-800 bg-zinc-950/40 p-2.5">
+                                  {row.pickupPoints.map((point) => (
+                                    <span key={point.id} className="block">
+                                      <span className="font-medium text-zinc-300">{point.name}</span>
+                                      {point.notes ? <span className="block">{point.notes}</span> : null}
+                                    </span>
+                                  ))}
+                                </span>
+                              </details>
+                            ) : null}
                           </span>
                         </span>
                         <span className="shrink-0 font-semibold text-zinc-100">
