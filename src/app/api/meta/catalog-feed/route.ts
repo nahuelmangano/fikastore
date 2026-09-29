@@ -105,7 +105,8 @@ export async function GET(req: Request) {
         select: { url: true },
       },
       variants: {
-        orderBy: [{ createdAt: "asc" }],
+        where: { isActive: true },
+        orderBy: [{ position: "asc" }, { createdAt: "asc" }],
         include: {
           images: {
             orderBy: [{ sortOrder: "asc" }, { imageId: "asc" }],

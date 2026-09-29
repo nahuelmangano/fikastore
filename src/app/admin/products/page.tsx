@@ -156,7 +156,7 @@ export default async function AdminProductsPage({
       { slug: { contains: q } },
       { sku: { contains: q } },
       { description: { contains: q } },
-      { variants: { some: { sku: { contains: q } } } },
+      { variants: { some: { isActive: true, sku: { contains: q } } } },
     ];
   }
   if (status === "active") where.isActive = true;

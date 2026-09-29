@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Building2, Check, CreditCard, FileText, Mail, MapPin, PackageCheck, Phone, Truck, Undo2, UserRound, X } from "lucide-react";
+import { Building2, Check, CreditCard, FileText, Mail, MapPin, PackageCheck, Phone, Printer, Truck, Undo2, UserRound, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { formatWhatsappMessage, whatsappHref } from "@/lib/whatsapp";
 
@@ -176,6 +176,7 @@ export default function AdminOrderDetail({ order, whatsappMessageTemplate, shipp
   const [savedMerchantNotes, setSavedMerchantNotes] = useState(order.merchantNotes || "");
   const [merchantNotesLoading, setMerchantNotesLoading] = useState(false);
   const [merchantNotesMsg, setMerchantNotesMsg] = useState<string | null>(null);
+  const [printOrderOpen, setPrintOrderOpen] = useState(false);
 
   const lastPayment = order.payments?.[0];
   const itemsSubtotal = order.items.reduce(
@@ -201,6 +202,18 @@ export default function AdminOrderDetail({ order, whatsappMessageTemplate, shipp
   const customerName = (order.shippingName || order.user?.name || "").trim();
   const whatsappMessage = formatWhatsappMessage(whatsappMessageTemplate, customerName, order.orderNumber);
   const customerEmail = order.contactEmail || order.user?.email || "";
+  const billingRows = [
+    ["Nombre", billingName],
+    ["Teléfono", billingPhone],
+    ["Email", customerEmail || "—"],
+    ["DNI", order.dni || "—"],
+    ["Dirección", billingAddressLine || "—"],
+    ["Piso/Depto", billingFloorApartment || "—"],
+    ["Código postal", billingZip || "—"],
+    ["Localidad", billingCity || "—"],
+    ["Provincia", billingProvince || "—"],
+    ["País", "Argentina"],
+  ];
 
   async function loadShipEmailPreview(customMessage = shipEmailMessage) {
     setShipEmailMsg(null);
@@ -271,7 +284,17 @@ export default function AdminOrderDetail({ order, whatsappMessageTemplate, shipp
         <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h1 className="text-xl font-semibold">Pedido #{order.orderNumber}</h1>
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-xl font-semibold">Pedido #{order.orderNumber}</h1>
+                <button
+                  type="button"
+                  onClick={() => setPrintOrderOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/60 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-900"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  Imprimir Orden
+                </button>
+              </div>
               <div className="mt-2 text-xs text-zinc-500">
                 {new Date(order.createdAt).toLocaleString("es-AR")}
               </div>
@@ -923,7 +946,414 @@ export default function AdminOrderDetail({ order, whatsappMessageTemplate, shipp
         </div>
         )}
       </div>
+
+      {printOrderOpen ? (
+        <PrintOrderModal
+          orderNumber={order.orderNumber}
+          createdAt={order.createdAt}
+          rows={billingRows}
+          notes={merchantNotes.trim() || "—"}
+          items={order.items.map((item) => ({
+            id: item.id,
+            name: item.nameSnapshot,
+            quantity: item.quantity,
+          }))}
+          onClose={() => setPrintOrderOpen(false)}
+        />
+      ) : null}
+
+      <style>{`
+        @media print {
+          html,
+          body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            height: auto !important;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          .billing-print-root,
+          .billing-print-root * {
+            visibility: visible !important;
+          }
+          .billing-print-root {
+            display: block !important;
+            position: fixed !important;
+            inset: 0 !important;
+            width: 100% !important;
+            min-height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            color: #111827 !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            overflow: visible !important;
+          }
+          .billing-print-root section,
+          .billing-print-root div {
+            break-inside: avoid;
+          }
+          .billing-screen-field {
+            display: none !important;
+          }
+          .billing-print-value {
+            display: block !important;
+          }
+          @page {
+            margin: 14mm;
+          }
+        }
+      `}</style>
     </main>
+  );
+}
+
+function PrintOrderModal({
+  orderNumber,
+  createdAt,
+  rows,
+  notes,
+  items,
+  onClose,
+}: {
+  orderNumber: number;
+  createdAt: string | Date;
+  rows: string[][];
+  notes: string;
+  items: Array<{ id: string; name: string; quantity: number }>;
+  onClose: () => void;
+}) {
+  const [draftRows, setDraftRows] = useState(rows);
+  const editableBillingLabels = new Set(["Dirección", "Piso/Depto", "Código postal", "Localidad", "Provincia", "País"]);
+
+  function updateDraftRow(index: number, value: string) {
+    setDraftRows((current) =>
+      current.map((row, rowIndex) => (rowIndex === index ? [row[0], value] : row))
+    );
+  }
+
+  function escapePrintText(value: string | number) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function printDraftOrder() {
+    const rowsHtml = draftRows
+      .map(
+        ([label, value]) => `
+          <div class="info-row">
+            <div class="info-label">${escapePrintText(label)}</div>
+            <div class="info-value">${escapePrintText(value || "—")}</div>
+          </div>
+        `
+      )
+      .join("");
+    const itemsHtml = items
+      .map(
+        (item) => `
+          <div class="item-row">
+            <div>${escapePrintText(item.name)}</div>
+            <div class="qty">${escapePrintText(item.quantity)}</div>
+          </div>
+        `
+      )
+      .join("");
+    const notesHtml = escapePrintText(notes || "—").replace(/\n/g, "<br>");
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
+
+    const printWindow = iframe.contentWindow;
+    const printDocument = printWindow?.document;
+    if (!printWindow || !printDocument) {
+      iframe.remove();
+      return;
+    }
+
+    printDocument.open();
+    printDocument.write(`<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Pedido #${escapePrintText(orderNumber)}</title>
+          <style>
+            @page { margin: 14mm; }
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              background: #fff;
+              color: #8a4f1f;
+              font-family: Arial, Helvetica, sans-serif;
+              font-size: 13px;
+            }
+            .sheet {
+              width: 100%;
+              max-width: 760px;
+              margin: 0 auto;
+              padding: 0;
+            }
+            .eyebrow {
+              font-size: 11px;
+              font-weight: 700;
+              letter-spacing: .14em;
+              color: #b1845f;
+              text-transform: uppercase;
+            }
+            h1 {
+              margin: 10px 0 4px;
+              font-size: 24px;
+              line-height: 1.15;
+              color: #8a4f1f;
+            }
+            .date {
+              color: #9a6028;
+              font-size: 13px;
+            }
+            .rule {
+              margin: 20px 0 24px;
+              border-top: 1px solid #e3cdbb;
+            }
+            h2 {
+              margin: 0 0 14px;
+              font-size: 13px;
+              letter-spacing: .1em;
+              text-transform: uppercase;
+              color: #b1845f;
+            }
+            .block {
+              margin-top: 24px;
+              break-inside: avoid;
+            }
+            .table {
+              overflow: hidden;
+              border: 1px solid #e3cdbb;
+              border-radius: 10px;
+            }
+            .info-row {
+              display: grid;
+              grid-template-columns: 170px 1fr;
+              border-bottom: 1px solid #e3cdbb;
+            }
+            .info-row:last-child,
+            .item-row:last-child {
+              border-bottom: 0;
+            }
+            .info-label {
+              padding: 11px 14px;
+              background: #faf7f4;
+              color: #8a4f1f;
+            }
+            .info-value {
+              padding: 11px 14px;
+              color: #8a4f1f;
+            }
+            .item-head,
+            .item-row {
+              display: grid;
+              grid-template-columns: 1fr 90px;
+            }
+            .item-head {
+              background: #faf7f4;
+              font-weight: 600;
+              color: #8a4f1f;
+            }
+            .item-head div,
+            .item-row div {
+              padding: 11px 14px;
+            }
+            .item-row {
+              border-top: 1px solid #e3cdbb;
+              color: #8a4f1f;
+            }
+            .qty {
+              text-align: right;
+            }
+            .notes {
+              min-height: 72px;
+              border: 1px solid #e3cdbb;
+              border-radius: 10px;
+              padding: 14px;
+              color: #8a4f1f;
+              line-height: 1.5;
+            }
+          </style>
+        </head>
+        <body>
+          <main class="sheet">
+            <div class="eyebrow">Orden de facturación</div>
+            <h1>Pedido #${escapePrintText(orderNumber)}</h1>
+            <div class="date">${escapePrintText(new Date(createdAt).toLocaleString("es-AR"))}</div>
+            <div class="rule"></div>
+
+            <section class="block">
+              <h2>Datos de facturación</h2>
+              <div class="table">${rowsHtml}</div>
+            </section>
+
+            <section class="block">
+              <h2>Productos</h2>
+              <div class="table">
+                <div class="item-head"><div>Producto</div><div class="qty">Cantidad</div></div>
+                ${itemsHtml}
+              </div>
+            </section>
+
+            <section class="block">
+              <h2>Notas</h2>
+              <div class="notes">${notesHtml}</div>
+            </section>
+          </main>
+        </body>
+      </html>`);
+    printDocument.close();
+    printWindow.onafterprint = () => iframe.remove();
+    window.setTimeout(() => {
+      printWindow.focus();
+      printWindow.print();
+      window.setTimeout(() => iframe.remove(), 1000);
+    }, 100);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
+      <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-zinc-800 px-5 py-4">
+          <div>
+            <div className="text-lg font-semibold">Orden de facturación</div>
+            <div className="mt-1 text-xs text-zinc-500">Pedido #{orderNumber}</div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-800 text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100"
+            aria-label="Cerrar"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="max-h-[70vh] overflow-y-auto px-5 py-5">
+          <PrintableBillingOrder
+            orderNumber={orderNumber}
+            createdAt={createdAt}
+            rows={draftRows}
+            notes={notes}
+            items={items}
+            editableLabels={editableBillingLabels}
+            onRowChange={updateDraftRow}
+          />
+        </div>
+
+        <div className="flex flex-wrap justify-end gap-3 border-t border-zinc-800 px-5 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-2xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60"
+          >
+            Cerrar
+          </button>
+          <button
+            type="button"
+            onClick={printDraftOrder}
+            className="inline-flex items-center gap-2 rounded-2xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
+          >
+            <Printer className="h-4 w-4" />
+            Imprimir PDF
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PrintableBillingOrder({
+  orderNumber,
+  createdAt,
+  rows,
+  notes,
+  items,
+  editableLabels,
+  onRowChange,
+}: {
+  orderNumber: number;
+  createdAt: string | Date;
+  rows: string[][];
+  notes: string;
+  items: Array<{ id: string; name: string; quantity: number }>;
+  editableLabels?: Set<string>;
+  onRowChange?: (index: number, value: string) => void;
+}) {
+  return (
+    <section className="billing-print-root rounded-xl border border-zinc-800 bg-white p-6 text-zinc-950">
+      <div className="flex items-start justify-between gap-4 border-b border-zinc-200 pb-4">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">Orden de facturación</div>
+          <h2 className="mt-2 text-2xl font-semibold text-zinc-950">Pedido #{orderNumber}</h2>
+          <div className="mt-1 text-sm text-zinc-600">{new Date(createdAt).toLocaleString("es-AR")}</div>
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-zinc-500">Datos de facturación</h3>
+        <div className="mt-4 overflow-hidden rounded-xl border border-zinc-200">
+          {rows.map(([label, value], index) => (
+            <div key={label} className="grid grid-cols-[150px_1fr] border-b border-zinc-200 last:border-b-0">
+              <div className="bg-zinc-50 px-4 py-3 text-sm font-medium text-zinc-600">{label}</div>
+              <div className="px-4 py-3 text-sm text-zinc-950">
+                {onRowChange && editableLabels?.has(label) ? (
+                  <>
+                    <input
+                      value={value}
+                      onChange={(event) => onRowChange(index, event.target.value)}
+                      className="billing-screen-field w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-950 outline-none focus:border-[#9a6028]"
+                    />
+                    <span className="billing-print-value hidden">{value || "—"}</span>
+                  </>
+                ) : (
+                  value
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-zinc-500">Productos</h3>
+        <div className="mt-4 overflow-hidden rounded-xl border border-zinc-200">
+          <div className="grid grid-cols-[1fr_90px] bg-zinc-50 px-4 py-3 text-sm font-medium text-zinc-600">
+            <div>Producto</div>
+            <div className="text-right">Cantidad</div>
+          </div>
+          {items.map((item) => (
+            <div key={item.id} className="grid grid-cols-[1fr_90px] border-t border-zinc-200 px-4 py-3 text-sm text-zinc-950">
+              <div>{item.name}</div>
+              <div className="text-right">{item.quantity}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-zinc-500">Notas</h3>
+        <div className="mt-4 min-h-24 whitespace-pre-wrap rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm leading-6 text-zinc-950">
+          {notes}
+        </div>
+      </div>
+    </section>
   );
 }
 

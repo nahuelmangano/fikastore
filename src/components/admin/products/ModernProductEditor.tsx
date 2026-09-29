@@ -66,6 +66,7 @@ type ExistingVariant = {
   sku?: string | null;
   stock: number;
   priceOverride?: number | null;
+  position?: number;
   optionValueIds: string[];
   imageIds?: string[];
 };
@@ -95,11 +96,13 @@ type VariantDraft = {
   combinationKey: string;
   label: string;
   optionValueKeys: string[];
-  stock: number;
+  stock: StockDraftValue;
   sku: string;
   priceOverride: string;
   enabled: boolean;
 };
+
+type StockDraftValue = number | "";
 
 let draftKeySequence = 0;
 
@@ -155,11 +158,12 @@ function initialVariantDrafts(options: OptionDraft[], variants: ExistingVariant[
 
   return buildVariantDraftsFromOptions(
     normalizedOptions,
-    variants.map((variant) => ({
+    variants.map((variant, index) => ({
       id: variant.id,
       stock: variant.stock,
       sku: variant.sku || null,
       priceOverride: variant.priceOverride ?? null,
+      position: variant.position ?? index,
       optionValueKeys: variant.optionValueIds.map((id) => valueKeyById.get(id)).filter(Boolean) as string[],
     }))
   ).map((variant) => ({
@@ -179,6 +183,15 @@ function initialVariantImageAssignments(variantDrafts: VariantDraft[], variants:
   return Object.fromEntries(
     variantDrafts.map((variant) => [variant.combinationKey, imageIdsByVariantId.get(variant.id || "") ?? []])
   ) as Record<string, string[]>;
+}
+
+function stockDraftFromInput(value: string): StockDraftValue {
+  if (value === "") return "";
+  return Math.max(0, Math.floor(Number(value) || 0));
+}
+
+function stockDraftToNumber(value: StockDraftValue) {
+  return Math.max(0, Math.floor(Number(value) || 0));
 }
 
 function createPendingImage(file: File): PendingImage {
@@ -243,7 +256,7 @@ export default function ModernProductEditor({
   const [slug, setSlug] = useState(product.slug);
   const [description, setDescription] = useState(product.description ?? "");
   const [price, setPrice] = useState<number>(Number(product.price || 0));
-  const [stock, setStock] = useState<number>(Number(product.stock || 0));
+  const [stock, setStock] = useState<StockDraftValue>(Number(product.stock || 0));
   const [isActive, setIsActive] = useState(Boolean(product.isActive));
   const [categoryId, setCategoryId] = useState(product.categoryId ?? "");
   const [hasVariants, setHasVariants] = useState(Boolean(product.hasVariants));
@@ -265,6 +278,8 @@ export default function ModernProductEditor({
   const [savedImageDropIndex, setSavedImageDropIndex] = useState<number | null>(null);
   const [draggedVariantImageIndex, setDraggedVariantImageIndex] = useState<number | null>(null);
   const [variantImageDropIndex, setVariantImageDropIndex] = useState<number | null>(null);
+  const [draggedVariantRowKey, setDraggedVariantRowKey] = useState<string | null>(null);
+  const [variantRowDropKey, setVariantRowDropKey] = useState<string | null>(null);
   const descriptionRef = useRef<HTMLDivElement | null>(null);
   const descriptionInitializedRef = useRef(false);
   const variantRowsRef = useRef<VariantDraft[]>(variantRows);
@@ -315,9 +330,10 @@ export default function ModernProductEditor({
       normalized,
       variantRowsRef.current.map((variant) => ({
         id: variant.id,
-        stock: variant.stock,
+        stock: stockDraftToNumber(variant.stock),
         sku: variant.sku || null,
         priceOverride: variant.priceOverride ? Number(variant.priceOverride.replace(",", ".")) : null,
+        position: variantRowsRef.current.findIndex((item) => item.combinationKey === variant.combinationKey),
         optionValueKeys: variant.optionValueKeys,
       }))
     ).map((variant) => ({
@@ -387,7 +403,7 @@ export default function ModernProductEditor({
   const visibleVariantRows = useMemo(() => variantRows.filter((variant) => variant.enabled), [variantRows]);
   const hiddenVariantRows = useMemo(() => variantRows.filter((variant) => !variant.enabled), [variantRows]);
   const totalVariantStock = useMemo(
-    () => visibleVariantRows.reduce((acc, variant) => acc + Number(variant.stock || 0), 0),
+    () => visibleVariantRows.reduce((acc, variant) => acc + stockDraftToNumber(variant.stock), 0),
     [visibleVariantRows]
   );
   const selectedVariantForImages = variantRows.find((variant) => variant.combinationKey === selectedVariantImageKey) ?? null;
@@ -539,6 +555,46 @@ export default function ModernProductEditor({
   function resetSavedImageDragState() {
     setDraggedSavedImageIndex(null);
     setSavedImageDropIndex(null);
+  }
+
+  function moveVariantRow(fromKey: string, toKey: string) {
+    if (fromKey === toKey) return;
+    setVariantRows((prev) => {
+      const fromIndex = prev.findIndex((variant) => variant.combinationKey === fromKey);
+      const toIndex = prev.findIndex((variant) => variant.combinationKey === toKey);
+      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  }
+
+  function handleVariantRowDragStart(event: DragEvent<HTMLElement>, combinationKey: string) {
+    setDraggedVariantRowKey(combinationKey);
+    setVariantRowDropKey(combinationKey);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", combinationKey);
+  }
+
+  function handleVariantRowDragOver(event: DragEvent<HTMLElement>, combinationKey: string) {
+    event.preventDefault();
+    if (variantRowDropKey !== combinationKey) setVariantRowDropKey(combinationKey);
+    event.dataTransfer.dropEffect = "move";
+  }
+
+  function handleVariantRowDrop(event: DragEvent<HTMLElement>, combinationKey: string) {
+    event.preventDefault();
+    const fallbackKey = event.dataTransfer.getData("text/plain");
+    const fromKey = draggedVariantRowKey || fallbackKey;
+    if (fromKey) moveVariantRow(fromKey, combinationKey);
+    setDraggedVariantRowKey(null);
+    setVariantRowDropKey(null);
+  }
+
+  function resetVariantRowDragState() {
+    setDraggedVariantRowKey(null);
+    setVariantRowDropKey(null);
   }
 
   function toggleVariantImageAssignment(variantKey: string, imageKey: string) {
@@ -696,6 +752,7 @@ export default function ModernProductEditor({
 
   async function submit() {
     setMsg(null);
+    const stockValue = stockDraftToNumber(stock);
 
     if (!name.trim()) {
       setMsg("Ingresá el nombre del producto.");
@@ -709,7 +766,7 @@ export default function ModernProductEditor({
       setMsg("Ingresá un precio válido.");
       return;
     }
-    if (!hasVariants && (!Number.isFinite(stock) || stock < 0)) {
+    if (!hasVariants && (!Number.isFinite(stockValue) || stockValue < 0)) {
       setMsg("Ingresá un stock válido.");
       return;
     }
@@ -728,7 +785,7 @@ export default function ModernProductEditor({
       slug: slugify(slug || name),
       description,
       price,
-      stock: hasVariants ? totalVariantStock : stock,
+      stock: hasVariants ? totalVariantStock : stockValue,
       isActive,
       categoryId,
       hasVariants,
@@ -745,11 +802,12 @@ export default function ModernProductEditor({
           }))
         : [],
       variantCombinations: hasVariants
-        ? variantRows.map((variant) => ({
+        ? variantRows.map((variant, index) => ({
             id: variant.id,
-            stock: Math.max(0, Math.floor(Number(variant.stock) || 0)),
+            stock: stockDraftToNumber(variant.stock),
             sku: null,
             priceOverride: variant.priceOverride ? Number(variant.priceOverride.replace(",", ".")) : null,
+            position: index,
             optionValueKeys: variant.optionValueKeys,
             enabled: variant.enabled,
           }))
@@ -952,7 +1010,7 @@ export default function ModernProductEditor({
                 <input
                   type="number"
                   value={hasVariants ? totalVariantStock : stock}
-                  onChange={(event) => setStock(Number(event.target.value))}
+                  onChange={(event) => setStock(stockDraftFromInput(event.target.value))}
                   disabled={hasVariants}
                   className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 disabled:opacity-60"
                 />
@@ -1071,6 +1129,7 @@ export default function ModernProductEditor({
                           <table className="min-w-full text-left text-sm">
                             <thead className="bg-zinc-900 text-zinc-400">
                               <tr>
+                                <th className="w-10 px-3 py-2" aria-label="Orden"></th>
                                 <th className="px-3 py-2">Variante</th>
                                 <th className="px-3 py-2">Stock</th>
                                 <th className="px-3 py-2">SKU principal</th>
@@ -1080,7 +1139,30 @@ export default function ModernProductEditor({
                             </thead>
                             <tbody className="divide-y divide-zinc-800 bg-zinc-950">
                               {visibleVariantRows.map((variant) => (
-                                <tr key={variant.combinationKey}>
+                                <tr
+                                  key={variant.combinationKey}
+                                  onDragOver={(event) => handleVariantRowDragOver(event, variant.combinationKey)}
+                                  onDrop={(event) => handleVariantRowDrop(event, variant.combinationKey)}
+                                  onDragEnd={resetVariantRowDragState}
+                                  className={
+                                    variantRowDropKey === variant.combinationKey && draggedVariantRowKey !== variant.combinationKey
+                                      ? "bg-amber-50/70"
+                                      : undefined
+                                  }
+                                >
+                                  <td className="px-3 py-2">
+                                    <button
+                                      type="button"
+                                      draggable
+                                      onDragStart={(event) => handleVariantRowDragStart(event, variant.combinationKey)}
+                                      onDragEnd={resetVariantRowDragState}
+                                      className="inline-flex h-8 w-8 cursor-grab items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-400 active:cursor-grabbing"
+                                      aria-label={`Reordenar ${variant.label}`}
+                                      title="Arrastrar para reordenar"
+                                    >
+                                      <GripVertical className="h-4 w-4" />
+                                    </button>
+                                  </td>
                                   <td className="px-3 py-2 text-zinc-200">{variant.label}</td>
                                   <td className="px-3 py-2">
                                     <input
@@ -1091,7 +1173,7 @@ export default function ModernProductEditor({
                                         setVariantRows((prev) =>
                                           prev.map((item) =>
                                             item.combinationKey === variant.combinationKey
-                                              ? { ...item, stock: Math.max(0, Math.floor(Number(event.target.value) || 0)) }
+                                              ? { ...item, stock: stockDraftFromInput(event.target.value) }
                                               : item
                                           )
                                         )

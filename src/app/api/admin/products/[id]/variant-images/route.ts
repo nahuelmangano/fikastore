@@ -27,6 +27,7 @@ export async function PATCH(
       id: true,
       hasVariants: true,
       variants: {
+        where: { isActive: true },
         select: { id: true, combinationKey: true },
       },
     },
@@ -76,6 +77,7 @@ export async function PATCH(
       where: {
         variant: {
           productId: id,
+          isActive: true,
         },
       },
     });

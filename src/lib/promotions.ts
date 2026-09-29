@@ -325,7 +325,7 @@ export async function priceCartItems(
   const variants = variantIds.length
     ? await prisma.productVariant.findMany({
         where: { id: { in: variantIds } },
-        select: { id: true, productId: true, priceOverride: true, label: true },
+        select: { id: true, productId: true, priceOverride: true, label: true, isActive: true },
       })
     : [];
   const variantsById = new Map(variants.map((variant) => [variant.id, variant]));
@@ -340,7 +340,7 @@ export async function priceCartItems(
     const product = byId.get(it.productId);
     if (!product || !product.isActive) continue;
     const variant = it.productVariantId ? variantsById.get(it.productVariantId) : null;
-    if (it.productVariantId && (!variant || variant.productId !== it.productId)) continue;
+    if (it.productVariantId && (!variant || variant.productId !== it.productId || !variant.isActive)) continue;
 
     const basePrice = variant?.priceOverride !== null && variant?.priceOverride !== undefined ? Number(variant.priceOverride) : Number(product.price);
     const productDiscount = productAutoMap.get(it.productId) ?? { percent: 0, name: null };
@@ -468,7 +468,7 @@ async function getDiscountedSubtotalForItems(
   const variants = variantIds.length
     ? await prisma.productVariant.findMany({
         where: { id: { in: variantIds } },
-        select: { id: true, productId: true, priceOverride: true },
+        select: { id: true, productId: true, priceOverride: true, isActive: true },
       })
     : [];
   const variantsById = new Map(variants.map((variant) => [variant.id, variant]));
@@ -480,7 +480,7 @@ async function getDiscountedSubtotalForItems(
     const product = byId.get(item.productId);
     if (!product || !product.isActive) continue;
     const variant = item.productVariantId ? variantsById.get(item.productVariantId) : null;
-    if (item.productVariantId && (!variant || variant.productId !== item.productId)) continue;
+    if (item.productVariantId && (!variant || variant.productId !== item.productId || !variant.isActive)) continue;
 
     const basePrice = variant?.priceOverride !== null && variant?.priceOverride !== undefined ? Number(variant.priceOverride) : Number(product.price);
     const autoPercent = autoMap.get(item.productId) ?? 0;

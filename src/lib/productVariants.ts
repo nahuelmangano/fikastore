@@ -22,6 +22,7 @@ export type ProductVariantInput = {
   stock: number;
   sku?: string | null;
   priceOverride?: number | null;
+  position?: number;
   optionValueIds?: string[];
   optionValueKeys?: string[];
   enabled?: boolean;
@@ -58,6 +59,7 @@ export type NormalizedProductVariantDraft = {
   stock: number;
   sku: string | null;
   priceOverride: number | null;
+  position: number;
   optionValueKeys: string[];
   enabled: boolean;
 };
@@ -148,7 +150,7 @@ export function buildVariantDraftsFromOptions(
   const combinations = cartesianProduct(options.map((option) => option.values));
   const existingByKey = new Map(
     existingVariants
-      .map((variant) => {
+      .map((variant, index) => {
         const keys = Array.isArray(variant.optionValueKeys) ? variant.optionValueKeys.filter(Boolean) : [];
         const combinationKey = buildVariantCombinationKey(keys);
         return combinationKey
@@ -162,15 +164,16 @@ export function buildVariantDraftsFromOptions(
                   variant.priceOverride === null || variant.priceOverride === undefined
                     ? null
                     : Number(variant.priceOverride),
+                position: Number.isFinite(Number(variant.position)) ? Number(variant.position) : index,
                 enabled: variant.enabled !== false,
               },
             ]
           : null;
       })
-      .filter(Boolean) as Array<[string, { id?: string; stock: number; sku: string | null; priceOverride: number | null; enabled: boolean }]>
+      .filter(Boolean) as Array<[string, { id?: string; stock: number; sku: string | null; priceOverride: number | null; position: number; enabled: boolean }]>
   );
 
-  return combinations.map((combination) => {
+  return combinations.map((combination, index) => {
     const optionValueKeys = combination.map((item) => item.tempKey);
     const combinationKey = buildVariantCombinationKey(optionValueKeys);
     const existing = existingByKey.get(combinationKey);
@@ -192,10 +195,11 @@ export function buildVariantDraftsFromOptions(
         existing?.priceOverride !== null && existing?.priceOverride !== undefined && Number.isFinite(existing.priceOverride)
           ? existing.priceOverride
           : null,
+      position: existing?.position ?? index,
       optionValueKeys,
       enabled: existing?.enabled ?? true,
     };
-  });
+  }).sort((a, b) => a.position - b.position || a.label.localeCompare(b.label));
 }
 
 export function validateProductVariantOptions(options: NormalizedProductOption[]) {

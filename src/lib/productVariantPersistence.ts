@@ -24,7 +24,7 @@ export async function loadProductVariantConfig(productId: string) {
         },
       },
       variants: {
-        orderBy: { createdAt: "asc" },
+        orderBy: [{ position: "asc" }, { createdAt: "asc" }],
         include: {
           values: {
             include: {
@@ -51,10 +51,30 @@ export async function syncProductVariants(
   }
 ) {
   if (!input.enabled) {
-    await tx.productVariantValue.deleteMany({
-      where: { variant: { productId: input.productId } },
+    const existingVariants = await tx.productVariant.findMany({
+      where: { productId: input.productId },
+      select: { id: true, _count: { select: { orderItems: true } } },
     });
-    await tx.productVariant.deleteMany({ where: { productId: input.productId } });
+    const deletableVariantIds = existingVariants
+      .filter((variant) => variant._count.orderItems === 0)
+      .map((variant) => variant.id);
+    const historicalVariantIds = existingVariants
+      .filter((variant) => variant._count.orderItems > 0)
+      .map((variant) => variant.id);
+
+    if (deletableVariantIds.length > 0) {
+      await tx.productVariantValue.deleteMany({ where: { variantId: { in: deletableVariantIds } } });
+      await tx.productVariantImage.deleteMany({ where: { variantId: { in: deletableVariantIds } } });
+      await tx.productVariant.deleteMany({ where: { id: { in: deletableVariantIds } } });
+    }
+    if (historicalVariantIds.length > 0) {
+      await tx.productVariantValue.deleteMany({ where: { variantId: { in: historicalVariantIds } } });
+      await tx.productVariantImage.deleteMany({ where: { variantId: { in: historicalVariantIds } } });
+      await tx.productVariant.updateMany({
+        where: { id: { in: historicalVariantIds } },
+        data: { isActive: false, stock: 0, sku: null },
+      });
+    }
     await tx.productOptionValue.deleteMany({
       where: { option: { productId: input.productId } },
     });
@@ -175,6 +195,7 @@ export async function syncProductVariants(
         draft.priceOverride === null || draft.priceOverride === undefined
           ? null
           : Number(draft.priceOverride),
+      position: Number.isFinite(Number(draft.position)) ? Math.max(0, Math.floor(Number(draft.position))) : 0,
       optionValueIds,
       enabled: draft.enabled !== false,
     };
@@ -211,6 +232,7 @@ export async function syncProductVariants(
       ? await tx.productVariant.findFirst({
           where: {
             sku: variant.sku,
+            isActive: true,
             NOT: variant.id ? { id: variant.id } : undefined,
           },
           select: { id: true },
@@ -231,6 +253,8 @@ export async function syncProductVariants(
             label: variant.label,
             stock: variant.stock,
             sku: variant.sku,
+            isActive: true,
+            position: variant.position,
             priceOverride:
               variant.priceOverride === null ? null : new Prisma.Decimal(variant.priceOverride.toFixed(2)),
           },
@@ -242,6 +266,8 @@ export async function syncProductVariants(
             label: variant.label,
             stock: variant.stock,
             sku: variant.sku,
+            isActive: true,
+            position: variant.position,
             priceOverride:
               variant.priceOverride === null ? null : new Prisma.Decimal(variant.priceOverride.toFixed(2)),
           },
@@ -268,8 +294,30 @@ export async function syncProductVariants(
 
   const variantIdsToDelete = existing.variants.map((variant) => variant.id).filter((id) => !savedVariantIds.has(id));
   if (variantIdsToDelete.length > 0) {
-    await tx.productVariantValue.deleteMany({ where: { variantId: { in: variantIdsToDelete } } });
-    await tx.productVariant.deleteMany({ where: { id: { in: variantIdsToDelete } } });
+    const variantsToRemove = await tx.productVariant.findMany({
+      where: { id: { in: variantIdsToDelete } },
+      select: { id: true, _count: { select: { orderItems: true } } },
+    });
+    const deletableVariantIds = variantsToRemove
+      .filter((variant) => variant._count.orderItems === 0)
+      .map((variant) => variant.id);
+    const historicalVariantIds = variantsToRemove
+      .filter((variant) => variant._count.orderItems > 0)
+      .map((variant) => variant.id);
+
+    if (deletableVariantIds.length > 0) {
+      await tx.productVariantValue.deleteMany({ where: { variantId: { in: deletableVariantIds } } });
+      await tx.productVariantImage.deleteMany({ where: { variantId: { in: deletableVariantIds } } });
+      await tx.productVariant.deleteMany({ where: { id: { in: deletableVariantIds } } });
+    }
+    if (historicalVariantIds.length > 0) {
+      await tx.productVariantValue.deleteMany({ where: { variantId: { in: historicalVariantIds } } });
+      await tx.productVariantImage.deleteMany({ where: { variantId: { in: historicalVariantIds } } });
+      await tx.productVariant.updateMany({
+        where: { id: { in: historicalVariantIds } },
+        data: { isActive: false, stock: 0, sku: null },
+      });
+    }
   }
 
   const stockTotal = activeDrafts.reduce((acc, variant) => acc + variant.stock, 0);

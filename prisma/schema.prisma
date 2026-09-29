@@ -96,6 +96,8 @@ model ProductVariant {
   sku            String?  @db.NVarChar(255)
   stock          Int      @default(0)
   priceOverride  Decimal? @db.Decimal(18, 2)
+  isActive       Boolean  @default(true)
+  position       Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -105,7 +107,9 @@ model ProductVariant {
   orderItems OrderItem[]
 
   @@unique([productId, combinationKey])
+  @@index([productId, position])
   @@index([productId])
+  @@index([isActive])
 }
 
 model ProductVariantValue {

@@ -28,7 +28,7 @@ export async function GET(req: Request) {
       { slug: { contains: q } },
       { sku: { contains: q } },
       { description: { contains: q } },
-      { variants: { some: { sku: { contains: q } } } },
+      { variants: { some: { isActive: true, sku: { contains: q } } } },
     ];
   }
 

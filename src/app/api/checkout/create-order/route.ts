@@ -249,7 +249,7 @@ export async function POST(req: Request) {
       const variants = variantIds.length
         ? await tx.productVariant.findMany({
             where: { id: { in: variantIds } },
-            select: { id: true, productId: true, stock: true, sku: true, label: true, priceOverride: true },
+            select: { id: true, productId: true, stock: true, sku: true, label: true, priceOverride: true, isActive: true },
           })
         : [];
       const variantsById = new Map(variants.map((variant) => [variant.id, variant]));
@@ -264,7 +264,7 @@ export async function POST(req: Request) {
         }
         if (it.productVariantId) {
           const variant = variantsById.get(it.productVariantId);
-          if (!variant || variant.productId !== it.productId) {
+          if (!variant || variant.productId !== it.productId || !variant.isActive) {
             throw new Error(`Variante inválida para "${p.name}".`);
           }
           if (variant.stock < it.quantity) {
