@@ -184,6 +184,8 @@ function ShippingAmount({ amount, freeShipping }: { amount: number; freeShipping
     );
   }
 
+  if (freeShipping) return <>Gratis</>;
+
   return <>{amount > 0 ? `$${amount.toLocaleString("es-AR")}` : "—"}</>;
 }
 
@@ -218,6 +220,10 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
   const [correoLoading, setCorreoLoading] = useState(false);
   const [correoError, setCorreoError] = useState<string | null>(null);
   const [correoDeliveryType, setCorreoDeliveryType] = useState<CorreoDeliveryType>("D");
+  const [correoFreeShippingByType, setCorreoFreeShippingByType] = useState<Record<CorreoDeliveryType, boolean>>({
+    D: false,
+    S: false,
+  });
   const [correoAgencies, setCorreoAgencies] = useState<CorreoAgency[]>([]);
   const [correoAgenciesLoading, setCorreoAgenciesLoading] = useState(false);
   const [correoAgenciesError, setCorreoAgenciesError] = useState<string | null>(null);
@@ -362,11 +368,16 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
   const andreaniFreeShipping = freeShippingApplies && shippingMethod === "andreani" && andreaniAmount > 0;
 
   const correoHomeFreeShipping =
-    freeShippingApplies && shippingMethod === "correo" && correoDeliveryType === "D" && correoHomeAmount > 0;
+    correoFreeShippingByType.D || (freeShippingApplies && shippingMethod === "correo" && correoDeliveryType === "D");
   const correoBranchFreeShipping =
-    freeShippingApplies && shippingMethod === "correo" && correoDeliveryType === "S" && correoBranchAmount > 0;
-  const activeCorreoFreeShipping = correoDeliveryType === "S" ? correoBranchFreeShipping : correoHomeFreeShipping;
-  const effectiveShippingAmount = freeShippingApplies ? 0 : shippingAmount;
+    correoFreeShippingByType.S || (freeShippingApplies && shippingMethod === "correo" && correoDeliveryType === "S");
+  const selectedFreeShippingApplies =
+    shippingMethod === "correo"
+      ? correoDeliveryType === "S"
+        ? correoBranchFreeShipping
+        : correoHomeFreeShipping
+      : freeShippingApplies;
+  const effectiveShippingAmount = selectedFreeShippingApplies ? 0 : shippingAmount;
   const total = subtotalDiscounted + effectiveShippingAmount;
   const requiresAddress = shippingMethod !== "pickup" && !selectedCustomCarrier?.pickupPoints?.length;
   const branchReady =
@@ -414,6 +425,56 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
       cancelled = true;
     };
   }, [summaryItems, promoCode, paymentMethod, promotionDeliveryType, shippingMethod]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const t = setTimeout(async () => {
+      if (!correoEnabled || summaryItems.length === 0) {
+        if (!cancelled) setCorreoFreeShippingByType({ D: false, S: false });
+        return;
+      }
+
+      const itemsPayload = summaryItems.map((it) => ({
+        productId: it.productId,
+        productVariantId: it.productVariantId ?? null,
+        lineKey: it.lineKey,
+        quantity: it.quantity,
+      }));
+
+      const [homeRes, branchRes] = await Promise.all(
+        (["D", "S"] as const).map((deliveryType) =>
+          fetch("/api/promotions/cart-pricing", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              items: itemsPayload,
+              promoCode,
+              paymentMethod,
+              deliveryType,
+              carrierKey: "correo",
+            }),
+          })
+        )
+      );
+
+      const [homeData, branchData] = await Promise.all([
+        homeRes.json().catch(() => ({})),
+        branchRes.json().catch(() => ({})),
+      ]);
+
+      if (cancelled) return;
+      setCorreoFreeShippingByType({
+        D: homeRes.ok && homeData?.pricing?.summary?.freeShipping === true,
+        S: branchRes.ok && branchData?.pricing?.summary?.freeShipping === true,
+      });
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [correoEnabled, summaryItems, promoCode, paymentMethod]);
 
   const pricingById = useMemo(() => {
     const map = new Map<string, PricingItem>();
@@ -803,7 +864,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                       : `$${effectiveShippingAmount.toLocaleString("es-AR")}`}
                 </span>
               </div>
-              {freeShippingApplies && shippingMethod !== "pickup" && shippingAmount > 0 && (
+              {selectedFreeShippingApplies && shippingMethod !== "pickup" && shippingAmount > 0 && (
                 <div className="mt-1 flex items-center justify-between text-xs">
                   <span className="text-zinc-500">- Envío bonificado</span>
                   <span className="text-zinc-400">-${shippingAmount.toLocaleString("es-AR")}</span>
@@ -996,136 +1057,116 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                 )}
 
                 {correoEnabled && (
-                  <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                    <label className="flex cursor-pointer items-start justify-between gap-3">
+                  <>
+                    <label className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
                       <div className="flex items-start gap-3">
                         <input
                           type="radio"
                           name="shippingMethod"
-                          checked={shippingMethod === "correo"}
-                          onChange={() => setShippingMethod("correo")}
+                          checked={shippingMethod === "correo" && correoDeliveryType === "D"}
+                          onChange={() => {
+                            setShippingMethod("correo");
+                            setCorreoDeliveryType("D");
+                          }}
                           className="mt-1"
                         />
                         <div>
-                        <div className="flex items-center gap-2 text-sm font-medium">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src="/images/correo-argentino.png" alt="" className="h-7 w-7 rounded-full object-contain" />
-                          <span>Correo Argentino</span>
-                        </div>
-                        <div className="text-xs text-zinc-500">
-                          {deliveryDaysLabel("correo")} · {correoLoading
-                            ? "Cotizando..."
-                            : correoBranchNeedsAgency
-                              ? "Selecciona una sucursal para cotizar"
-                            : activeCorreoAmount > 0
-                                ? shippingEstimateLabel(activeCorreoAmount, activeCorreoFreeShipping)
+                          <div className="flex items-center gap-2 text-sm font-medium">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src="/images/correo-argentino.png" alt="" className="h-7 w-7 rounded-full object-contain" />
+                            <span>Envio a domicilio (Correo Argentino)</span>
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            {deliveryDaysLabel("correo")} · {correoLoading
+                              ? "Cotizando..."
+                              : correoHomeAmount > 0
+                                ? shippingEstimateLabel(correoHomeAmount, correoHomeFreeShipping)
                                 : "Completa los datos para cotizar"}
-                        </div>
+                          </div>
                         </div>
                       </div>
                       <div className="text-sm font-semibold">
-                        <ShippingAmount amount={activeCorreoAmount} freeShipping={activeCorreoFreeShipping} />
+                        <ShippingAmount amount={correoHomeAmount} freeShipping={correoHomeFreeShipping} />
                       </div>
                     </label>
 
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShippingMethod("correo");
-                          setCorreoDeliveryType("D");
-                        }}
-                        className={[
-                          "rounded-xl border px-3 py-2 text-left text-sm",
-                          shippingMethod === "correo" && correoDeliveryType === "D"
-                            ? "border-zinc-100 bg-zinc-100 text-zinc-900"
-                            : "border-zinc-800 bg-zinc-950 text-zinc-200",
-                        ].join(" ")}
-                      >
-                        <div className="font-medium">Domicilio</div>
-                        <div className="mt-1 text-xs opacity-80">
-                          {correoHomeFreeShipping ? (
-                            <span>
-                              <span className="line-through">${correoHomeAmount.toLocaleString("es-AR")}</span>{" "}
-                              <span className="font-semibold text-zinc-100">Gratis</span>
-                            </span>
-                          ) : correoHomeAmount > 0 ? (
-                            `$${correoHomeAmount.toLocaleString("es-AR")}`
-                          ) : (
-                            "Sin tarifa"
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+                      <label className="flex cursor-pointer items-start justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="radio"
+                            name="shippingMethod"
+                            checked={shippingMethod === "correo" && correoDeliveryType === "S"}
+                            onChange={() => {
+                              setShippingMethod("correo");
+                              setCorreoDeliveryType("S");
+                            }}
+                            className="mt-1"
+                          />
+                          <div>
+                            <div className="flex items-center gap-2 text-sm font-medium">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src="/images/correo-argentino.png" alt="" className="h-7 w-7 rounded-full object-contain" />
+                              <span>Envio a sucursal (Correo Argentino)</span>
+                            </div>
+                            <div className="text-xs text-zinc-500">
+                              {deliveryDaysLabel("correo")} · {correoLoading
+                                ? "Cotizando..."
+                                : correoBranchFreeShipping
+                                  ? "Estimado Gratis"
+                                  : correoBranchNeedsAgency
+                                  ? "Selecciona una sucursal para cotizar"
+                                  : correoBranchAmount > 0
+                                    ? shippingEstimateLabel(correoBranchAmount, correoBranchFreeShipping)
+                                    : "Completa los datos para cotizar"}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-sm font-semibold">
+                          <ShippingAmount amount={correoBranchAmount} freeShipping={correoBranchFreeShipping} />
+                        </div>
+                      </label>
+
+                      {shippingMethod === "correo" && correoDeliveryType === "S" && (
+                        <div className="mt-3 grid gap-3">
+                          <div>
+                            <label className="text-sm text-zinc-300">Sucursal Correo Argentino</label>
+                            <select
+                              value={selectedCorreoAgencyCode}
+                              onChange={(e) => setSelectedCorreoAgencyCode(e.target.value)}
+                              className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
+                              disabled={!shipping.provinceCode || correoAgenciesLoading}
+                            >
+                              <option value="">
+                                {correoAgenciesLoading ? "Cargando sucursales..." : "Seleccionar sucursal"}
+                              </option>
+                              {sortedCorreoAgencies.slice(0, 4).map((agency) => (
+                                <option key={agency.code} value={agency.code}>
+                                  {agency.name} - {agency.city} ({agency.zip})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {selectedCorreoAgency && (
+                            <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 text-sm text-zinc-300">
+                              <div className="font-medium">{selectedCorreoAgency.name}</div>
+                              <div className="mt-1 text-zinc-400">
+                                {selectedCorreoAgency.addressLine}, {selectedCorreoAgency.city}, {selectedCorreoAgency.province} ({selectedCorreoAgency.zip})
+                              </div>
+                              <div className="mt-1 text-xs text-zinc-500 font-mono">{selectedCorreoAgency.code}</div>
+                            </div>
+                          )}
+
+                          {correoAgenciesError && (
+                            <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+                              {correoAgenciesError}
+                            </div>
                           )}
                         </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShippingMethod("correo");
-                          setCorreoDeliveryType("S");
-                        }}
-                        className={[
-                          "rounded-xl border px-3 py-2 text-left text-sm",
-                          shippingMethod === "correo" && correoDeliveryType === "S"
-                            ? "border-zinc-100 bg-zinc-100 text-zinc-900"
-                            : "border-zinc-800 bg-zinc-950 text-zinc-200",
-                        ].join(" ")}
-                        >
-                        <div className="font-medium">Sucursal</div>
-                        <div className="mt-1 text-xs opacity-80">
-                          {correoBranchNeedsAgency
-                            ? "Selecciona sucursal"
-                            : correoBranchFreeShipping
-                              ? (
-                                  <span>
-                                    <span className="line-through">${correoBranchAmount.toLocaleString("es-AR")}</span>{" "}
-                                    <span className="font-semibold text-white">Gratis</span>
-                                  </span>
-                                )
-                              : correoBranchAmount > 0
-                                ? `$${correoBranchAmount.toLocaleString("es-AR")}`
-                                : "Sin tarifa"}
-                        </div>
-                      </button>
+                      )}
                     </div>
-
-                    {shippingMethod === "correo" && correoDeliveryType === "S" && (
-                      <div className="mt-3 grid gap-3">
-                        <div>
-                          <label className="text-sm text-zinc-300">Sucursal Correo Argentino</label>
-                          <select
-                            value={selectedCorreoAgencyCode}
-                            onChange={(e) => setSelectedCorreoAgencyCode(e.target.value)}
-                            className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
-                            disabled={!shipping.provinceCode || correoAgenciesLoading}
-                          >
-                            <option value="">
-                              {correoAgenciesLoading ? "Cargando sucursales..." : "Seleccionar sucursal"}
-                            </option>
-                            {sortedCorreoAgencies.slice(0, 4).map((agency) => (
-                              <option key={agency.code} value={agency.code}>
-                                {agency.name} - {agency.city} ({agency.zip})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {selectedCorreoAgency && (
-                          <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 text-sm text-zinc-300">
-                            <div className="font-medium">{selectedCorreoAgency.name}</div>
-                            <div className="mt-1 text-zinc-400">
-                              {selectedCorreoAgency.addressLine}, {selectedCorreoAgency.city}, {selectedCorreoAgency.province} ({selectedCorreoAgency.zip})
-                            </div>
-                            <div className="mt-1 text-xs text-zinc-500 font-mono">{selectedCorreoAgency.code}</div>
-                          </div>
-                        )}
-
-                        {correoAgenciesError && (
-                          <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
-                            {correoAgenciesError}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  </>
                 )}
 
                 {customCarriers.map((carrier) => {
