@@ -161,6 +161,7 @@ async function sendDetailedPaidEmail(input: {
 
 async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
   const mpStatus = normalizeStatus(payment.status);
+  const isCardPaymentBrick = String(payment.metadata?.payment_flow || "").toLowerCase() === "card_payment_brick";
   const paymentId = String(payment.id);
   const orderId =
     payment.metadata?.order_id ||
@@ -246,7 +247,7 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
 
     if (mpStatus === "rejected" || mpStatus === "cancelled" || mpStatus === "refunded") {
       const orderEmail = getOrderContactEmail(order);
-      if (mpStatus === "rejected" && orderEmail) {
+      if (mpStatus === "rejected" && orderEmail && !isCardPaymentBrick) {
         shouldSendRejectedEmail = true;
         emailTo = orderEmail;
         emailName = order.user?.name ?? order.shippingName ?? order.contactEmail ?? "";
@@ -254,7 +255,7 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
         orderNumber = order.orderNumber ?? undefined;
       }
 
-      if (order.status === "pending_payment") {
+      if (order.status === "pending_payment" && !isCardPaymentBrick) {
         for (const it of order.items) {
           const product = await tx.product.findUnique({
             where: { id: it.productId },

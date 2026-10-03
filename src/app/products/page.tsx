@@ -6,7 +6,7 @@ import { getCategoryAndDescendantIds } from "@/lib/categories";
 import ProductSortSelect from "@/components/ProductSortSelect";
 import { getAutomaticDiscountsForProducts } from "@/lib/promotions";
 import StoreTemporarilyClosed from "@/components/StoreTemporarilyClosed";
-import { getTemporaryShutdownSettings } from "@/lib/storeSettings";
+import { getCheckoutPaymentSettings, getTemporaryShutdownSettings } from "@/lib/storeSettings";
 
 const PAGE_SIZE = 18;
 
@@ -136,7 +136,7 @@ export default async function ProductsPage({
     where.categoryId = categoryIds.length > 0 ? { in: categoryIds } : "__missing__";
   }
 
-  const [allProducts, selectedCategory] = await Promise.all([
+  const [allProducts, selectedCategory, paymentSettings] = await Promise.all([
     prisma.product.findMany({
       where,
       include: { images: { where: { visible: true }, orderBy: { sortOrder: "asc" }, take: 1 } },
@@ -147,6 +147,7 @@ export default async function ProductsPage({
           select: { name: true },
         })
       : null,
+    getCheckoutPaymentSettings(),
   ]);
   const categories = await prisma.category.findMany({
     orderBy: [{ parentId: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
@@ -261,6 +262,11 @@ export default async function ProductsPage({
                     );
                     const finalPrice =
                       promoPercent > 0 ? Math.round(basePrice * (1 - promoPercent / 100) * 100) / 100 : basePrice;
+                    const eligibleInstallmentPlans = paymentSettings.installmentPlans.filter(
+                      (plan) => basePrice >= plan.minimumAmount
+                    );
+                    const installmentPlan =
+                      [...eligibleInstallmentPlans].sort((a, b) => b.installments - a.installments)[0] ?? null;
 
                     return (
                       <Link
@@ -319,15 +325,19 @@ export default async function ProductsPage({
                             </>
                           ) : null}
 
-                          <div className="mt-4 border-t border-zinc-200 pt-3">
-                            <div className="flex items-center gap-2 text-[11px] leading-4 text-[#8B6A52]">
-                              <CreditCard className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                              <span>
-                                3 cuotas sin interés de{" "}
-                                <span className="font-semibold text-[#6F533D]">{moneyNoCents(finalPrice / 3)}</span>
-                              </span>
+                          {installmentPlan ? (
+                            <div className="mt-4 border-t border-zinc-200 pt-3">
+                              <div className="flex items-center gap-2 text-[11px] leading-4 text-[#8B6A52]">
+                                <CreditCard className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                <span>
+                                  {installmentPlan.installments} cuotas sin interés de{" "}
+                                  <span className="font-semibold text-[#6F533D]">
+                                    {moneyNoCents(basePrice / installmentPlan.installments)}
+                                  </span>
+                                </span>
+                              </div>
                             </div>
-                          </div>
+                          ) : null}
                         </div>
                       </Link>
                     );

@@ -136,6 +136,9 @@ export type ResolvedSmtpConfig = ResolvedSmtpPasswordConfig | ResolvedSmtpMicros
 
 export type MercadoPagoSettings = {
   accessTokenConfigured: boolean;
+  publicKeyConfigured: boolean;
+  cardPaymentEnabled: boolean;
+  publicKey?: string;
   source: "oauth" | "manual" | "env" | "none";
   connectedUserId?: string;
   expiresAt?: string;
@@ -163,6 +166,9 @@ export type ManualPaymentMethodSettings = {
 
 export type CheckoutPaymentSettings = {
   mercadopagoEnabled: boolean;
+  mercadoPagoCardEnabled: boolean;
+  mercadoPagoPublicKey: string;
+  mercadoPagoDebug: boolean;
   manualMethods: ManualPaymentMethodSettings[];
   financingDisplay: PaymentFinancingDisplaySettings;
   installmentPlans: InstallmentPlan[];
@@ -277,6 +283,9 @@ type StoredMailingSmtpSettings = {
 type StoredMercadoPagoSettings = {
   encryptedAccessToken?: string;
   encryptedRefreshToken?: string;
+  publicKey?: string;
+  platformPublicKey?: string;
+  cardPaymentEnabled?: boolean;
   expiresAt?: string;
   connectedUserId?: string;
   tokenType?: string;
@@ -1304,7 +1313,14 @@ async function getStoredMercadoPagoSettings(): Promise<StoredMercadoPagoSettings
   try {
     const parsed = JSON.parse(row.value) as Partial<StoredMercadoPagoSettings>;
     const encryptedAccessToken = String(parsed.encryptedAccessToken || "").trim();
-    return encryptedAccessToken ? { encryptedAccessToken } : null;
+    const publicKey = String(parsed.publicKey || "").trim();
+    if (!encryptedAccessToken && !publicKey) return null;
+    return {
+      ...parsed,
+      encryptedAccessToken: encryptedAccessToken || undefined,
+      publicKey: publicKey || undefined,
+      cardPaymentEnabled: parsed.cardPaymentEnabled === true,
+    };
   } catch {
     return null;
   }
@@ -1313,21 +1329,29 @@ async function getStoredMercadoPagoSettings(): Promise<StoredMercadoPagoSettings
 export async function getMercadoPagoSettings(): Promise<MercadoPagoSettings> {
   const stored = await getStoredMercadoPagoSettings();
   const envAccessToken = String(process.env.MP_ACCESS_TOKEN || "").trim();
+  const envPublicKey = String(process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY || "").trim();
 
   if (stored?.encryptedAccessToken) {
+    const isOAuth = stored.mode === "oauth" || Boolean(stored.encryptedRefreshToken);
+    const publicKey = isOAuth
+      ? stored.publicKey || ""
+      : envPublicKey || stored.platformPublicKey || stored.publicKey || "";
     return {
       accessTokenConfigured: true,
-      source: stored.mode === "oauth" || stored.encryptedRefreshToken ? "oauth" : "manual",
+      publicKeyConfigured: Boolean(publicKey),
+      cardPaymentEnabled: stored.cardPaymentEnabled === true,
+      publicKey,
+      source: isOAuth ? "oauth" : "manual",
       connectedUserId: stored.connectedUserId,
       expiresAt: stored.expiresAt,
     };
   }
 
   if (envAccessToken) {
-    return { accessTokenConfigured: true, source: "env" };
+    return { accessTokenConfigured: true, publicKeyConfigured: Boolean(envPublicKey), cardPaymentEnabled: false, publicKey: envPublicKey, source: "env" };
   }
 
-  return { accessTokenConfigured: false, source: "none" };
+  return { accessTokenConfigured: false, publicKeyConfigured: Boolean(envPublicKey), cardPaymentEnabled: false, publicKey: envPublicKey, source: "none" };
 }
 
 function normalizeManualPaymentMethods(input: unknown): ManualPaymentMethodSettings[] {
@@ -1531,16 +1555,22 @@ export async function getCheckoutPaymentSettings(): Promise<CheckoutPaymentSetti
 
   return {
     mercadopagoEnabled: mercadoPagoSettings.accessTokenConfigured,
+    mercadoPagoCardEnabled: mercadoPagoSettings.cardPaymentEnabled,
+    mercadoPagoPublicKey: mercadoPagoSettings.publicKey || "",
+    mercadoPagoDebug: process.env.MERCADOPAGO_DEBUG === "true",
     manualMethods,
     financingDisplay,
     installmentPlans,
   };
 }
 
-export async function setMercadoPagoSettings(settings: { accessToken?: string }) {
+export async function setMercadoPagoSettings(settings: { accessToken?: string; publicKey?: string; cardPaymentEnabled?: boolean }) {
   const accessToken = String(settings.accessToken || "").trim();
+  const publicKey = String(settings.publicKey || "").trim();
+  const hasCardPaymentEnabled = typeof settings.cardPaymentEnabled === "boolean";
+  const stored = await getStoredMercadoPagoSettings();
 
-  if (!accessToken) {
+  if (!accessToken && !publicKey && !stored?.encryptedAccessToken) {
     return prisma.shippingProviderSetting.deleteMany({
       where: { provider: STOREFRONT_SETTINGS_PROVIDER, key: MERCADOPAGO_SETTINGS_KEY },
     });
@@ -1550,10 +1580,20 @@ export async function setMercadoPagoSettings(settings: { accessToken?: string })
     throw new Error("APP_SECRET_ENCRYPTION_KEY or MAILING_ENCRYPTION_KEY missing");
   }
 
-  const value: StoredMercadoPagoSettings = {
-    encryptedAccessToken: encryptSecret(accessToken),
-    mode: "manual",
-  };
+  const value: StoredMercadoPagoSettings = accessToken
+    ? {
+        encryptedAccessToken: encryptSecret(accessToken),
+        publicKey: stored?.publicKey,
+        platformPublicKey: publicKey || stored?.platformPublicKey,
+        cardPaymentEnabled: hasCardPaymentEnabled ? settings.cardPaymentEnabled : stored?.cardPaymentEnabled === true,
+        mode: "manual",
+      }
+    : {
+        ...stored,
+        publicKey: stored?.publicKey,
+        platformPublicKey: publicKey || stored?.platformPublicKey,
+        cardPaymentEnabled: hasCardPaymentEnabled ? settings.cardPaymentEnabled : stored?.cardPaymentEnabled === true,
+      };
 
   return prisma.shippingProviderSetting.upsert({
     where: {
@@ -1578,6 +1618,7 @@ export async function setMercadoPagoSettings(settings: { accessToken?: string })
 export async function setMercadoPagoOAuthSettings(settings: {
   accessToken: string;
   refreshToken?: string;
+  publicKey?: string;
   expiresIn?: number;
   connectedUserId?: string;
   tokenType?: string;
@@ -1585,6 +1626,8 @@ export async function setMercadoPagoOAuthSettings(settings: {
 }) {
   const accessToken = String(settings.accessToken || "").trim();
   const refreshToken = String(settings.refreshToken || "").trim();
+  const publicKey = String(settings.publicKey || "").trim();
+  const stored = await getStoredMercadoPagoSettings();
 
   if (!accessToken) throw new Error("Mercado Pago access token missing");
   if (!canEncryptMercadoPagoSecrets()) {
@@ -1599,7 +1642,10 @@ export async function setMercadoPagoOAuthSettings(settings: {
 
   const value: StoredMercadoPagoSettings = {
     encryptedAccessToken: encryptSecret(accessToken),
-    encryptedRefreshToken: refreshToken ? encryptSecret(refreshToken) : undefined,
+    encryptedRefreshToken: refreshToken ? encryptSecret(refreshToken) : stored?.encryptedRefreshToken,
+    publicKey: publicKey || stored?.publicKey,
+    platformPublicKey: stored?.platformPublicKey,
+    cardPaymentEnabled: stored?.cardPaymentEnabled === true,
     expiresAt,
     connectedUserId: String(settings.connectedUserId || "").trim() || undefined,
     tokenType: String(settings.tokenType || "").trim() || undefined,
@@ -1660,6 +1706,7 @@ async function refreshMercadoPagoOAuthToken(stored: StoredMercadoPagoSettings) {
   await setMercadoPagoOAuthSettings({
     accessToken: String(data.access_token || ""),
     refreshToken: String(data.refresh_token || ""),
+    publicKey: String(data.public_key || stored.publicKey || ""),
     expiresIn: Number(data.expires_in || 0),
     connectedUserId: data.user_id ? String(data.user_id) : stored.connectedUserId,
     tokenType: data.token_type ? String(data.token_type) : stored.tokenType,
@@ -1682,4 +1729,28 @@ export async function getResolvedMercadoPagoAccessToken() {
   }
 
   return String(process.env.MP_ACCESS_TOKEN || "").trim();
+}
+
+export async function getMercadoPagoOAuthPaymentContext() {
+  const stored = await getStoredMercadoPagoSettings();
+  const isOAuth = Boolean(stored?.encryptedAccessToken && (stored.mode === "oauth" || stored.encryptedRefreshToken));
+  if (!stored?.encryptedAccessToken || !isOAuth) return null;
+
+  let accessToken: string;
+  if (stored.encryptedRefreshToken && stored.expiresAt) {
+    const expiresAt = new Date(stored.expiresAt).getTime();
+    const shouldRefresh = Number.isFinite(expiresAt) && expiresAt - Date.now() < 7 * 24 * 60 * 60 * 1000;
+    accessToken = shouldRefresh
+      ? await refreshMercadoPagoOAuthToken(stored)
+      : decryptSecret(stored.encryptedAccessToken);
+  } else {
+    accessToken = decryptSecret(stored.encryptedAccessToken);
+  }
+
+  return {
+    accessToken,
+    connectedUserId: stored.connectedUserId,
+    scope: stored.scope,
+    tokenType: stored.tokenType,
+  };
 }

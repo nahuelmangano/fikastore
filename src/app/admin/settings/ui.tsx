@@ -80,6 +80,8 @@ type TemporaryShutdownSettings = {
 
 type MercadoPagoSettings = {
   accessTokenConfigured: boolean;
+  publicKeyConfigured: boolean;
+  cardPaymentEnabled: boolean;
   source: "oauth" | "manual" | "env" | "none";
   connectedUserId?: string;
   expiresAt?: string;
@@ -306,6 +308,7 @@ export default function AdminSettingsPage({
   const [shutdownEnabled, setShutdownEnabled] = useState(temporaryShutdown.isShutdown);
   const [shutdownMessage, setShutdownMessage] = useState(temporaryShutdown.message);
   const [mpAccessToken, setMpAccessToken] = useState("");
+  const [mpPublicKey, setMpPublicKey] = useState("");
   const [mpSettings, setMpSettings] = useState(mercadoPagoSettings);
   const [manualMethods, setManualMethods] = useState(manualPaymentMethods);
   const [financingDisplay, setFinancingDisplay] = useState(paymentFinancingDisplaySettings);
@@ -459,14 +462,14 @@ export default function AdminSettingsPage({
     setShutdownMsg(data.isShutdown ? "Tienda apagada temporalmente." : "Tienda encendida.");
   }
 
-  async function saveMercadoPagoSettings() {
+  async function saveMercadoPagoSettings(nextCardPaymentEnabled = mpSettings.cardPaymentEnabled) {
     setMpMsg(null);
     setMpLoading(true);
 
     const res = await fetch("/api/admin/settings/mercadopago", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accessToken: mpAccessToken }),
+      body: JSON.stringify({ accessToken: mpAccessToken, publicKey: mpPublicKey, cardPaymentEnabled: nextCardPaymentEnabled }),
     });
 
     const data = await res.json().catch(() => ({}));
@@ -479,7 +482,12 @@ export default function AdminSettingsPage({
 
     setMpSettings(data.settings);
     setMpAccessToken("");
+    setMpPublicKey("");
     setMpMsg("Cuenta de MercadoPago guardada.");
+  }
+
+  async function toggleMercadoPagoCardPayment() {
+    await saveMercadoPagoSettings(!mpSettings.cardPaymentEnabled);
   }
 
   async function disconnectMercadoPago() {
@@ -497,6 +505,7 @@ export default function AdminSettingsPage({
 
     setMpSettings(data.settings);
     setMpAccessToken("");
+    setMpPublicKey("");
     setMpMsg("MercadoPago desconectado.");
   }
 
@@ -1293,7 +1302,7 @@ export default function AdminSettingsPage({
                       </span>
                     </div>
                     <p className="mt-3 max-w-xl text-sm leading-6 text-[#8F6A49]">
-                      Usá el Access Token de tu cuenta para crear preferencias de pago y validar notificaciones.
+                      Usá el Access Token para cobrar y la Public Key para mostrar el pago con tarjeta dentro del checkout.
                     </p>
                   </div>
                   <span className="rounded-full border border-[#E5D7C8] bg-white/70 px-3 py-1 text-xs font-semibold text-[#8B5A2B]">
@@ -1322,6 +1331,32 @@ export default function AdminSettingsPage({
                   ) : null}
                 </div>
 
+                {mpSettings.accessTokenConfigured ? (
+                  <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[#E5D7C8] bg-white/70 p-4">
+                    <div>
+                      <div className="text-sm font-semibold text-[#5F3B18]">Pago directo con tarjeta</div>
+                      <p className="mt-1 max-w-xl text-sm leading-6 text-[#8F6A49]">
+                        Mostrá u ocultá la opción de tarjeta dentro del checkout. Mercado Pago redirigido sigue activo.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={mpSettings.cardPaymentEnabled}
+                      onClick={toggleMercadoPagoCardPayment}
+                      disabled={mpLoading || !mpSettings.publicKeyConfigured}
+                      className={[
+                        "rounded-2xl px-4 py-2 text-sm font-semibold transition duration-150 disabled:cursor-not-allowed disabled:opacity-50",
+                        mpSettings.cardPaymentEnabled
+                          ? "bg-[#8B5A2B] text-white hover:bg-[#70471F]"
+                          : "border border-[#E5D7C8] text-[#8B5A2B] hover:bg-[#F2ECE5]",
+                      ].join(" ")}
+                    >
+                      {mpSettings.cardPaymentEnabled ? "Desactivar tarjeta" : "Activar tarjeta"}
+                    </button>
+                  </div>
+                ) : null}
+
                 {canManageMercadoPagoManualToken ? (
                   <div className="mt-6 rounded-3xl border border-[#E5D7C8] bg-white/70 p-5 xl:p-4">
                     <FieldLabel
@@ -1337,8 +1372,23 @@ export default function AdminSettingsPage({
                       className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
                     />
 
+                    <div className="mt-4">
+                      <FieldLabel
+                        label="Public Key"
+                        help={mpSettings.publicKeyConfigured ? "Hay una Public Key configurada. Ingresá una nueva solo si querés reemplazarla." : "Necesaria para mostrar tarjeta de crédito o débito dentro del checkout."}
+                      />
+                      <input
+                        type="text"
+                        value={mpPublicKey}
+                        onChange={(e) => setMpPublicKey(e.target.value)}
+                        placeholder={mpSettings.publicKeyConfigured ? "Public Key ya configurada" : "APP_USR-..."}
+                        autoComplete="off"
+                        className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]"
+                      />
+                    </div>
+
                     <div className="mt-4 flex flex-wrap items-center gap-3">
-                      <PrimaryButton onClick={saveMercadoPagoSettings} loading={mpLoading} label={mpSettings.source === "manual" ? "Actualizar token" : "Guardar token"} />
+                      <PrimaryButton onClick={() => saveMercadoPagoSettings()} loading={mpLoading} label={mpSettings.source === "manual" ? "Actualizar credenciales" : "Guardar credenciales"} />
                     </div>
                   </div>
                 ) : null}
@@ -1489,7 +1539,11 @@ export default function AdminSettingsPage({
                 <div className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] p-4">
                   <div className="text-sm font-semibold text-[#5F3B18]">MercadoPago</div>
                   <div className="mt-1 text-sm text-[#8F6A49]">
-                    {mpSettings.accessTokenConfigured ? "Activo para checkout" : "Sin credencial activa"}
+                    {mpSettings.accessTokenConfigured
+                      ? mpSettings.publicKeyConfigured && mpSettings.cardPaymentEnabled
+                        ? "Activo para Checkout Pro y tarjeta"
+                        : "Activo para Checkout Pro"
+                      : "Sin credencial activa"}
                   </div>
                 </div>
                 {manualMethods.map((method) => (

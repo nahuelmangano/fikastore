@@ -22,6 +22,7 @@ export async function GET(req: Request) {
 
   const site = publicBaseUrl(req);
   const redirectUri = `${site}/api/admin/mercadopago/oauth/callback`;
+  const scopes = String(process.env.MP_OAUTH_SCOPES || "read write offline_access").trim();
   const state = base64Url(crypto.randomBytes(24));
 
   const authorizationUrl = new URL("https://auth.mercadopago.com/authorization");
@@ -30,10 +31,12 @@ export async function GET(req: Request) {
   authorizationUrl.searchParams.set("platform_id", "mp");
   authorizationUrl.searchParams.set("state", state);
   authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+  authorizationUrl.searchParams.set("scope", scopes);
 
   console.log("MP OAuth authorization URL", {
     clientId,
     redirectUri,
+    scopes,
     site,
   });
 

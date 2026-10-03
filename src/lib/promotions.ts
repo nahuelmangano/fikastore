@@ -381,7 +381,14 @@ export async function priceCartItems(
   const autoDiscountAmount = round2(items.reduce((acc, it) => acc + it.autoDiscountAmount, 0));
   const autoPromotionNames = [...new Set(items.map((it) => it.autoPromotionName).filter(Boolean) as string[])];
   const codeDiscountAmount = round2(items.reduce((acc, it) => acc + it.codeDiscountAmount, 0));
-  const freeShippingPromo = await getFreeShippingPromotionForCart(merged, normalizedCode, paymentMethod, deliveryType, carrierKey);
+  const freeShippingPromo = await getFreeShippingPromotionForCart(
+    merged,
+    normalizedCode,
+    paymentMethod,
+    deliveryType,
+    carrierKey,
+    subtotalDiscounted
+  );
   const minimumSubtotalFreeShipping = await getCarrierMinimumSubtotalFreeShipping(subtotalDiscounted, carrierKey, deliveryType);
   const freeShipping = freeShippingPromo.applies ? freeShippingPromo : minimumSubtotalFreeShipping;
 
@@ -418,16 +425,17 @@ export async function getFreeShippingForCart(
   deliveryType?: string | null,
   carrierKey?: string | null
 ) : Promise<FreeShippingDecision> {
+  const subtotalDiscounted = await getDiscountedSubtotalForItems(inputItems, promoCode, paymentMethod);
   const promotionFreeShipping = await getFreeShippingPromotionForCart(
     inputItems,
     promoCode,
     paymentMethod,
     deliveryType,
-    carrierKey
+    carrierKey,
+    subtotalDiscounted
   );
   if (promotionFreeShipping.applies) return promotionFreeShipping;
 
-  const subtotalDiscounted = await getDiscountedSubtotalForItems(inputItems, promoCode, paymentMethod);
   return getCarrierMinimumSubtotalFreeShipping(subtotalDiscounted, carrierKey, deliveryType);
 }
 
@@ -498,11 +506,25 @@ async function getCarrierMinimumSubtotalFreeShipping(
   carrierKey?: string | null,
   deliveryType?: string | null
 ): Promise<FreeShippingDecision> {
-  if (carrierKey !== "correo") return { applies: false, promotionName: null };
+  const rule = await getCarrierMinimumFreeShippingRule(carrierKey, deliveryType);
+  if (!rule.appliesToDeliveryType || !rule.minimum || subtotalDiscounted < rule.minimum) {
+    return { applies: false, promotionName: null };
+  }
 
+  return {
+    applies: true,
+    promotionName: `Envío gratis desde $${rule.minimum.toLocaleString("es-AR")}`,
+  };
+}
+
+async function getCarrierMinimumFreeShippingRule(
+  carrierKey?: string | null,
+  deliveryType?: string | null
+) {
+  if (carrierKey !== "correo") return { minimum: 0, appliesToDeliveryType: false };
   const configuredMinimum = Number(await getProviderConfigValue("correo", "FREE_SHIPPING_MIN_SUBTOTAL", "0"));
   const minimum = Number.isFinite(configuredMinimum) && configuredMinimum > 0 ? round2(configuredMinimum) : 0;
-  if (!minimum || subtotalDiscounted < minimum) return { applies: false, promotionName: null };
+  if (!minimum) return { minimum: 0, appliesToDeliveryType: false };
 
   const rawDeliveryTypes = await getProviderConfigValue("correo", "FREE_SHIPPING_MIN_DELIVERY_TYPES", "[]");
   let deliveryTypes: string[] = [];
@@ -515,14 +537,9 @@ async function getCarrierMinimumSubtotalFreeShipping(
     deliveryTypes = [];
   }
 
-  if (deliveryTypes.length > 0 && !deliveryTypes.includes(String(deliveryType || "").trim())) {
-    return { applies: false, promotionName: null };
-  }
-
-  return {
-    applies: true,
-    promotionName: `Envío gratis desde $${minimum.toLocaleString("es-AR")}`,
-  };
+  const normalizedDeliveryType = String(deliveryType || "").trim();
+  const appliesToDeliveryType = deliveryTypes.length === 0 || deliveryTypes.includes(normalizedDeliveryType);
+  return { minimum, appliesToDeliveryType };
 }
 
 async function getFreeShippingPromotionForCart(
@@ -530,7 +547,8 @@ async function getFreeShippingPromotionForCart(
   promoCode?: string | null,
   paymentMethod?: string | null,
   deliveryType?: string | null,
-  carrierKey?: string | null
+  carrierKey?: string | null,
+  subtotalDiscounted?: number
 ): Promise<FreeShippingDecision> {
   const productIds = [
     ...new Set(inputItems.map((item) => String(item.productId || "").trim()).filter(Boolean)),
@@ -564,6 +582,13 @@ async function getFreeShippingPromotionForCart(
     if (promo.type === "code") return Boolean(code && promo.code === code);
     return true;
   });
+
+  if (match && carrierKey === "correo") {
+    const rule = await getCarrierMinimumFreeShippingRule(carrierKey, deliveryType);
+    if (rule.appliesToDeliveryType && rule.minimum && Number(subtotalDiscounted ?? 0) < rule.minimum) {
+      return { applies: false, promotionName: null };
+    }
+  }
 
   return { applies: Boolean(match), promotionName: match?.name ?? null };
 }

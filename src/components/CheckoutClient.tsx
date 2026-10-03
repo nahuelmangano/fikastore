@@ -3,13 +3,14 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Banknote, Clock3, CreditCard, Handshake, Landmark, Mail, Store, type LucideIcon } from "lucide-react";
 import { CartItem, clearCart, clearPromoCode, readCart, readPromoCode } from "@/lib/cart";
 import { validateArgentinaPostalCodeProvince } from "@/lib/argentinaPostalCode";
 import { trackMetaInitiateCheckout } from "@/lib/metaPixelEvents";
 import { trackGA4BeginCheckout } from "@/lib/ga4";
 import { transferInstructionsWithBankDetails } from "@/lib/manualPaymentInstructions";
+import MercadoPagoCardPayment from "@/components/checkout/MercadoPagoCardPayment";
 
 type Shipping = {
   name: string;
@@ -29,7 +30,7 @@ type BuiltInShippingMethod = "epick" | "andreani" | "correo" | "pickup";
 type ShippingMethod = BuiltInShippingMethod | string;
 
 const SELECTED_SHIPPING_KEY = "fika:selected-shipping";
-type PaymentMethod = "mercadopago" | "agreement" | "cash" | "transfer";
+type PaymentMethod = "mercadopago_card" | "mercadopago" | "agreement" | "cash" | "transfer";
 type CorreoDeliveryType = "D" | "S";
 
 type CorreoRate = {
@@ -100,6 +101,9 @@ type PricingData = {
 
 type CheckoutPaymentSettings = {
   mercadopagoEnabled: boolean;
+  mercadoPagoCardEnabled?: boolean;
+  mercadoPagoPublicKey?: string;
+  mercadoPagoDebug?: boolean;
   manualMethods: {
     key: "agreement" | "cash" | "transfer";
     label: string;
@@ -234,7 +238,9 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
   const [confirmedShipping, setConfirmedShipping] = useState<Shipping | null>(null);
   const firstPaymentMethod =
     paymentSettings.mercadopagoEnabled
-      ? "mercadopago"
+      ? paymentSettings.mercadoPagoCardEnabled && paymentSettings.mercadoPagoPublicKey
+        ? "mercadopago_card"
+        : "mercadopago"
       : paymentSettings.manualMethods.find((method) => method.enabled)?.key || "agreement";
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(firstPaymentMethod);
   const [carriers, setCarriers] = useState<Record<string, boolean> | null>(null);
@@ -335,6 +341,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
   const customPickupNeedsPoint = Boolean(selectedCustomCarrier?.pickupPoints?.length && !selectedPickupPoint);
   const promotionDeliveryType =
     shippingMethod === "correo" ? correoDeliveryType : shippingMethod === "pickup" ? null : "D";
+  const promotionPaymentMethod = paymentMethod === "mercadopago_card" ? "mercadopago" : paymentMethod;
   const sortedCorreoAgencies = useMemo(() => {
     const customerZip = shipping.zip.trim();
     if (!customerZip) return correoAgencies;
@@ -368,9 +375,9 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
   const andreaniFreeShipping = freeShippingApplies && shippingMethod === "andreani" && andreaniAmount > 0;
 
   const correoHomeFreeShipping =
-    correoFreeShippingByType.D || (freeShippingApplies && shippingMethod === "correo" && correoDeliveryType === "D");
+    (correoFreeShippingByType.D || (freeShippingApplies && shippingMethod === "correo" && correoDeliveryType === "D"));
   const correoBranchFreeShipping =
-    correoFreeShippingByType.S || (freeShippingApplies && shippingMethod === "correo" && correoDeliveryType === "S");
+    (correoFreeShippingByType.S || (freeShippingApplies && shippingMethod === "correo" && correoDeliveryType === "S"));
   const selectedFreeShippingApplies =
     shippingMethod === "correo"
       ? correoDeliveryType === "S"
@@ -378,6 +385,14 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
         : correoHomeFreeShipping
       : freeShippingApplies;
   const effectiveShippingAmount = selectedFreeShippingApplies ? 0 : shippingAmount;
+  const selectedShippingHasQuote =
+    shippingMethod === "epick"
+      ? epickAmount > 0
+      : shippingMethod === "andreani"
+        ? andreaniAmount > 0
+        : shippingMethod === "correo"
+          ? selectedFreeShippingApplies || (activeCorreoAmount > 0 && !correoBranchNeedsAgency)
+          : true;
   const total = subtotalDiscounted + effectiveShippingAmount;
   const requiresAddress = shippingMethod !== "pickup" && !selectedCustomCarrier?.pickupPoints?.length;
   const branchReady =
@@ -406,7 +421,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
             quantity: it.quantity,
           })),
           promoCode,
-          paymentMethod,
+          paymentMethod: promotionPaymentMethod,
           deliveryType: promotionDeliveryType,
           carrierKey: shippingMethod,
         }),
@@ -424,7 +439,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
     return () => {
       cancelled = true;
     };
-  }, [summaryItems, promoCode, paymentMethod, promotionDeliveryType, shippingMethod]);
+  }, [summaryItems, promoCode, promotionPaymentMethod, promotionDeliveryType, shippingMethod]);
 
   useEffect(() => {
     let cancelled = false;
@@ -450,7 +465,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
             body: JSON.stringify({
               items: itemsPayload,
               promoCode,
-              paymentMethod,
+              paymentMethod: promotionPaymentMethod,
               deliveryType,
               carrierKey: "correo",
             }),
@@ -474,7 +489,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
       cancelled = true;
       clearTimeout(t);
     };
-  }, [correoEnabled, summaryItems, promoCode, paymentMethod]);
+  }, [correoEnabled, summaryItems, promoCode, promotionPaymentMethod]);
 
   const pricingById = useMemo(() => {
     const map = new Map<string, PricingItem>();
@@ -605,7 +620,16 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
     const canQuoteEpick = Boolean(customerPostalCode);
     const canQuoteAndreani = Boolean(customerPostalCode);
 
-    if (!shouldFetchPostalCode) return;
+    if (!shouldFetchPostalCode) {
+      const t = setTimeout(() => {
+        if (shippingMethod === "correo") {
+          setCorreoQuote(null);
+          setCorreoError(null);
+          setCorreoLoading(false);
+        }
+      }, 0);
+      return () => clearTimeout(t);
+    }
     if (
       shouldFetchProvinceCode &&
       validateArgentinaPostalCodeProvince(shouldFetchPostalCode, shouldFetchProvinceCode)
@@ -727,9 +751,9 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
     !postalCodeProvinceError &&
     branchReady;
 
-  async function createOrder() {
+  const createOrder = useCallback(async ({ commit = true }: { commit?: boolean } = {}) => {
     setError(null);
-    setLoading(true);
+    if (commit) setLoading(true);
 
     try {
       const res = await fetch("/api/checkout/create-order", {
@@ -755,7 +779,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                   }
               : undefined,
           shippingAmount: effectiveShippingAmount,
-          paymentMethod,
+          paymentMethod: paymentMethod === "mercadopago_card" ? "mercadopago" : paymentMethod,
           promoCode,
           notes: customerNotes,
         }),
@@ -764,23 +788,58 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setLoading(false);
+        if (commit) setLoading(false);
         setError(data?.error || "No se pudo crear el pedido.");
-        return;
+        return null;
       }
 
-      setOrderItems(items);
-      setOrderId(data.orderId);
-      setOrderNumber(typeof data.orderNumber === "number" ? data.orderNumber : null);
-      setConfirmedShipping(shipping);
-      clearCart();
-      clearPromoCode();
-      setLoading(false);
+      const createdOrder = {
+        orderId: String(data.orderId || ""),
+        orderNumber: typeof data.orderNumber === "number" ? data.orderNumber : null,
+      };
+
+      if (commit) {
+        setOrderItems(items);
+        setOrderId(createdOrder.orderId);
+        setOrderNumber(createdOrder.orderNumber);
+        setConfirmedShipping(shipping);
+        clearCart();
+        clearPromoCode();
+        setLoading(false);
+      }
+
+      return createdOrder.orderId ? createdOrder : null;
     } catch {
-      setLoading(false);
+      if (commit) setLoading(false);
       setError("Error de red creando el pedido.");
+      return null;
     }
-  }
+  }, [
+    correoDeliveryType,
+    customerNotes,
+    effectiveShippingAmount,
+    items,
+    paymentMethod,
+    promoCode,
+    selectedCorreoAgency,
+    selectedPickupPoint,
+    shipping,
+    shippingMethod,
+  ]);
+
+  const createCardOrder = useCallback(async () => {
+    if (!canSubmit) {
+      setError("Completá los datos de envío antes de pagar con tarjeta.");
+      return null;
+    }
+
+    return createOrder({ commit: false });
+  }, [canSubmit, createOrder]);
+
+  const completeCardPayment = useCallback(() => {
+    clearCart();
+    clearPromoCode();
+  }, []);
 
   return (
     <div className="mt-8 grid gap-6 lg:grid-cols-2">
@@ -859,9 +918,13 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                 <span>
                   {selectedShippingIsAgreement
                     ? "A convenir"
-                    : shippingMethod === "pickup" || effectiveShippingAmount <= 0
+                    : shippingMethod === "pickup"
                       ? "Gratis"
-                      : `$${effectiveShippingAmount.toLocaleString("es-AR")}`}
+                      : !selectedShippingHasQuote
+                        ? "—"
+                        : effectiveShippingAmount <= 0
+                          ? "Gratis"
+                          : `$${effectiveShippingAmount.toLocaleString("es-AR")}`}
                 </span>
               </div>
               {selectedFreeShippingApplies && shippingMethod !== "pickup" && shippingAmount > 0 && (
@@ -898,9 +961,12 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
           <PayBlock
             orderId={orderId}
             orderNumber={orderNumber}
+            amount={total}
             shippingMethod={shippingMethod}
             shipping={confirmedShipping || shipping}
             paymentMethod={paymentMethod}
+            mercadoPagoPublicKey={paymentSettings.mercadoPagoPublicKey || ""}
+            mercadoPagoDebug={paymentSettings.mercadoPagoDebug === true}
             manualPaymentMethod={selectedManualPaymentMethod}
           />
         ) : (
@@ -1242,14 +1308,44 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
               <div className="text-sm font-semibold">Metodo de pago</div>
               <div className="mt-3 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/30">
                 {paymentSettings.mercadopagoEnabled ? (
-                  <PaymentOption
-                    checked={paymentMethod === "mercadopago"}
-                    onChange={() => setPaymentMethod("mercadopago")}
-                    icon={CreditCard}
-                    title="Mercado Pago"
-                    description="Tarjetas, débito y otros medios."
-                    logos={<MercadoPagoLogos />}
-                  />
+                  <>
+                    {paymentSettings.mercadoPagoCardEnabled && paymentSettings.mercadoPagoPublicKey ? (
+                      <>
+                        <PaymentOption
+                          checked={paymentMethod === "mercadopago_card"}
+                          onChange={() => setPaymentMethod("mercadopago_card")}
+                          icon={CreditCard}
+                          title="Tarjeta de crédito o débito"
+                          description="Pagá con tarjeta sin salir del checkout."
+                          logos={<MercadoPagoLogos />}
+                        />
+                        {paymentMethod === "mercadopago_card" ? (
+                          <MercadoPagoCardPayment
+                            orderNumber={null}
+                            amount={total}
+                            publicKey={paymentSettings.mercadoPagoPublicKey}
+                            debug={paymentSettings.mercadoPagoDebug === true}
+                            payer={{
+                              email: shipping.email,
+                              identificationType: "DNI",
+                              identificationNumber: shipping.dni,
+                            }}
+                            accessEmail={shipping.email || undefined}
+                            onCreateOrder={createCardOrder}
+                            onPaymentComplete={completeCardPayment}
+                            embedded
+                          />
+                        ) : null}
+                      </>
+                    ) : null}
+                    <PaymentOption
+                      checked={paymentMethod === "mercadopago"}
+                      onChange={() => setPaymentMethod("mercadopago")}
+                      icon={CreditCard}
+                      title="Mercado Pago"
+                      description="Te redirigimos a Mercado Pago para completar el pago."
+                    />
+                  </>
                 ) : null}
 
                 {enabledManualPaymentMethods.map((method) => (
@@ -1312,17 +1408,25 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
               </div>
             )}
 
-            <button
-              disabled={!canSubmit || loading}
-              onClick={createOrder}
-              className="mt-6 w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
-            >
-              {loading ? "Creando pedido..." : "Crear pedido"}
-            </button>
+            {paymentMethod === "mercadopago_card" ? (
+              <p className="mt-4 text-xs text-zinc-500">
+                Completá los datos de la tarjeta para crear el pedido y procesar el pago.
+              </p>
+            ) : (
+              <>
+                <button
+                  disabled={!canSubmit || loading}
+                  onClick={() => void createOrder()}
+                  className="mt-6 w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
+                >
+                  {loading ? "Creando pedido..." : "Crear pedido"}
+                </button>
 
-            <p className="mt-3 text-xs text-zinc-500">
-              Al crear el pedido, reservamos stock. Si no se paga, luego lo liberamos.
-            </p>
+                <p className="mt-3 text-xs text-zinc-500">
+                  Al crear el pedido, reservamos stock. Si no se paga, luego lo liberamos.
+                </p>
+              </>
+            )}
           </>
         )}
       </div>
@@ -1333,22 +1437,32 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
 function PayBlock({
   orderId,
   orderNumber,
+  amount,
   shippingMethod,
   shipping,
   paymentMethod,
+  mercadoPagoPublicKey,
+  mercadoPagoDebug,
   manualPaymentMethod,
 }: {
   orderId: string;
   orderNumber: number | null;
+  amount: number;
   shippingMethod: ShippingMethod;
   shipping: Shipping;
   paymentMethod: PaymentMethod;
+  mercadoPagoPublicKey: string;
+  mercadoPagoDebug: boolean;
   manualPaymentMethod: CheckoutPaymentSettings["manualMethods"][number] | null;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [epickError, setEpickError] = useState<string | null>(null);
   const [epickCreated, setEpickCreated] = useState(false);
+  const completePayment = useCallback(() => {
+    clearCart();
+    clearPromoCode();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1375,7 +1489,7 @@ function PayBlock({
     };
   }, [orderId, shipping.email, shippingMethod, epickCreated]);
 
-  if (paymentMethod !== "mercadopago") {
+  if (paymentMethod !== "mercadopago" && paymentMethod !== "mercadopago_card") {
     return (
       <ManualPaymentConfirmation
         orderId={orderId}
@@ -1385,6 +1499,26 @@ function PayBlock({
         paymentMethod={paymentMethod}
         manualPaymentMethod={manualPaymentMethod}
         epickError={epickError}
+      />
+    );
+  }
+
+  if (paymentMethod === "mercadopago_card") {
+    return (
+      <MercadoPagoCardPayment
+        orderId={orderId}
+        orderNumber={orderNumber}
+        amount={amount}
+        publicKey={mercadoPagoPublicKey}
+        debug={mercadoPagoDebug}
+        payer={{
+          email: shipping.email,
+          identificationType: "DNI",
+          identificationNumber: shipping.dni,
+        }}
+        accessEmail={shipping.email || undefined}
+        epickError={epickError}
+        onPaymentComplete={completePayment}
       />
     );
   }
@@ -1653,7 +1787,6 @@ function PaymentOption({
 
 function MercadoPagoLogos() {
   const logos = [
-    { label: "GOcuotas", url: "https://dk0k1i3js6c49.cloudfront.net/applications/logos/payment-icons/5.png" },
     { label: "Mastercard", url: "https://dk0k1i3js6c49.cloudfront.net/applications/logos/payment-icons/mastercard.png" },
     { label: "Visa", url: "https://dk0k1i3js6c49.cloudfront.net/applications/logos/payment-icons/visa.png" },
     { label: "American Express", url: "https://dk0k1i3js6c49.cloudfront.net/applications/logos/payment-icons/american-express.png" },
@@ -1663,8 +1796,6 @@ function MercadoPagoLogos() {
     { label: "Diners Club", url: "https://dk0k1i3js6c49.cloudfront.net/applications/logos/payment-icons/diners-club.png" },
     { label: "Nativa", url: "https://dk0k1i3js6c49.cloudfront.net/applications/logos/payment-icons/nativa.png" },
     { label: "Argencard", url: "https://dk0k1i3js6c49.cloudfront.net/applications/logos/payment-icons/argencard.png" },
-    { label: "Pago Fácil", url: "https://dk0k1i3js6c49.cloudfront.net/applications/logos/payment-icons/pagofacil.png" },
-    { label: "Rapipago", url: "https://dk0k1i3js6c49.cloudfront.net/applications/logos/payment-icons/rapipago.png" },
   ];
 
   return (
