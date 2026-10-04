@@ -37,6 +37,7 @@ const GOOGLE_ANALYTICS_MEASUREMENT_ID_KEY = "google_analytics_measurement_id";
 const META_PIXEL_ID_KEY = "meta_pixel_id";
 const SOCIAL_LINKS_SETTINGS_KEY = "social_links_settings";
 const METRICS_SETTINGS_KEY = "metrics_settings";
+const SCREEN_TEXT_SETTINGS_KEY = "screen_text_settings";
 const ENCRYPTED_VALUE_PREFIX = "enc:v1:";
 
 export const DEFAULT_ANNOUNCEMENT_TEXT =
@@ -204,6 +205,72 @@ export type SocialLinksSettings = {
 
 export type MetricsSettings = {
   startAt: string | null;
+};
+
+export type ScreenTextSettings = {
+  orderCreatedTitle: string;
+  orderCreatedNumberLabel: string;
+  orderCreatedPaymentLabel: string;
+  orderCreatedMercadoPagoText: string;
+  orderCreatedMercadoPagoButton: string;
+  orderCreatedStockNote: string;
+  paymentSuccessTitle: string;
+  paymentSuccessSubtitle: string;
+  paymentSuccessHint: string;
+  paymentSuccessBackToStoreButton: string;
+  paymentSuccessViewOrderButton: string;
+  paymentPendingTitle: string;
+  paymentPendingSubtitle: string;
+  paymentPendingBoxTitle: string;
+  paymentPendingInstructions: string;
+  paymentPendingButton: string;
+  paymentFailureTitle: string;
+  paymentFailureSubtitle: string;
+  paymentFailureHint: string;
+  paymentFailureBackToStoreButton: string;
+  paymentFailureViewOrderButton: string;
+  manualPaymentTitle: string;
+  manualPaymentSubtitle: string;
+  manualPaymentInstructionsTitle: string;
+  manualPaymentEmailNote: string;
+  orderLookupTitle: string;
+  orderLookupSubtitle: string;
+  orderLookupOrderLabel: string;
+  orderLookupEmailLabel: string;
+  orderLookupButton: string;
+};
+
+export const DEFAULT_SCREEN_TEXT_SETTINGS: ScreenTextSettings = {
+  orderCreatedTitle: "Pedido creado OK",
+  orderCreatedNumberLabel: "Numero de pedido",
+  orderCreatedPaymentLabel: "Pago",
+  orderCreatedMercadoPagoText: "Al pagar, Mercado Pago nos notificara por webhook y actualizaremos el estado del pedido automaticamente.",
+  orderCreatedMercadoPagoButton: "Pagar con Mercado Pago",
+  orderCreatedStockNote: "El pedido ya fue generado y el stock queda reservado mientras se completa el pago.",
+  paymentSuccessTitle: "Pago realizado ✅",
+  paymentSuccessSubtitle: "Si el pedido todavía figura como pendiente, en unos segundos debería actualizarse cuando llegue el webhook.",
+  paymentSuccessHint: "Tip: esta pantalla refresca el estado automáticamente unos segundos.",
+  paymentSuccessBackToStoreButton: "Volver a la tienda",
+  paymentSuccessViewOrderButton: "Ver pedido",
+  paymentPendingTitle: "Pago pendiente",
+  paymentPendingSubtitle: "Tu pedido fue procesado y el pago todavía está pendiente.",
+  paymentPendingBoxTitle: "Datos de pago",
+  paymentPendingInstructions: "Podés completar el pago desde Mercado Pago o seguir las instrucciones del medio elegido.",
+  paymentPendingButton: "Completar pago",
+  paymentFailureTitle: "Pago rechazado ❌",
+  paymentFailureSubtitle: "No se pudo completar el pago. Podés intentar nuevamente desde el checkout.",
+  paymentFailureHint: "Si el pedido estaba pendiente, el stock queda reservado. Podés reintentar el pago.",
+  paymentFailureBackToStoreButton: "Volver a la tienda",
+  paymentFailureViewOrderButton: "Ver pedido",
+  manualPaymentTitle: "Un paso más.",
+  manualPaymentSubtitle: "Tu orden fue procesada.",
+  manualPaymentInstructionsTitle: "Datos para completar el pago",
+  manualPaymentEmailNote: "Te enviamos un email con el detalle del pedido.",
+  orderLookupTitle: "Consultar pedido",
+  orderLookupSubtitle: "Ingresá el número de pedido y el email usado en la compra.",
+  orderLookupOrderLabel: "Número de pedido",
+  orderLookupEmailLabel: "Email",
+  orderLookupButton: "Buscar pedido",
 };
 
 const DEFAULT_MANUAL_PAYMENT_METHODS: ManualPaymentMethodSettings[] = [
@@ -629,6 +696,93 @@ export async function setMetricsSettings(settings: unknown) {
       isSecret: false,
     },
   });
+}
+
+function normalizeScreenText(value: unknown, fallback: string, maxLength = 240) {
+  const raw = String(value || "").trim();
+  return (raw || fallback).slice(0, maxLength);
+}
+
+function normalizeScreenTextSettings(input: unknown): ScreenTextSettings {
+  const value = input && typeof input === "object" ? input as Partial<ScreenTextSettings> : {};
+  return {
+    orderCreatedTitle: normalizeScreenText(value.orderCreatedTitle, DEFAULT_SCREEN_TEXT_SETTINGS.orderCreatedTitle, 80),
+    orderCreatedNumberLabel: normalizeScreenText(value.orderCreatedNumberLabel, DEFAULT_SCREEN_TEXT_SETTINGS.orderCreatedNumberLabel, 60),
+    orderCreatedPaymentLabel: normalizeScreenText(value.orderCreatedPaymentLabel, DEFAULT_SCREEN_TEXT_SETTINGS.orderCreatedPaymentLabel, 60),
+    orderCreatedMercadoPagoText: normalizeScreenText(value.orderCreatedMercadoPagoText, DEFAULT_SCREEN_TEXT_SETTINGS.orderCreatedMercadoPagoText, 260),
+    orderCreatedMercadoPagoButton: normalizeScreenText(value.orderCreatedMercadoPagoButton, DEFAULT_SCREEN_TEXT_SETTINGS.orderCreatedMercadoPagoButton, 80),
+    orderCreatedStockNote: normalizeScreenText(value.orderCreatedStockNote, DEFAULT_SCREEN_TEXT_SETTINGS.orderCreatedStockNote, 200),
+    paymentSuccessTitle: normalizeScreenText(value.paymentSuccessTitle, DEFAULT_SCREEN_TEXT_SETTINGS.paymentSuccessTitle, 80),
+    paymentSuccessSubtitle: normalizeScreenText(value.paymentSuccessSubtitle, DEFAULT_SCREEN_TEXT_SETTINGS.paymentSuccessSubtitle, 260),
+    paymentSuccessHint: normalizeScreenText(value.paymentSuccessHint, DEFAULT_SCREEN_TEXT_SETTINGS.paymentSuccessHint, 180),
+    paymentSuccessBackToStoreButton: normalizeScreenText(value.paymentSuccessBackToStoreButton, DEFAULT_SCREEN_TEXT_SETTINGS.paymentSuccessBackToStoreButton, 80),
+    paymentSuccessViewOrderButton: normalizeScreenText(value.paymentSuccessViewOrderButton, DEFAULT_SCREEN_TEXT_SETTINGS.paymentSuccessViewOrderButton, 80),
+    paymentPendingTitle: normalizeScreenText(value.paymentPendingTitle, DEFAULT_SCREEN_TEXT_SETTINGS.paymentPendingTitle, 80),
+    paymentPendingSubtitle: normalizeScreenText(value.paymentPendingSubtitle, DEFAULT_SCREEN_TEXT_SETTINGS.paymentPendingSubtitle, 220),
+    paymentPendingBoxTitle: normalizeScreenText(value.paymentPendingBoxTitle, DEFAULT_SCREEN_TEXT_SETTINGS.paymentPendingBoxTitle, 80),
+    paymentPendingInstructions: normalizeScreenText(value.paymentPendingInstructions, DEFAULT_SCREEN_TEXT_SETTINGS.paymentPendingInstructions, 260),
+    paymentPendingButton: normalizeScreenText(value.paymentPendingButton, DEFAULT_SCREEN_TEXT_SETTINGS.paymentPendingButton, 80),
+    paymentFailureTitle: normalizeScreenText(value.paymentFailureTitle, DEFAULT_SCREEN_TEXT_SETTINGS.paymentFailureTitle, 80),
+    paymentFailureSubtitle: normalizeScreenText(value.paymentFailureSubtitle, DEFAULT_SCREEN_TEXT_SETTINGS.paymentFailureSubtitle, 220),
+    paymentFailureHint: normalizeScreenText(value.paymentFailureHint, DEFAULT_SCREEN_TEXT_SETTINGS.paymentFailureHint, 180),
+    paymentFailureBackToStoreButton: normalizeScreenText(value.paymentFailureBackToStoreButton, DEFAULT_SCREEN_TEXT_SETTINGS.paymentFailureBackToStoreButton, 80),
+    paymentFailureViewOrderButton: normalizeScreenText(value.paymentFailureViewOrderButton, DEFAULT_SCREEN_TEXT_SETTINGS.paymentFailureViewOrderButton, 80),
+    manualPaymentTitle: normalizeScreenText(value.manualPaymentTitle, DEFAULT_SCREEN_TEXT_SETTINGS.manualPaymentTitle, 80),
+    manualPaymentSubtitle: normalizeScreenText(value.manualPaymentSubtitle, DEFAULT_SCREEN_TEXT_SETTINGS.manualPaymentSubtitle, 160),
+    manualPaymentInstructionsTitle: normalizeScreenText(value.manualPaymentInstructionsTitle, DEFAULT_SCREEN_TEXT_SETTINGS.manualPaymentInstructionsTitle, 80),
+    manualPaymentEmailNote: normalizeScreenText(value.manualPaymentEmailNote, DEFAULT_SCREEN_TEXT_SETTINGS.manualPaymentEmailNote, 160),
+    orderLookupTitle: normalizeScreenText(value.orderLookupTitle, DEFAULT_SCREEN_TEXT_SETTINGS.orderLookupTitle, 80),
+    orderLookupSubtitle: normalizeScreenText(value.orderLookupSubtitle, DEFAULT_SCREEN_TEXT_SETTINGS.orderLookupSubtitle, 180),
+    orderLookupOrderLabel: normalizeScreenText(value.orderLookupOrderLabel, DEFAULT_SCREEN_TEXT_SETTINGS.orderLookupOrderLabel, 80),
+    orderLookupEmailLabel: normalizeScreenText(value.orderLookupEmailLabel, DEFAULT_SCREEN_TEXT_SETTINGS.orderLookupEmailLabel, 80),
+    orderLookupButton: normalizeScreenText(value.orderLookupButton, DEFAULT_SCREEN_TEXT_SETTINGS.orderLookupButton, 80),
+  };
+}
+
+export async function getScreenTextSettings(): Promise<ScreenTextSettings> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: SCREEN_TEXT_SETTINGS_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return normalizeScreenTextSettings(null);
+
+  try {
+    return normalizeScreenTextSettings(JSON.parse(row.value));
+  } catch {
+    return normalizeScreenTextSettings(null);
+  }
+}
+
+export async function setScreenTextSettings(settings: unknown) {
+  const normalized = normalizeScreenTextSettings(settings);
+  const value = JSON.stringify(normalized);
+
+  await prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: SCREEN_TEXT_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: SCREEN_TEXT_SETTINGS_KEY,
+      value,
+      isSecret: false,
+    },
+    update: {
+      value,
+      isSecret: false,
+    },
+  });
+
+  return normalized;
 }
 
 function normalizeSocialUrl(value: unknown) {

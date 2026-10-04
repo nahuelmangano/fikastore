@@ -1,17 +1,18 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import CheckoutClient from "@/components/CheckoutClient";
-import { getCheckoutPaymentSettings } from "@/lib/storeSettings";
+import { getCheckoutPaymentSettings, getScreenTextSettings } from "@/lib/storeSettings";
 
 export default async function CheckoutPage() {
-  const [session, paymentSettings] = await Promise.all([
+  const [session, paymentSettings, screenTextSettings] = await Promise.all([
     getServerSession(authOptions),
     getCheckoutPaymentSettings(),
+    getScreenTextSettings(),
   ]);
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="mx-auto max-w-5xl px-4 py-10">
+      <div className="mx-auto w-full max-w-5xl px-3 py-6 sm:px-4 sm:py-10">
         <h1 className="text-2xl font-semibold tracking-tight">Checkout</h1>
         <p className="mt-2 text-zinc-400">
           {session?.user?.email
@@ -19,7 +20,7 @@ export default async function CheckoutPage() {
             : "Podés comprar como invitado o iniciar sesión si ya tenés cuenta."}
         </p>
 
-        <CheckoutClient paymentSettings={paymentSettings} />
+        <CheckoutClient paymentSettings={paymentSettings} screenTextSettings={screenTextSettings} />
       </div>
     </main>
   );

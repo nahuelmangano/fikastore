@@ -59,6 +59,8 @@ export default function PayResultClient({
   orderId,
   accessEmail,
   hint,
+  backToStoreLabel = "Volver a la tienda",
+  viewOrderLabel,
   trackPurchase = false,
 }: {
   title: string;
@@ -66,6 +68,8 @@ export default function PayResultClient({
   orderId: string;
   accessEmail?: string;
   hint?: string;
+  backToStoreLabel?: string;
+  viewOrderLabel?: string;
   trackPurchase?: boolean;
 }) {
   const [loading, setLoading] = useState(true);
@@ -290,14 +294,14 @@ export default function PayResultClient({
               href="/"
               className="rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
             >
-              Volver a la tienda
+              {backToStoreLabel}
             </Link>
 
             <Link
               href={accessEmail ? `/pedido?orderId=${encodeURIComponent(orderId)}&email=${encodeURIComponent(accessEmail)}` : "/account/orders"}
               className="rounded-xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60"
             >
-              {accessEmail ? "Ver pedido" : "Ver mis pedidos"}
+              {viewOrderLabel || (accessEmail ? "Ver pedido" : "Ver mis pedidos")}
             </Link>
           </div>
         </div>

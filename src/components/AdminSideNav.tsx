@@ -130,6 +130,7 @@ export default function AdminSideNav({ isAdmin }: AdminSideNavProps) {
       label: "Sistema",
       items: [
         { href: "/admin/mailing", label: "Mailing", icon: Mail },
+        ...(isAdmin ? [{ href: "/admin/pantallas", label: "Pantallas", icon: Monitor }] : []),
         { href: "/admin/settings", label: "Configuracion", icon: Settings, children: settingsChildren },
         { href: "/", label: "Ver Tienda", icon: Store, newTab: true },
         ...(isAdmin ? [{ href: "/admin/users/new", label: "Alta merchant", icon: CreditCard }] : []),

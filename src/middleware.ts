@@ -26,7 +26,12 @@ export async function middleware(req: NextRequest) {
     const role = (token as { role?: string } | null)?.role;
 
     // Solo admin puede gestionar alta/edición de staff.
-    if (pathname === "/admin/users/new" || pathname.startsWith("/admin/users/new/")) {
+    if (
+      pathname === "/admin/users/new" ||
+      pathname.startsWith("/admin/users/new/") ||
+      pathname === "/admin/pantallas" ||
+      pathname.startsWith("/admin/pantallas/")
+    ) {
       if (!isAdminRole(role)) {
         return NextResponse.redirect(new URL("/", req.url));
       }

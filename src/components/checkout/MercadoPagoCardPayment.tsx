@@ -279,7 +279,7 @@ export default function MercadoPagoCardPayment({
   }, [accessEmail, amount, containerId, debug, onCreateOrder, onPaymentComplete, orderId, payer.email, payer.identificationNumber, payer.identificationType, publicKey]);
 
   return (
-    <div className={embedded ? "border-t border-zinc-800 bg-zinc-950/20 p-4" : "mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4"}>
+    <div className={embedded ? "min-w-0 border-t border-zinc-800 bg-zinc-950/20 p-3 sm:p-4" : "mt-4 min-w-0 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-3 sm:p-4"}>
       {!embedded ? (
         <>
           <div className="font-semibold text-zinc-100">Pedido creado OK</div>
@@ -295,9 +295,9 @@ export default function MercadoPagoCardPayment({
         </div>
       ) : null}
 
-      <div className={embedded ? "rounded-xl border border-zinc-800 bg-white p-3" : "mt-4 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3"}>
+      <div className={embedded ? "min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-white p-2 sm:p-3" : "mt-4 min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/40 p-2 sm:p-3"}>
         {!ready && status === "loading" ? <div className="text-sm text-zinc-400">Cargando pago con tarjeta...</div> : null}
-        <div id={containerId} className={status === "processing" ? "pointer-events-none opacity-60" : ""} />
+        <div id={containerId} className={["min-w-0", status === "processing" ? "pointer-events-none opacity-60" : ""].join(" ")} />
       </div>
 
       {message ? (

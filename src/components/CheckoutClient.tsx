@@ -11,6 +11,7 @@ import { trackMetaInitiateCheckout } from "@/lib/metaPixelEvents";
 import { trackGA4BeginCheckout } from "@/lib/ga4";
 import { transferInstructionsWithBankDetails } from "@/lib/manualPaymentInstructions";
 import MercadoPagoCardPayment from "@/components/checkout/MercadoPagoCardPayment";
+import type { ScreenTextSettings } from "@/lib/storeSettings";
 
 type Shipping = {
   name: string;
@@ -179,7 +180,7 @@ function shippingEstimateLabel(amount: number, freeShipping: boolean) {
 function ShippingAmount({ amount, freeShipping }: { amount: number; freeShipping: boolean }) {
   if (freeShipping && amount > 0) {
     return (
-      <span className="inline-flex items-center gap-2">
+      <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-xs font-medium text-zinc-500 line-through">
           ${amount.toLocaleString("es-AR")}
         </span>
@@ -193,7 +194,13 @@ function ShippingAmount({ amount, freeShipping }: { amount: number; freeShipping
   return <>{amount > 0 ? `$${amount.toLocaleString("es-AR")}` : "—"}</>;
 }
 
-export default function CheckoutClient({ paymentSettings }: { paymentSettings: CheckoutPaymentSettings }) {
+export default function CheckoutClient({
+  paymentSettings,
+  screenTextSettings,
+}: {
+  paymentSettings: CheckoutPaymentSettings;
+  screenTextSettings: ScreenTextSettings;
+}) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [orderItems, setOrderItems] = useState<CartItem[]>([]);
   const [shipping, setShipping] = useState<Shipping>({
@@ -842,8 +849,8 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
   }, []);
 
   return (
-    <div className="mt-8 grid gap-6 lg:grid-cols-2">
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
+    <div className="mt-6 grid w-full min-w-0 gap-5 lg:mt-8 lg:grid-cols-2 lg:gap-6">
+      <div className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4 sm:p-6">
         <h2 className="text-lg font-semibold">Resumen</h2>
 
         {summaryItems.length === 0 ? (
@@ -857,7 +864,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
           <>
             <div className="mt-4 space-y-3">
               {summaryItems.map((it) => (
-                <div key={it.lineKey} className="flex items-start justify-between gap-4">
+                <div key={it.lineKey} className="flex min-w-0 items-start justify-between gap-3 sm:gap-4">
                   <div className="min-w-0">
                     <div className="truncate font-medium">{it.name}</div>
                     {it.variantLabel ? <div className="mt-1 text-xs text-zinc-500">{it.variantLabel}</div> : null}
@@ -891,29 +898,29 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
             </div>
 
             <div className="mt-6 border-t border-zinc-800 pt-4">
-              <div className="flex items-center justify-between text-sm text-zinc-400">
+              <div className="flex min-w-0 items-center justify-between gap-3 text-sm text-zinc-400">
                 <span>Subtotal</span>
                 <span>${subtotalBase.toLocaleString("es-AR")}</span>
               </div>
               {discountAmount > 0 && (
-                <div className="mt-2 flex items-center justify-between text-sm">
+                <div className="mt-2 flex min-w-0 items-center justify-between gap-3 text-sm">
                   <span className="text-zinc-400">Descuento</span>
                   <span className="text-amber-300">-${discountAmount.toLocaleString("es-AR")}</span>
                 </div>
               )}
               {autoDiscountAmount > 0 && (
-                <div className="mt-1 flex items-center justify-between text-xs">
-                  <span className="text-zinc-500">- {pricing?.summary?.autoPromotionNames?.join(" · ") || "Promo tienda"}</span>
+                <div className="mt-1 flex min-w-0 items-center justify-between gap-3 text-xs">
+                  <span className="min-w-0 text-zinc-500">- {pricing?.summary?.autoPromotionNames?.join(" · ") || "Promo tienda"}</span>
                   <span className="text-zinc-400">-${autoDiscountAmount.toLocaleString("es-AR")}</span>
                 </div>
               )}
               {codeDiscountAmount > 0 && (
-                <div className="mt-1 flex items-center justify-between text-xs">
+                <div className="mt-1 flex min-w-0 items-center justify-between gap-3 text-xs">
                   <span className="text-zinc-500">- Codigo promocional</span>
                   <span className="text-zinc-400">-${codeDiscountAmount.toLocaleString("es-AR")}</span>
                 </div>
               )}
-              <div className="mt-2 flex items-center justify-between text-sm text-zinc-400">
+              <div className="mt-2 flex min-w-0 items-center justify-between gap-3 text-sm text-zinc-400">
                 <span>Envio</span>
                 <span>
                   {selectedShippingIsAgreement
@@ -928,14 +935,14 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                 </span>
               </div>
               {selectedFreeShippingApplies && shippingMethod !== "pickup" && shippingAmount > 0 && (
-                <div className="mt-1 flex items-center justify-between text-xs">
+                <div className="mt-1 flex min-w-0 items-center justify-between gap-3 text-xs">
                   <span className="text-zinc-500">- Envío bonificado</span>
                   <span className="text-zinc-400">-${shippingAmount.toLocaleString("es-AR")}</span>
                 </div>
               )}
-              <div className="mt-3 flex items-center justify-between">
+              <div className="mt-3 flex min-w-0 items-center justify-between gap-3">
                 <span className="text-zinc-300">Total</span>
-                <span className="text-xl font-semibold">${total.toLocaleString("es-AR")}</span>
+                <span className="shrink-0 text-lg font-semibold sm:text-xl">${total.toLocaleString("es-AR")}</span>
               </div>
               {promoCode && (
                 <div className="mt-2 text-xs text-zinc-500">
@@ -954,7 +961,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
         )}
       </div>
 
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
+      <div className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4 sm:p-6">
         <h2 className="text-lg font-semibold">Datos de envio</h2>
 
         {orderId ? (
@@ -968,6 +975,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
             mercadoPagoPublicKey={paymentSettings.mercadoPagoPublicKey || ""}
             mercadoPagoDebug={paymentSettings.mercadoPagoDebug === true}
             manualPaymentMethod={selectedManualPaymentMethod}
+            screenTextSettings={screenTextSettings}
           />
         ) : (
           <>
@@ -1058,12 +1066,12 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
               )}
             </div>
 
-            <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4">
+            <div className="mt-4 min-w-0 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-3 sm:p-4">
               <div className="text-sm font-semibold">Metodo de envio</div>
               <div className="mt-3 grid gap-3">
                 {epickEnabled && (
-                  <label className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                    <div className="flex items-start gap-3">
+                  <label className="flex cursor-pointer flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex min-w-0 items-start gap-3">
                       <input
                         type="radio"
                         name="shippingMethod"
@@ -1071,11 +1079,11 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                         onChange={() => setShippingMethod("epick")}
                         className="mt-1"
                       />
-                      <div>
-                        <div className="flex items-center gap-2 text-sm font-medium">
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src="/images/epick.png" alt="" className="h-7 w-7 rounded-full object-contain" />
-                          <span>Envio a domicilio (E-pick)</span>
+                          <span className="min-w-0">Envio a domicilio (E-pick)</span>
                         </div>
                         <div className="text-xs text-zinc-500">
                           {deliveryDaysLabel("epick")} · {quoteLoading
@@ -1086,15 +1094,15 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                         </div>
                       </div>
                     </div>
-                    <div className="text-sm font-semibold">
+                    <div className="pl-7 text-sm font-semibold sm:pl-0">
                       <ShippingAmount amount={epickAmount} freeShipping={epickFreeShipping} />
                     </div>
                   </label>
                 )}
 
                 {andreaniEnabled && (
-                  <label className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                    <div className="flex items-start gap-3">
+                  <label className="flex cursor-pointer flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex min-w-0 items-start gap-3">
                       <input
                         type="radio"
                         name="shippingMethod"
@@ -1102,10 +1110,10 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                         onChange={() => setShippingMethod("andreani")}
                         className="mt-1"
                       />
-                      <div>
-                        <div className="flex items-center gap-2 text-sm font-medium">
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
                           <ShippingMethodLogo method="andreani" />
-                          <span>Envio a domicilio (Andreani)</span>
+                          <span className="min-w-0">Envio a domicilio (Andreani)</span>
                         </div>
                         <div className="text-xs text-zinc-500">
                           {andreaniLoading
@@ -1116,7 +1124,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                         </div>
                       </div>
                     </div>
-                    <div className="text-sm font-semibold">
+                    <div className="pl-7 text-sm font-semibold sm:pl-0">
                       <ShippingAmount amount={andreaniAmount} freeShipping={andreaniFreeShipping} />
                     </div>
                   </label>
@@ -1124,8 +1132,8 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
 
                 {correoEnabled && (
                   <>
-                    <label className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                      <div className="flex items-start gap-3">
+                    <label className="flex cursor-pointer flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="flex min-w-0 items-start gap-3">
                         <input
                           type="radio"
                           name="shippingMethod"
@@ -1136,11 +1144,11 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                           }}
                           className="mt-1"
                         />
-                        <div>
-                          <div className="flex items-center gap-2 text-sm font-medium">
+                        <div className="min-w-0">
+                          <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src="/images/correo-argentino.png" alt="" className="h-7 w-7 rounded-full object-contain" />
-                            <span>Envio a domicilio (Correo Argentino)</span>
+                            <span className="min-w-0">Envio a domicilio (Correo Argentino)</span>
                           </div>
                           <div className="text-xs text-zinc-500">
                             {deliveryDaysLabel("correo")} · {correoLoading
@@ -1151,14 +1159,14 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                           </div>
                         </div>
                       </div>
-                      <div className="text-sm font-semibold">
+                      <div className="pl-7 text-sm font-semibold sm:pl-0">
                         <ShippingAmount amount={correoHomeAmount} freeShipping={correoHomeFreeShipping} />
                       </div>
                     </label>
 
                     <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                      <label className="flex cursor-pointer items-start justify-between gap-3">
-                        <div className="flex items-start gap-3">
+                      <label className="flex cursor-pointer flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex min-w-0 items-start gap-3">
                           <input
                             type="radio"
                             name="shippingMethod"
@@ -1169,11 +1177,11 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                             }}
                             className="mt-1"
                           />
-                          <div>
-                            <div className="flex items-center gap-2 text-sm font-medium">
+                          <div className="min-w-0">
+                            <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img src="/images/correo-argentino.png" alt="" className="h-7 w-7 rounded-full object-contain" />
-                              <span>Envio a sucursal (Correo Argentino)</span>
+                              <span className="min-w-0">Envio a sucursal (Correo Argentino)</span>
                             </div>
                             <div className="text-xs text-zinc-500">
                               {deliveryDaysLabel("correo")} · {correoLoading
@@ -1188,7 +1196,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                             </div>
                           </div>
                         </div>
-                        <div className="text-sm font-semibold">
+                        <div className="pl-7 text-sm font-semibold sm:pl-0">
                           <ShippingAmount amount={correoBranchAmount} freeShipping={correoBranchFreeShipping} />
                         </div>
                       </label>
@@ -1242,8 +1250,8 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                   const points = carrier.pickupPoints ?? [];
                   return (
                     <div key={carrier.key} className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                      <label className="flex cursor-pointer items-start justify-between gap-3">
-                        <div className="flex items-start gap-3">
+                      <label className="flex cursor-pointer flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex min-w-0 items-start gap-3">
                           <input
                             type="radio"
                             name="shippingMethod"
@@ -1251,10 +1259,10 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                             onChange={() => setShippingMethod(carrier.key)}
                             className="mt-1"
                           />
-                          <div>
-                            <div className="flex items-center gap-2 text-sm font-medium">
+                          <div className="min-w-0">
+                            <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
                               <ShippingMethodLogo method={carrier.key} pickupPoint={points.length > 0} />
-                              <span>{carrier.name}</span>
+                              <span className="min-w-0">{carrier.name}</span>
                             </div>
                             {points.length === 0 && carrier.description?.trim() ? (
                               <div className="whitespace-pre-line text-xs text-zinc-500">
@@ -1263,7 +1271,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                             ) : null}
                           </div>
                         </div>
-                        <div className="shrink-0 whitespace-nowrap text-sm font-semibold">
+                        <div className="shrink-0 whitespace-nowrap pl-7 text-sm font-semibold sm:pl-0">
                           {isAgreement ? (
                             "A convenir"
                           ) : amount > 0 ? (
@@ -1304,7 +1312,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
               </div>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4">
+            <div className="mt-4 min-w-0 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-3 sm:p-4">
               <div className="text-sm font-semibold">Metodo de pago</div>
               <div className="mt-3 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/30">
                 {paymentSettings.mercadopagoEnabled ? (
@@ -1368,7 +1376,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
               </div>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4">
+            <div className="mt-4 min-w-0 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-3 sm:p-4">
               <label className="text-sm font-semibold" htmlFor="checkout-notes">
                 Notas del pedido
               </label>
@@ -1380,7 +1388,7 @@ export default function CheckoutClient({ paymentSettings }: { paymentSettings: C
                 placeholder="Ej: entregar por la tarde, llamar antes de llegar, aclaraciones sobre el pedido..."
                 className="mt-3 w-full resize-y rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-zinc-500"
               />
-              <div className="mt-2 flex items-center justify-between gap-3 text-xs text-zinc-500">
+              <div className="mt-2 flex min-w-0 items-center justify-between gap-3 text-xs text-zinc-500">
                 <span>Opcional.</span>
                 <span>{customerNotes.length}/1000</span>
               </div>
@@ -1444,6 +1452,7 @@ function PayBlock({
   mercadoPagoPublicKey,
   mercadoPagoDebug,
   manualPaymentMethod,
+  screenTextSettings,
 }: {
   orderId: string;
   orderNumber: number | null;
@@ -1454,6 +1463,7 @@ function PayBlock({
   mercadoPagoPublicKey: string;
   mercadoPagoDebug: boolean;
   manualPaymentMethod: CheckoutPaymentSettings["manualMethods"][number] | null;
+  screenTextSettings: ScreenTextSettings;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1525,9 +1535,9 @@ function PayBlock({
 
   return (
     <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4">
-      <div className="font-semibold text-zinc-100">Pedido creado OK</div>
+      <div className="font-semibold text-zinc-100">{screenTextSettings.orderCreatedTitle}</div>
       <div className="mt-2 text-sm text-zinc-300">
-        Numero de pedido: <span className="font-mono">{orderNumber ?? orderId}</span>
+        {screenTextSettings.orderCreatedNumberLabel}: <span className="font-mono">{orderNumber ?? orderId}</span>
       </div>
 
       {error && (
@@ -1541,6 +1551,14 @@ function PayBlock({
           {epickError}
         </div>
       )}
+
+      <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-4 text-sm">
+        <div className="text-zinc-400">{screenTextSettings.orderCreatedPaymentLabel}</div>
+        <div className="mt-1 font-semibold text-zinc-100">Mercado Pago</div>
+        <p className="mt-3 text-xs leading-5 text-zinc-500">
+          {screenTextSettings.orderCreatedMercadoPagoText}
+        </p>
+      </div>
 
       <button
         disabled={loading}
@@ -1572,12 +1590,10 @@ function PayBlock({
         }}
         className="mt-4 w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white disabled:opacity-50"
       >
-        {loading ? "Redirigiendo..." : "Pagar con Mercado Pago"}
+        {loading ? "Redirigiendo..." : screenTextSettings.orderCreatedMercadoPagoButton}
       </button>
 
-      <p className="mt-3 text-xs text-zinc-500">
-        Al pagar, Mercado Pago nos notificara por webhook y actualizaremos el estado del pedido automaticamente.
-      </p>
+      <p className="mt-3 text-xs text-zinc-500">{screenTextSettings.orderCreatedStockNote}</p>
 
       {shippingMethod === "epick" && (
         <p className="mt-2 text-xs text-zinc-500">El envio E-pick se crea automaticamente al generar el pedido.</p>
@@ -1758,7 +1774,7 @@ function PaymentOption({
   return (
     <label
       className={[
-        "flex cursor-pointer items-center gap-3 border-b border-zinc-800 px-3 py-3 last:border-b-0",
+        "flex min-w-0 cursor-pointer items-center gap-3 border-b border-zinc-800 px-3 py-3 last:border-b-0",
         checked ? "bg-zinc-900/50" : "bg-transparent hover:bg-zinc-900/30",
       ].join(" ")}
     >
@@ -1779,7 +1795,7 @@ function PaymentOption({
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-semibold text-zinc-100">{title}</span>
         {description ? <span className="mt-1 block text-xs leading-4 text-zinc-500">{description}</span> : null}
-        {logos ? <span className="mt-2 flex flex-wrap items-center gap-1.5">{logos}</span> : null}
+        {logos ? <span className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">{logos}</span> : null}
       </span>
     </label>
   );
@@ -1823,14 +1839,14 @@ function Field({
   onChange: (v: string) => void;
 }) {
   return (
-    <div>
+    <div className="min-w-0">
       <label className="text-sm text-zinc-300">{label}</label>
       <input
         type={type}
         inputMode={inputMode}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
+        className="mt-2 w-full min-w-0 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
       />
     </div>
   );
