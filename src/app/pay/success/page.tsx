@@ -1,11 +1,17 @@
 import PayResultClient from "../ui";
+import { getScreenTextSettings } from "@/lib/storeSettings";
 
-export default function PaySuccessPage({
+type SearchParams = { orderId?: string; email?: string } | Promise<{ orderId?: string; email?: string }>;
+
+export default async function PaySuccessPage({
   searchParams,
 }: {
-  searchParams: { orderId?: string };
+  searchParams: SearchParams;
 }) {
-  const orderId = searchParams.orderId;
+  const resolvedSearchParams = await Promise.resolve(searchParams);
+  const orderId = String(resolvedSearchParams.orderId || "").trim();
+  const email = String(resolvedSearchParams.email || "").trim().toLowerCase();
+  const screenTextSettings = await getScreenTextSettings();
   if (!orderId) {
     return (
       <main className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -21,10 +27,14 @@ export default function PaySuccessPage({
 
   return (
     <PayResultClient
-      title="Pago realizado ✅"
-      subtitle="Si el pedido todavía figura como pendiente, en unos segundos debería actualizarse cuando llegue el webhook."
+      title={screenTextSettings.paymentSuccessTitle}
+      subtitle={screenTextSettings.paymentSuccessSubtitle}
       orderId={orderId}
-      hint="Tip: esta pantalla refresca el estado automáticamente unos segundos."
+      accessEmail={email || undefined}
+      hint={screenTextSettings.paymentSuccessHint}
+      backToStoreLabel={screenTextSettings.paymentSuccessBackToStoreButton}
+      viewOrderLabel={screenTextSettings.paymentSuccessViewOrderButton}
+      trackPurchase
     />
   );
 }

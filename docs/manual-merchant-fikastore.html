@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Manual para merchants - Fika Store</title>
+  <style>
+    @page { size: A4; margin: 18mm 16mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #4f3117;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 11.5pt;
+      line-height: 1.45;
+      background: #ffffff;
+    }
+    h1, h2, h3 { color: #5f3b18; line-height: 1.2; margin: 0 0 8px; }
+    h1 { font-size: 30pt; margin-top: 42mm; }
+    h2 { font-size: 19pt; margin-top: 20px; padding-top: 8px; border-top: 2px solid #e5d7c8; }
+    h3 { font-size: 13.5pt; margin-top: 14px; }
+    p { margin: 0 0 8px; }
+    ul, ol { margin: 6px 0 10px 20px; padding: 0; }
+    li { margin: 4px 0; }
+    a { color: #8b5a2b; text-decoration: none; }
+    code {
+      color: #5f3b18;
+      background: #f5eee7;
+      border: 1px solid #eadccd;
+      border-radius: 4px;
+      padding: 1px 4px;
+      font-size: 10pt;
+    }
+    table { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 10.5pt; }
+    th, td { border: 1px solid #e5d7c8; padding: 7px; vertical-align: top; }
+    th { background: #f5eee7; color: #5f3b18; text-align: left; }
+    .cover {
+      min-height: 246mm;
+      border: 2px solid #e5d7c8;
+      padding: 18mm;
+      background: linear-gradient(180deg, #fffaf5, #ffffff);
+    }
+    .cover .brand { font-size: 13pt; letter-spacing: 1.5px; text-transform: uppercase; color: #a37a55; }
+    .cover .subtitle { max-width: 145mm; margin-top: 10px; font-size: 14pt; color: #7b522e; }
+    .cover .meta { margin-top: 45mm; color: #8f6a49; font-size: 10.5pt; }
+    .page-break { page-break-before: always; }
+    .note {
+      margin: 10px 0;
+      padding: 10px 12px;
+      border-left: 4px solid #9c6329;
+      background: #faf8f5;
+    }
+    .warning {
+      margin: 10px 0;
+      padding: 10px 12px;
+      border-left: 4px solid #c05621;
+      background: #fff7ed;
+    }
+    .checklist li { list-style: square; }
+    .small { font-size: 9.5pt; color: #8f6a49; }
+    .toc a { display: block; margin: 4px 0; }
+    figure {
+      margin: 12px 0 14px;
+      page-break-inside: avoid;
+      border: 1px solid #e5d7c8;
+      border-radius: 8px;
+      padding: 7px;
+      background: #fffaf5;
+    }
+    figure img {
+      display: block;
+      width: 100%;
+      max-height: 118mm;
+      object-fit: contain;
+      border-radius: 5px;
+    }
+    figcaption {
+      margin-top: 6px;
+      color: #8f6a49;
+      font-size: 9.5pt;
+    }
+  </style>
+</head>
+<body>
+  <section class="cover">
+    <div class="brand">Fika Store</div>
+    <h1>Manual para merchants</h1>
+    <p class="subtitle">Guía operativa para administrar catálogo, ventas, pagos, envíos, promociones, contenido y configuración de la tienda.</p>
+    <div class="meta">
+      <p><strong>Audiencia:</strong> merchants y operadores de tienda.</p>
+      <p><strong>Proyecto revisado:</strong> panel admin y storefront de Fika Store.</p>
+      <p><strong>Fecha:</strong> 18/08/2026.</p>
+    </div>
+  </section>
+
+  <section class="page-break toc">
+    <h2>Índice</h2>
+    <a href="#inicio">1. Primeros pasos</a>
+    <a href="#dashboard">2. Dashboard</a>
+    <a href="#productos">3. Productos y variantes</a>
+    <a href="#categorias">4. Categorías</a>
+    <a href="#promociones">5. Promociones</a>
+    <a href="#pedidos">6. Pedidos</a>
+    <a href="#envios">7. Envíos y paquetería</a>
+    <a href="#clientes">8. Clientes y usuarios</a>
+    <a href="#mailing">9. Mailing</a>
+    <a href="#configuracion">10. Configuración de tienda</a>
+    <a href="#estadisticas">11. Estadísticas</a>
+    <a href="#storefront">12. Experiencia del cliente</a>
+    <a href="#rutinas">13. Rutinas recomendadas</a>
+  </section>
+
+  <section id="inicio" class="page-break">
+    <h2>1. Primeros pasos</h2>
+    <p>El panel se usa desde <code>/admin</code>. La navegación lateral organiza las funciones por áreas: General, Catálogo, Ventas y Sistema.</p>
+    <figure>
+      <img src="assets/configuracion.png" alt="Vista general del panel de configuración">
+      <figcaption>Ejemplo de panel administrativo con navegación por pestañas y preview de tienda.</figcaption>
+    </figure>
+    <table>
+      <tr><th>Rol</th><th>Qué puede hacer</th></tr>
+      <tr><td><strong>Merchant</strong></td><td>Operar la tienda: productos, categorías, promociones, pedidos, envíos, arrepentimientos, mailing permitido y configuración visible.</td></tr>
+      <tr><td><strong>Admin</strong></td><td>Además de operar, puede ver opciones administrativas como alta de merchants, configuración técnica de proveedores y tokens manuales.</td></tr>
+      <tr><td><strong>Customer</strong></td><td>Cliente final. Compra, consulta pedidos, perfil y arrepentimientos desde la tienda.</td></tr>
+    </table>
+    <div class="note">
+      <strong>Acceso rápido:</strong> desde el panel, el link <code>Ver Tienda</code> abre la tienda pública para revisar cómo ve el cliente los cambios.
+    </div>
+  </section>
+
+  <section id="dashboard">
+    <h2>2. Dashboard</h2>
+    <p>El Dashboard resume el estado diario de la tienda y sirve como primera revisión operativa.</p>
+    <h3>Qué muestra</h3>
+    <ul>
+      <li>Ventas del día, total de pedidos, clientes registrados y conversión estimada.</li>
+      <li>Alertas de pedidos pendientes, productos sin stock, promociones por vencer y mailing sin configurar.</li>
+      <li>Acciones rápidas: nuevo producto, nueva promoción, ver pedidos, enviar mailing y ver tienda.</li>
+      <li>Actividad reciente: pedidos, clientes, productos y promociones actualizadas.</li>
+    </ul>
+    <h3>Uso recomendado</h3>
+    <ol>
+      <li>Entrá al inicio del día y revisá alertas.</li>
+      <li>Priorizá pedidos pendientes o pagados.</li>
+      <li>Reponé productos con stock bajo o sin stock.</li>
+      <li>Verificá promociones próximas a vencer.</li>
+    </ol>
+  </section>
+
+  <section id="productos" class="page-break">
+    <h2>3. Productos y variantes</h2>
+    <p>La sección <code>Productos</code> administra catálogo, precios, stock, imágenes, estado de publicación y variantes.</p>
+    <figure>
+      <img src="assets/productos.png" alt="Listado público de productos">
+      <figcaption>Vista de productos como la ve el cliente: tarjetas compactas, precio base, promoción y cuotas.</figcaption>
+    </figure>
+    <h3>Listado de productos</h3>
+    <ul>
+      <li>Permite buscar por nombre, slug o descripción.</li>
+      <li>Permite filtrar por estado: todos, activos, inactivos, sin stock, stock bajo y con variantes.</li>
+      <li>Permite filtrar por categoría y ordenar por fecha, nombre, precio o stock.</li>
+      <li>Incluye exportación e importación XLSX.</li>
+    </ul>
+    <h3>Crear producto</h3>
+    <ol>
+      <li>Ir a <code>Productos &gt; Nuevo producto</code>.</li>
+      <li>Cargar nombre, slug, descripción, precio, stock y categoría.</li>
+      <li>Definir variantes si corresponde, por ejemplo talle y diseño.</li>
+      <li>Subir imágenes y marcar el producto como activo si debe aparecer en la tienda.</li>
+      <li>Guardar.</li>
+    </ol>
+    <h3>Editar producto</h3>
+    <ul>
+      <li>Desde el listado, abrir el producto para editar datos generales.</li>
+      <li>Actualizar precios y stock por variante.</li>
+      <li>Activar o desactivar imágenes visibles por variante.</li>
+      <li>Crear nuevas variantes desde el editor.</li>
+      <li>Duplicar productos cuando se necesite partir de una ficha existente.</li>
+    </ul>
+    <h3>Importación XLSX</h3>
+    <p>El importador acepta columnas como <code>name</code>, <code>slug</code>, <code>description</code>, <code>price</code>, <code>stock</code> e <code>isActive</code>. Si falta el slug, se genera desde el nombre.</p>
+    <div class="warning">
+      <strong>Stock:</strong> el stock se descuenta al crear una orden. Si se cancela un pedido pagado o pendiente, el sistema repone las unidades.
+    </div>
+  </section>
+
+  <section id="categorias">
+    <h2>4. Categorías</h2>
+    <p>Las categorías organizan el catálogo y también pueden usarse en la home como accesos destacados.</p>
+    <h3>Qué se puede hacer</h3>
+    <ul>
+      <li>Crear categorías principales y subcategorías.</li>
+      <li>Editar nombre, slug, descripción y categoría padre.</li>
+      <li>Eliminar categorías cuando ya no correspondan.</li>
+      <li>Reordenar categorías hermanas con drag and drop.</li>
+      <li>Filtrar por todas, principales, hijas o vacías.</li>
+    </ul>
+    <h3>Buenas prácticas</h3>
+    <ul>
+      <li>Usar nombres cortos y claros para navegación.</li>
+      <li>No borrar categorías con productos sin revisar primero el catálogo.</li>
+      <li>Mantener slugs simples, sin espacios ni símbolos.</li>
+    </ul>
+  </section>
+
+  <section id="promociones" class="page-break">
+    <h2>5. Promociones</h2>
+    <p>La sección <code>Promociones</code> permite crear descuentos generales, descuentos por producto y códigos promocionales.</p>
+    <figure>
+      <img src="assets/promociones.png" alt="Gestión de promociones">
+      <figcaption>Gestión de promociones: creación, preview, estado y acciones para editar o activar/desactivar.</figcaption>
+    </figure>
+    <table>
+      <tr><th>Tipo</th><th>Uso</th></tr>
+      <tr><td>Descuento general</td><td>Aplica a toda la tienda. Sirve para campañas amplias o liquidaciones.</td></tr>
+      <tr><td>Por producto</td><td>Aplica solo a uno o más productos seleccionados.</td></tr>
+      <tr><td>Código promocional</td><td>El cliente debe ingresar el código en el carrito.</td></tr>
+    </table>
+    <h3>Campos principales</h3>
+    <ul>
+      <li>Nombre interno de la promoción.</li>
+      <li>Porcentaje de descuento.</li>
+      <li>Fechas de inicio y fin. Si no hay fecha de inicio, queda activa inmediatamente. Si no hay fecha de fin, no vence automáticamente.</li>
+      <li>Métodos de pago alcanzados: transferencia, efectivo, acordar, Mercado Pago u otros visibles.</li>
+    </ul>
+    <h3>Editar promociones cargadas</h3>
+    <ol>
+      <li>Ir al listado inferior de promociones.</li>
+      <li>Presionar <code>Editar</code>.</li>
+      <li>Ajustar porcentaje, fechas, productos o métodos de pago.</li>
+      <li>Guardar cambios.</li>
+    </ol>
+    <div class="note">
+      En la tienda, los descuentos por transferencia o efectivo se muestran bajo el precio del producto y en el carrito, sin confundir el precio base con el precio final promocional.
+    </div>
+  </section>
+
+  <section id="pedidos" class="page-break">
+    <h2>6. Pedidos</h2>
+    <p><code>Pedidos</code> es el centro operativo de ventas. Desde ahí se filtran, revisan y actualizan las órdenes.</p>
+    <figure>
+      <img src="assets/pedido-detalle.png" alt="Detalle de pedido en administración">
+      <figcaption>Detalle de pedido: datos de cliente, envío, items, total y acciones operativas.</figcaption>
+    </figure>
+    <h3>Listado</h3>
+    <ul>
+      <li>Buscar por número de pedido, cliente, email o ID.</li>
+      <li>Filtrar por estado del pedido y estado de pago.</li>
+      <li>Ordenar por fecha, total o número de orden.</li>
+      <li>Entrar al detalle haciendo clic sobre la fila o en <code>Ver pedido</code>.</li>
+    </ul>
+    <h3>Estados principales</h3>
+    <table>
+      <tr><th>Estado</th><th>Significado</th><th>Acción típica</th></tr>
+      <tr><td>pending_payment</td><td>Pedido creado, pago no confirmado.</td><td>Esperar pago o marcar como pagado si corresponde.</td></tr>
+      <tr><td>paid</td><td>Pago aprobado o marcado manualmente.</td><td>Preparar envío.</td></tr>
+      <tr><td>shipped</td><td>Pedido marcado como enviado.</td><td>Seguir entrega.</td></tr>
+      <tr><td>delivered</td><td>Pedido entregado.</td><td>Cierre operativo.</td></tr>
+      <tr><td>cancelled</td><td>Pedido cancelado.</td><td>Stock repuesto si correspondía.</td></tr>
+    </table>
+    <h3>Detalle de pedido</h3>
+    <ul>
+      <li>Ver datos de cliente, dirección, notas, items, subtotal, envío y total.</li>
+      <li>Marcar como pagado cuando el pago se validó fuera de Mercado Pago.</li>
+      <li>Marcar como enviado cuando el pedido está pagado.</li>
+      <li>Cancelar pedidos pendientes o pagados. Al cancelar, el stock vuelve al catálogo.</li>
+    </ul>
+    <div class="warning">
+      Si el cliente devuelve un producto ya pagado, usar <code>Cancelar pedido</code> solo cuando corresponde cancelar la orden completa. Esto repone stock y cancela el estado de pago en la tienda.
+    </div>
+  </section>
+
+  <section id="envios">
+    <h2>7. Envíos y paquetería</h2>
+    <p>La tienda soporta métodos de envío configurables: E-pick, Correo Argentino, Andreani, retiro en comercio y métodos personalizados.</p>
+    <figure>
+      <img src="assets/correo-envio.png" alt="Bloque de envío Correo Argentino">
+      <figcaption>Bloque de Correo Argentino dentro del pedido: estado, importación y acciones de seguimiento.</figcaption>
+    </figure>
+    <h3>Paquetería</h3>
+    <ul>
+      <li>Desde <code>Paquetería</code> se activan o desactivan métodos disponibles para clientes.</li>
+      <li>El admin puede decidir qué proveedores ve el merchant.</li>
+      <li>Cada proveedor puede tener campos obligatorios de configuración.</li>
+      <li>Se pueden crear envíos de prueba para validar credenciales.</li>
+    </ul>
+    <h3>Correo Argentino</h3>
+    <ul>
+      <li>El cliente puede elegir domicilio o sucursal.</li>
+      <li>Las sucursales se ordenan priorizando cercanía al código postal ingresado por el cliente.</li>
+      <li>Desde el pedido se puede importar el envío a MiCorreo.</li>
+      <li>Si existe <code>shippingId</code>, se puede consultar tracking y guardar los eventos.</li>
+      <li>La API MiCorreo revisada no incluye endpoint público para cancelar envíos; la cancelación real se hace desde el portal MiCorreo.</li>
+    </ul>
+    <h3>E-pick</h3>
+    <ul>
+      <li>Permite crear envío, confirmar retiro, consultar tracking y obtener etiquetas A4 o 10x15.</li>
+      <li>El estado se sincroniza con la información devuelta por el proveedor.</li>
+    </ul>
+    <h3>Checkout</h3>
+    <p>En checkout, el cliente completa datos de envío. Para Correo Argentino a sucursal, primero elige domicilio/sucursal y luego selecciona la sucursal correspondiente.</p>
+    <figure>
+      <img src="assets/checkout-envio.png" alt="Checkout con métodos de envío">
+      <figcaption>Checkout: selección de método de envío, opción domicilio/sucursal y datos del cliente.</figcaption>
+    </figure>
+  </section>
+
+  <section id="clientes" class="page-break">
+    <h2>8. Clientes y usuarios</h2>
+    <p>La sección <code>Usuarios</code> funciona como CRM básico.</p>
+    <ul>
+      <li>El merchant ve clientes y su historial comercial.</li>
+      <li>El admin puede ver roles adicionales y crear merchants.</li>
+      <li>Se muestran email, nombre, fecha de alta, cantidad de pedidos, total comprado y último pedido.</li>
+    </ul>
+    <h3>Alta merchant</h3>
+    <p>Disponible para admin. Sirve para crear usuarios operadores de tienda con rol merchant.</p>
+  </section>
+
+  <section id="mailing">
+    <h2>9. Mailing</h2>
+    <p>La sección <code>Mailing</code> administra textos de emails y configuración de envío.</p>
+    <h3>Funciones</h3>
+    <ul>
+      <li>Editar plantillas de emails al cliente.</li>
+      <li>Activar o desactivar plantillas.</li>
+      <li>Configurar procesos automáticos, por ejemplo recordatorios.</li>
+      <li>Guardar SMTP si el rol y la configuración lo permiten.</li>
+    </ul>
+    <div class="note">
+      Si el SMTP administrativo no está completo, la aplicación usa el SMTP definido por variables de entorno, cuando exista.
+    </div>
+  </section>
+
+  <section id="configuracion" class="page-break">
+    <h2>10. Configuración de tienda</h2>
+    <p><code>Configuración</code> centraliza apariencia, home, contenido, páginas, pagos, redes, dominio y analíticas.</p>
+    <h3>Apariencia</h3>
+    <ul>
+      <li>Cargar logo y favicon.</li>
+      <li>Editar título de pestaña del navegador.</li>
+    </ul>
+    <h3>Inicio</h3>
+    <ul>
+      <li>Configurar banner principal con imágenes, título, subtítulo y link.</li>
+      <li>Configurar categorías destacadas para la home.</li>
+    </ul>
+    <h3>Contenido</h3>
+    <ul>
+      <li>Editar banner superior de beneficios: cuotas, descuento por transferencia/efectivo y envío gratis.</li>
+      <li>El banner se muestra en desktop como tres beneficios y en mobile rota un beneficio por vez.</li>
+      <li>Activar o pausar temporalmente la tienda con mensaje visible.</li>
+    </ul>
+    <h3>Páginas</h3>
+    <ul>
+      <li>Administrar secciones informativas visibles en la tienda, como políticas, contacto o ayuda.</li>
+      <li>Activar o desactivar páginas sin borrarlas.</li>
+    </ul>
+    <h3>Medios de pago</h3>
+    <ul>
+      <li>Conectar Mercado Pago por OAuth para merchants.</li>
+      <li>Configurar token manual si el rol admin lo permite.</li>
+      <li>Activar pagos manuales: acordar, efectivo y transferencia.</li>
+      <li>Editar instrucciones visibles para cada método manual.</li>
+      <li>Definir qué métodos aparecen en el modal de financiación del producto.</li>
+    </ul>
+    <h3>Redes sociales</h3>
+    <p>Permite cargar Facebook, Instagram y TikTok. Los enlaces configurados se reflejan en el footer de la tienda.</p>
+    <h3>Dominio</h3>
+    <ul>
+      <li>Cargar dominio personalizado.</li>
+      <li>Ver estado: no configurado, pendiente, verificado, activo o error.</li>
+      <li>Consultar destino DNS esperado.</li>
+    </ul>
+    <h3>Analíticas</h3>
+    <ul>
+      <li>Guardar Google Analytics Measurement ID.</li>
+      <li>Guardar Meta Pixel ID.</li>
+      <li>Los eventos de tienda se usan para medición comercial cuando los IDs están configurados.</li>
+    </ul>
+  </section>
+
+  <section id="estadisticas">
+    <h2>11. Estadísticas</h2>
+    <p>La sección <code>Estadísticas</code> ayuda a entender ventas y catálogo.</p>
+    <ul>
+      <li>Considera pedidos en estados comerciales como pagado y enviado.</li>
+      <li>Muestra productos vendidos, unidades, ingresos y categorías relevantes.</li>
+      <li>Lista productos con stock bajo para reposición.</li>
+      <li>Permite abrir productos para editar stock o estado.</li>
+    </ul>
+  </section>
+
+  <section id="storefront" class="page-break">
+    <h2>12. Experiencia del cliente</h2>
+    <h3>Tienda pública</h3>
+    <ul>
+      <li>Home con banner, categorías destacadas y productos.</li>
+      <li>Listado de productos con filtros, orden y tarjetas compactas.</li>
+      <li>Detalle de producto con precio base, promociones por método de pago y cuotas.</li>
+      <li>Modal de métodos de pago y financiación.</li>
+      <li>Carrito lateral con items, cantidades, código promocional, subtotal y total.</li>
+      <li>Checkout con datos de envío, métodos de entrega y pago.</li>
+    </ul>
+    <h3>Cuenta cliente</h3>
+    <ul>
+      <li>Registro e inicio de sesión.</li>
+      <li>Perfil del cliente.</li>
+      <li>Pedidos propios y estado de cada compra.</li>
+      <li>Botón de arrepentimiento desde el footer.</li>
+    </ul>
+  </section>
+
+  <section id="rutinas">
+    <h2>13. Rutinas recomendadas</h2>
+    <h3>Todos los días</h3>
+    <ul class="checklist">
+      <li>Revisar Dashboard y alertas.</li>
+      <li>Gestionar pedidos pendientes y pagados.</li>
+      <li>Importar o crear envíos necesarios.</li>
+      <li>Actualizar stock bajo o sin stock.</li>
+    </ul>
+    <h3>Una vez por semana</h3>
+    <ul class="checklist">
+      <li>Revisar estadísticas de productos vendidos.</li>
+      <li>Actualizar promociones y fechas de vencimiento.</li>
+      <li>Revisar categorías vacías o mal ubicadas.</li>
+      <li>Probar checkout y medios de pago visibles.</li>
+    </ul>
+    <h3>Antes de una campaña</h3>
+    <ul class="checklist">
+      <li>Crear promoción y definir método de pago aplicable.</li>
+      <li>Revisar banner superior y home banner.</li>
+      <li>Validar que productos promocionados tengan stock.</li>
+      <li>Enviar mailing si corresponde.</li>
+      <li>Revisar la tienda pública en desktop y mobile.</li>
+    </ul>
+    <div class="note">
+      Este manual describe el comportamiento actual del proyecto al 18/08/2026. Si se agregan módulos nuevos, conviene actualizar esta guía junto con el cambio.
+    </div>
+  </section>
+</body>
+</html>

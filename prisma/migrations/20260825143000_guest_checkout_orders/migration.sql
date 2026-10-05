@@ -1,0 +1,3 @@
+ALTER TABLE [dbo].[Order] ALTER COLUMN [userId] NVARCHAR(1000) NULL;
+
+ALTER TABLE [dbo].[Order] ADD [contactEmail] NVARCHAR(1000);

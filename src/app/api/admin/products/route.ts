@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { sanitizeRichText } from "@/lib/richText";
 import { slugify } from "@/lib/slug";
 import { isStaffRole } from "@/lib/roles";
+import { syncProductVariants } from "@/lib/productVariantPersistence";
+import type { ProductOptionInput, ProductVariantInput } from "@/lib/productVariants";
 
 export const runtime = "nodejs";
 
@@ -42,10 +44,14 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
   const name = String(body.name || "").trim();
+  const sku = String(body.sku || "").trim() || null;
   const description = sanitizeRichText(String(body.description || "")) || null;
   const price = Number(body.price);
   const isActive = Boolean(body.isActive);
   const categoryId = String(body.categoryId || "").trim() || null;
+  const hasVariants = body.hasVariants === true;
+  const options = Array.isArray(body.options) ? (body.options as ProductOptionInput[]) : [];
+  const variantCombinations = Array.isArray(body.variantCombinations) ? (body.variantCombinations as ProductVariantInput[]) : [];
   const rawVariants = Array.isArray(body.variants) ? body.variants : [];
   const variants: ParsedVariant[] = rawVariants.length > 0
     ? rawVariants.map((item) => {
@@ -61,9 +67,16 @@ export async function POST(req: Request) {
   slug = slugify(slug || name);
 
   if (!name) return NextResponse.json({ ok: false, error: "Nombre requerido" }, { status: 400 });
+  if (sku) {
+    const skuConflict = await prisma.product.findFirst({
+      where: { sku },
+      select: { id: true },
+    });
+    if (skuConflict) return NextResponse.json({ ok: false, error: `El SKU "${sku}" ya está en uso.` }, { status: 409 });
+  }
   if (!slug) return NextResponse.json({ ok: false, error: "Slug inválido" }, { status: 400 });
   if (!Number.isFinite(price) || price <= 0) return NextResponse.json({ ok: false, error: "Precio inválido" }, { status: 400 });
-  if (variants.length === 0) return NextResponse.json({ ok: false, error: "Agregá al menos una variante" }, { status: 400 });
+  if (!hasVariants && variants.length === 0) return NextResponse.json({ ok: false, error: "Agregá al menos una variante" }, { status: 400 });
   if (variants.some((variant) => !Number.isFinite(variant.stock) || variant.stock < 0)) {
     return NextResponse.json({ ok: false, error: "Stock inválido" }, { status: 400 });
   }
@@ -72,14 +85,42 @@ export async function POST(req: Request) {
     if (!category) return NextResponse.json({ ok: false, error: "Categoria invalida" }, { status: 400 });
   }
 
-  const duplicateVariantName = variants.find((variant, index) =>
-    variants.some((other, otherIndex) => otherIndex !== index && other.name.toLowerCase() === variant.name.toLowerCase())
-  );
-  if (duplicateVariantName) {
-    return NextResponse.json({ ok: false, error: "Hay variantes con el mismo nombre" }, { status: 400 });
+  if (!hasVariants) {
+    const duplicateVariantName = variants.find((variant, index) =>
+      variants.some((other, otherIndex) => otherIndex !== index && other.name.toLowerCase() === variant.name.toLowerCase())
+    );
+    if (duplicateVariantName) {
+      return NextResponse.json({ ok: false, error: "Hay variantes con el mismo nombre" }, { status: 400 });
+    }
   }
 
-  const { product, products } = await prisma.$transaction(async (tx) => {
+  const { product, products, syncedVariants } = await prisma.$transaction(async (tx) => {
+    if (hasVariants) {
+      const created = await tx.product.create({
+        data: {
+          name,
+          sku,
+          slug,
+          description,
+          price: price.toFixed(2),
+          stock: 0,
+          hasVariants: true,
+          isActive,
+          categoryId,
+        },
+        select: { id: true, name: true, slug: true },
+      });
+
+      const syncResult = await syncProductVariants(tx, {
+        productId: created.id,
+        enabled: true,
+        options,
+        variants: variantCombinations,
+      });
+
+      return { product: created, products: [created], syncedVariants: syncResult.variants };
+    }
+
     const reservedSlugs = new Set<string>();
     let firstProduct: { id: string; name: string; slug: string } | null = null;
     const createdProducts: Array<{ id: string; name: string; slug: string }> = [];
@@ -90,6 +131,7 @@ export async function POST(req: Request) {
       const created = await tx.product.create({
         data: {
           name: productName,
+          sku: variant.name ? null : sku,
           slug: productSlug,
           description,
           price: price.toFixed(2),
@@ -104,8 +146,8 @@ export async function POST(req: Request) {
       createdProducts.push(created);
     }
 
-    return { product: firstProduct, products: createdProducts };
+    return { product: firstProduct, products: createdProducts, syncedVariants: [] as Array<{ id: string; combinationKey: string; label: string; optionValueIds: string[] }> };
   });
 
-  return NextResponse.json({ ok: true, product, products });
+  return NextResponse.json({ ok: true, product, products, variants: syncedVariants });
 }

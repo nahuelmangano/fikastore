@@ -1,11 +1,12 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
+import { CreditCard } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { getCategoryAndDescendantIds } from "@/lib/categories";
 import ProductSortSelect from "@/components/ProductSortSelect";
 import { getAutomaticDiscountsForProducts } from "@/lib/promotions";
 import StoreTemporarilyClosed from "@/components/StoreTemporarilyClosed";
-import { getTemporaryShutdownSettings } from "@/lib/storeSettings";
+import { getCheckoutPaymentSettings, getTemporaryShutdownSettings } from "@/lib/storeSettings";
 
 const PAGE_SIZE = 18;
 
@@ -34,12 +35,12 @@ function splitProductName(name: string) {
   };
 }
 
-function money(value: number) {
+function moneyNoCents(value: number) {
   return value.toLocaleString("es-AR", {
     style: "currency",
     currency: "ARS",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   });
 }
 
@@ -135,7 +136,7 @@ export default async function ProductsPage({
     where.categoryId = categoryIds.length > 0 ? { in: categoryIds } : "__missing__";
   }
 
-  const [allProducts, selectedCategory] = await Promise.all([
+  const [allProducts, selectedCategory, paymentSettings] = await Promise.all([
     prisma.product.findMany({
       where,
       include: { images: { where: { visible: true }, orderBy: { sortOrder: "asc" }, take: 1 } },
@@ -146,7 +147,21 @@ export default async function ProductsPage({
           select: { name: true },
         })
       : null,
+    getCheckoutPaymentSettings(),
   ]);
+  const categories = await prisma.category.findMany({
+    orderBy: [{ parentId: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
+    select: { id: true, parentId: true, name: true, slug: true },
+  });
+  const selectedSidebarCategory = category && category !== "all" ? categories.find((item) => item.slug === category) : null;
+  const childrenByParent = new Map<string, typeof categories>();
+
+  for (const item of categories) {
+    if (!item.parentId) continue;
+    childrenByParent.set(item.parentId, [...(childrenByParent.get(item.parentId) ?? []), item]);
+  }
+
+  const sidebarItems = selectedSidebarCategory ? childrenByParent.get(selectedSidebarCategory.id) ?? [] : [];
 
   let productGroups = groupProducts(allProducts);
 
@@ -165,7 +180,13 @@ export default async function ProductsPage({
 
   const total = productGroups.length;
   const products = productGroups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const promoMap = await getAutomaticDiscountsForProducts(products.map((p) => p.id));
+
+  const currentProductIds = products.flatMap((product) => product.products.map((variant) => variant.id));
+  const [promoMap, productCashPromoMap, productTransferPromoMap] = await Promise.all([
+    getAutomaticDiscountsForProducts(currentProductIds),
+    getAutomaticDiscountsForProducts(currentProductIds, "cash", false),
+    getAutomaticDiscountsForProducts(currentProductIds, "transfer", false),
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const baseParams = { q, availability, sort, category };
@@ -175,7 +196,7 @@ export default async function ProductsPage({
 
   return (
     <main className="min-h-screen bg-white text-black">
-      <div className="mx-auto w-full max-w-6xl px-4 py-4 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
         <nav className="mb-8 flex flex-wrap items-center gap-x-4 gap-y-1 text-base leading-6 text-black">
           {breadcrumbItems.map((item, index) => (
             <span key={`${item}-${index}`} className="flex items-center gap-4">
@@ -202,85 +223,157 @@ export default async function ProductsPage({
           </div>
         </div>
 
-        {products.length === 0 ? (
-          <div className="border border-zinc-200 bg-white p-8">
-            <p className="text-zinc-600">No hay productos con esos filtros.</p>
-          </div>
-        ) : (
-          <>
-            <section className="grid grid-cols-2 gap-x-8 gap-y-8 sm:grid-cols-3 lg:grid-cols-4">
-              {products.map((p) => {
-                const img =
-                  p.images[0]?.url ?? "https://placehold.co/900x900/png?text=Fika";
-                const isOos = p.stock <= 0;
-                const basePrice = p.price;
-                const promoPercent = promoMap.get(p.id) ?? 0;
-                const finalPrice =
-                  promoPercent > 0 ? Math.round(basePrice * (1 - promoPercent / 100) * 100) / 100 : basePrice;
-
-                return (
-                  <Link key={p.id} href={`/products/${p.slug}`} className="group block min-w-0 text-center">
-                    <div className="relative aspect-square w-full overflow-hidden bg-zinc-100">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={img}
-                        alt={p.name}
-                        className={[
-                          "h-full w-full object-cover transition duration-300",
-                          isOos ? "opacity-60" : "group-hover:scale-[1.02]",
-                        ].join(" ")}
-                      />
-
-                      {isOos && (
-                        <span className="absolute left-2 top-2 bg-white/90 px-2 py-1 text-[11px] uppercase text-zinc-700">
-                          Sin stock
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="mt-2 min-w-0">
-                      <h2 className="truncate text-sm font-normal leading-5 text-black">{p.name}</h2>
-                      {promoPercent > 0 && (
-                        <div className="text-xs leading-4 text-zinc-500 line-through">{money(basePrice)}</div>
-                      )}
-                      <div className="text-base font-normal leading-6 text-black">{money(finalPrice)}</div>
-                      <p className="mx-auto max-w-[11rem] text-xs leading-5 text-zinc-500">
-                        3 cuotas sin interes de {money(finalPrice / 3)}
-                      </p>
-                    </div>
+        <div className={["grid gap-8", sidebarItems.length > 0 ? "lg:grid-cols-[210px_minmax(0,1fr)]" : ""].join(" ")}>
+          {sidebarItems.length > 0 ? (
+            <aside className="hidden lg:block">
+              <h1 className="text-2xl font-normal leading-8 text-black">{selectedSidebarCategory?.name}</h1>
+              <nav className="mt-5 space-y-1 text-base leading-6 text-black">
+                {sidebarItems.map((item) => (
+                  <Link
+                    key={item.id}
+                    href={buildHref("/products", { q, availability, sort, category: item.slug })}
+                    className="block font-normal hover:text-zinc-600"
+                  >
+                    {item.name}
                   </Link>
-                );
-              })}
-            </section>
+                ))}
+              </nav>
+            </aside>
+          ) : null}
 
-            {/* Paginación */}
-            <div className="mt-10 flex items-center justify-between gap-3">
-              <Link
-                className={[
-                  "border border-zinc-300 px-4 py-2 text-sm text-black hover:bg-zinc-50",
-                  page <= 1 ? "pointer-events-none opacity-50" : "",
-                ].join(" ")}
-                href={buildHref("/products", { ...baseParams, page: page - 1 })}
-              >
-                ← Anterior
-              </Link>
-
-              <div className="text-sm text-zinc-500">
-                Pagina <span className="text-black">{page}</span> / {totalPages}
+          <div className="min-w-0">
+            {products.length === 0 ? (
+              <div className="border border-zinc-200 bg-white p-8">
+                <p className="text-zinc-600">No hay productos con esos filtros.</p>
               </div>
+            ) : (
+              <>
+                <section className="grid grid-cols-2 gap-4 sm:gap-5 md:grid-cols-3 lg:grid-cols-4">
+                  {products.map((p) => {
+                    const img =
+                      p.images[0]?.url ?? "https://placehold.co/900x900/png?text=Fika";
+                    const isOos = p.stock <= 0;
+                    const basePrice = p.price;
+                    const promoPercent = Math.max(...p.products.map((variant) => promoMap.get(variant.id) ?? 0));
+                    const productPromoPercent = Math.max(
+                      ...p.products.map((variant) =>
+                        Math.max(productCashPromoMap.get(variant.id) ?? 0, productTransferPromoMap.get(variant.id) ?? 0)
+                      )
+                    );
+                    const finalPrice =
+                      promoPercent > 0 ? Math.round(basePrice * (1 - promoPercent / 100) * 100) / 100 : basePrice;
+                    const eligibleInstallmentPlans = paymentSettings.installmentPlans.filter(
+                      (plan) => basePrice >= plan.minimumAmount
+                    );
+                    const installmentPlan =
+                      [...eligibleInstallmentPlans].sort((a, b) => b.installments - a.installments)[0] ?? null;
 
-              <Link
-                className={[
-                  "border border-zinc-300 px-4 py-2 text-sm text-black hover:bg-zinc-50",
-                  page >= totalPages ? "pointer-events-none opacity-50" : "",
-                ].join(" ")}
-                href={buildHref("/products", { ...baseParams, page: page + 1 })}
-              >
-                Siguiente →
-              </Link>
-            </div>
-          </>
-        )}
+                    return (
+                      <Link
+                        key={p.id}
+                        href={`/products/${p.slug}`}
+                        className="group block min-w-0 overflow-hidden rounded-md border border-zinc-200 bg-white text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
+                      >
+                        <div className="relative aspect-square w-full overflow-hidden bg-zinc-100">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={img}
+                            alt={p.name}
+                            className={[
+                              "h-full w-full object-cover transition duration-300",
+                              isOos ? "opacity-60" : "group-hover:scale-[1.02]",
+                            ].join(" ")}
+                          />
+
+                          {isOos && (
+                            <span className="absolute right-2 top-2 rounded bg-white/90 px-2 py-1 text-[11px] uppercase text-zinc-700 shadow-sm">
+                              Sin stock
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="min-w-0 px-3 pb-3 pt-3">
+                          <h2 className="truncate text-sm font-semibold leading-5 text-[#4F2D16]">{p.name}</h2>
+
+                          {productPromoPercent > 0 ? (
+                            <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                              <span className="text-sm font-medium leading-5 text-zinc-500 line-through decoration-zinc-500">
+                                {moneyNoCents(basePrice)}
+                              </span>
+                              <span className="text-xl font-semibold leading-6 text-[#8B551F]">
+                                {moneyNoCents(finalPrice)}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="mt-3 text-xl font-semibold leading-6 text-zinc-950">
+                              {moneyNoCents(basePrice)}
+                            </div>
+                          )}
+
+                          {promoPercent > 0 ? (
+                            <>
+                              <p className="mt-1 truncate text-[11px] leading-4 text-zinc-700">
+                                {productPromoPercent > 0
+                                  ? `${productPromoPercent}% OFF por promoción del producto`
+                                  : `${promoPercent}% OFF con transferencia o efectivo`}
+                              </p>
+                              {productPromoPercent <= 0 ? (
+                                <p className="mt-1 text-sm font-semibold leading-5 text-[#8B551F]">
+                                  {moneyNoCents(finalPrice)}
+                                </p>
+                              ) : null}
+                            </>
+                          ) : null}
+
+                          {installmentPlan ? (
+                            <div className="mt-4 border-t border-zinc-200 pt-3">
+                              <div className="flex items-center gap-2 text-[11px] leading-4 text-[#8B6A52]">
+                                <CreditCard className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                <span>
+                                  {installmentPlan.installments} cuotas sin interés de{" "}
+                                  <span className="font-semibold text-[#6F533D]">
+                                    {moneyNoCents(basePrice / installmentPlan.installments)}
+                                  </span>
+                                </span>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </section>
+
+                {/* Paginación */}
+                <div className="mt-10 flex items-center justify-between gap-3">
+                  <Link
+                    className={[
+                      "border border-zinc-300 px-4 py-2 text-sm text-black hover:bg-zinc-50",
+                      page <= 1 ? "pointer-events-none opacity-50" : "",
+                    ].join(" ")}
+                    href={buildHref("/products", { ...baseParams, page: page - 1 })}
+                  >
+                    ← Anterior
+                  </Link>
+
+                  <div className="text-sm text-zinc-500">
+                    Pagina <span className="text-black">{page}</span> / {totalPages}
+                  </div>
+
+                  <Link
+                    className={[
+                      "border border-zinc-300 px-4 py-2 text-sm text-black hover:bg-zinc-50",
+                      page >= totalPages ? "pointer-events-none opacity-50" : "",
+                    ].join(" ")}
+                    href={buildHref("/products", { ...baseParams, page: page + 1 })}
+                  >
+                    Siguiente →
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </div>
     </main>
   );

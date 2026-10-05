@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
@@ -9,15 +10,20 @@ import {
   CheckCircle2,
   Clipboard,
   Copy,
+  CreditCard,
   PackageSearch,
   Plus,
   Search,
   Sparkles,
   Tag,
   TicketPercent,
+  Truck,
   XCircle,
   type LucideIcon,
 } from "lucide-react";
+
+type PaymentMethodKey = "mercadopago" | "agreement" | "cash" | "transfer";
+type FreeShippingDeliveryTypeKey = "D" | "S";
 
 type ProductOption = {
   id: string;
@@ -33,7 +39,11 @@ type Promotion = {
   name: string;
   type: "global" | "product" | "code";
   percent: number;
+  freeShipping: boolean;
+  freeShippingDeliveryTypes: FreeShippingDeliveryTypeKey[];
+  freeShippingCarrierKeys: string[];
   code: string | null;
+  paymentMethods: PaymentMethodKey[];
   isActive: boolean;
   startsAt: string | null;
   endsAt: string | null;
@@ -44,23 +54,55 @@ type Promotion = {
 type FormState = {
   name: string;
   percent: number;
+  freeShipping: boolean;
+  freeShippingDeliveryTypes: FreeShippingDeliveryTypeKey[];
+  freeShippingCarrierKeys: string[];
   startsAt: string;
   endsAt: string;
+  paymentMethods: PaymentMethodKey[];
 };
 
-type ActiveTab = "global" | "product" | "code";
+type ActiveTab = "global" | "product" | "code" | "shipping" | "installments";
+
+type ShippingCarrierOption = {
+  key: string;
+  name: string;
+  enabled: boolean;
+  visibleToMerchant?: boolean;
+  custom?: boolean;
+};
+
+type InstallmentPlan = { installments: number; minimumAmount: number };
 
 const emptyForm: FormState = {
   name: "",
   percent: 10,
+  freeShipping: false,
+  freeShippingDeliveryTypes: [],
+  freeShippingCarrierKeys: [],
   startsAt: "",
   endsAt: "",
+  paymentMethods: ["cash", "transfer"],
 };
+
+const paymentMethodOptions: { key: PaymentMethodKey; label: string }[] = [
+  { key: "mercadopago", label: "Mercado Pago" },
+  { key: "transfer", label: "Transferencia" },
+  { key: "cash", label: "Efectivo" },
+  { key: "agreement", label: "A convenir" },
+];
+
+const freeShippingDeliveryTypeOptions: { key: FreeShippingDeliveryTypeKey; label: string }[] = [
+  { key: "D", label: "Domicilio" },
+  { key: "S", label: "Sucursal" },
+];
 
 const tabs: { key: ActiveTab; label: string; icon: LucideIcon }[] = [
   { key: "global", label: "Descuento general", icon: Sparkles },
   { key: "product", label: "Por producto", icon: PackageSearch },
   { key: "code", label: "Código promocional", icon: TicketPercent },
+  { key: "shipping", label: "Envío gratis", icon: Truck },
+  { key: "installments", label: "Cuotas", icon: CreditCard },
 ];
 
 function formatDate(v: string | null) {
@@ -100,6 +142,36 @@ function promotionTypeLabel(type: Promotion["type"]) {
   return "Código";
 }
 
+function paymentMethodsLabel(methods: PaymentMethodKey[]) {
+  if (!methods.length) return "Todos";
+  const labels = methods
+    .map((method) => paymentMethodOptions.find((option) => option.key === method)?.label)
+    .filter(Boolean);
+  return labels.join(" · ") || "Todos";
+}
+
+function freeShippingDeliveryTypesLabel(types: FreeShippingDeliveryTypeKey[]) {
+  if (!types.length) return "Todos los envíos";
+  const labels = types
+    .map((type) => freeShippingDeliveryTypeOptions.find((option) => option.key === type)?.label)
+    .filter(Boolean);
+  return labels.join(" · ") || "Todos los envíos";
+}
+
+function freeShippingCarriersLabel(keys: string[], carriers: ShippingCarrierOption[]) {
+  if (!keys.length) return "Todos los métodos";
+  const labels = keys.map((key) => carriers.find((carrier) => carrier.key === key)?.name || key);
+  return labels.join(" · ") || "Todos los métodos";
+}
+
+function toDateTimeLocal(v: string | null) {
+  if (!v) return "";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "";
+  const offsetMs = d.getTimezoneOffset() * 60 * 1000;
+  return new Date(d.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
 function generateCode() {
   const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
   return `FIKA${suffix}`;
@@ -108,7 +180,7 @@ function generateCode() {
 function validateForm(tab: ActiveTab, form: FormState, promoCode: string, selectedProducts: string[]) {
   const errors: string[] = [];
   if (!form.name.trim()) errors.push("El nombre es obligatorio.");
-  if (!Number.isFinite(form.percent) || form.percent < 1 || form.percent > 99) {
+  if (tab !== "shipping" && (!Number.isFinite(form.percent) || form.percent < 1 || form.percent > 99)) {
     errors.push("El porcentaje debe estar entre 1 y 99.");
   }
   if (tab === "code" && !promoCode.trim()) errors.push("El código promocional es obligatorio.");
@@ -120,23 +192,48 @@ function validateForm(tab: ActiveTab, form: FormState, promoCode: string, select
 }
 
 export default function AdminPromotions({ products }: { products: ProductOption[] }) {
+  const searchParams = useSearchParams();
+  const requestedTab = searchParams.get("tab") as ActiveTab | null;
+  const initialTab = requestedTab && tabs.some((tab) => tab.key === requestedTab) ? requestedTab : "global";
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<ActiveTab>("global");
+  const [activeTab, setActiveTab] = useState<ActiveTab>(initialTab);
   const [productSearch, setProductSearch] = useState("");
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   const [globalForm, setGlobalForm] = useState<FormState>(emptyForm);
   const [productForm, setProductForm] = useState<FormState>(emptyForm);
   const [codeForm, setCodeForm] = useState<FormState>(emptyForm);
+  const [shippingForm, setShippingForm] = useState<FormState>({
+    ...emptyForm,
+    percent: 0,
+    freeShipping: true,
+    name: "Envío gratis",
+  });
   const [promoCode, setPromoCode] = useState("");
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
+  const [shippingCarrierOptions, setShippingCarrierOptions] = useState<ShippingCarrierOption[]>([]);
+  const [installmentPlans, setInstallmentPlans] = useState<InstallmentPlan[]>([{ installments: 3, minimumAmount: 50000 }]);
+  const [savingInstallments, setSavingInstallments] = useState(false);
   const [submitting, setSubmitting] = useState<ActiveTab | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const activeForm = activeTab === "global" ? globalForm : activeTab === "product" ? productForm : codeForm;
-  const activeErrors = validateForm(activeTab, activeForm, promoCode, selectedProducts);
+  useEffect(() => {
+    if (requestedTab && tabs.some((tab) => tab.key === requestedTab)) setActiveTab(requestedTab);
+  }, [requestedTab]);
+
+  const activeForm =
+    activeTab === "global"
+      ? globalForm
+      : activeTab === "product"
+        ? productForm
+      : activeTab === "code"
+        ? codeForm
+        : shippingForm;
+  const activeErrors = activeTab === "installments" ? [] : validateForm(activeTab, activeForm, promoCode, selectedProducts);
 
   const filteredProducts = useMemo(() => {
     const q = productSearch.trim().toLowerCase();
@@ -185,6 +282,30 @@ export default function AdminPromotions({ products }: { products: ProductOption[
     };
   }, []);
 
+  useEffect(() => {
+    fetch("/api/admin/settings/installment-plans")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data?.plans)) setInstallmentPlans(data.plans);
+      })
+      .catch(() => null);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch("/api/admin/shipping/carriers");
+      const data = await res.json().catch(() => ({}));
+      if (cancelled) return;
+      if (res.ok && Array.isArray(data?.carriers)) {
+        setShippingCarrierOptions(data.carriers);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function copyCode(code: string) {
     await navigator.clipboard?.writeText(code).catch(() => null);
     setCopiedCode(code);
@@ -192,7 +313,8 @@ export default function AdminPromotions({ products }: { products: ProductOption[
   }
 
   async function createPromotion(payload: Record<string, unknown>, key: ActiveTab) {
-    const visualErrors = validateForm(key, key === "global" ? globalForm : key === "product" ? productForm : codeForm, promoCode, selectedProducts);
+    const form = key === "global" ? globalForm : key === "product" ? productForm : key === "code" ? codeForm : shippingForm;
+    const visualErrors = validateForm(key, form, promoCode, selectedProducts);
     if (visualErrors.length > 0) {
       setError(visualErrors[0]);
       setMsg(null);
@@ -217,6 +339,74 @@ export default function AdminPromotions({ products }: { products: ProductOption[
     setMsg(`Promoción creada: ${data?.promotion?.name || ""}`);
   }
 
+  async function savePromotion(payload: Record<string, unknown>, key: ActiveTab) {
+    if (!editingId) {
+      await createPromotion(payload, key);
+      return;
+    }
+
+    const form = key === "global" ? globalForm : key === "product" ? productForm : key === "code" ? codeForm : shippingForm;
+    const visualErrors = validateForm(key, form, promoCode, selectedProducts);
+    if (visualErrors.length > 0) {
+      setError(visualErrors[0]);
+      setMsg(null);
+      return;
+    }
+
+    setError(null);
+    setMsg(null);
+    setSubmitting(key);
+    const res = await fetch(`/api/admin/promotions/${editingId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    setSubmitting(null);
+    if (!res.ok) {
+      setError(data?.error || "No se pudo editar la promoción.");
+      return;
+    }
+    setPromotions((prev) => prev.map((p) => (p.id === editingId ? data.promotion : p)));
+    setMsg(`Promoción editada: ${data?.promotion?.name || ""}`);
+    cancelEdit();
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setGlobalForm(emptyForm);
+    setProductForm(emptyForm);
+    setCodeForm(emptyForm);
+    setShippingForm({ ...emptyForm, percent: 0, freeShipping: true, name: "Envío gratis" });
+    setPromoCode("");
+    setSelectedProducts([]);
+  }
+
+  function editPromotion(p: Promotion) {
+    const form = {
+      name: p.name,
+      percent: p.percent,
+      freeShipping: p.freeShipping,
+      freeShippingDeliveryTypes: p.freeShippingDeliveryTypes || [],
+      freeShippingCarrierKeys: p.freeShippingCarrierKeys || [],
+      startsAt: toDateTimeLocal(p.startsAt),
+      endsAt: toDateTimeLocal(p.endsAt),
+      paymentMethods: p.paymentMethods,
+    };
+    setEditingId(p.id);
+    setActiveTab(p.freeShipping ? "shipping" : p.type);
+    setError(null);
+    setMsg(null);
+    setProductSearch("");
+    setPromoCode(p.code || "");
+    setSelectedProducts(p.products.map((product) => product.id));
+    if (p.type === "global") setGlobalForm(form);
+    if (p.type === "product") setProductForm(form);
+    if (p.type === "code") setCodeForm(form);
+    if (p.freeShipping) setShippingForm({ ...form, percent: 0, freeShipping: true });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   async function togglePromotion(id: string, isActive: boolean) {
     setError(null);
     const res = await fetch(`/api/admin/promotions/${id}`, {
@@ -234,54 +424,101 @@ export default function AdminPromotions({ products }: { products: ProductOption[
     );
   }
 
+  async function deletePromotion(id: string) {
+    setError(null);
+    setMsg(null);
+    setDeletingId(id);
+    const res = await fetch(`/api/admin/promotions/${id}`, {
+      method: "DELETE",
+    });
+    const data = await res.json().catch(() => ({}));
+    setDeletingId(null);
+    if (!res.ok) {
+      setError(data?.error || "No se pudo eliminar la promoción.");
+      return;
+    }
+    setPromotions((prev) => prev.filter((promotion) => promotion.id !== id));
+    if (editingId === id) cancelEdit();
+    setMsg(`Promoción eliminada: ${data?.deleted?.name || ""}`);
+  }
+
   async function submitActiveForm() {
     if (activeTab === "global") {
-      await createPromotion(
+      await savePromotion(
         {
           name: globalForm.name,
           type: "global",
           percent: globalForm.percent,
+          freeShipping: false,
+          freeShippingDeliveryTypes: [],
+          paymentMethods: globalForm.paymentMethods,
           startsAt: globalForm.startsAt || null,
           endsAt: globalForm.endsAt || null,
         },
         "global"
       );
-      if (validateForm("global", globalForm, promoCode, selectedProducts).length === 0) setGlobalForm(emptyForm);
+      if (!editingId && validateForm("global", globalForm, promoCode, selectedProducts).length === 0) setGlobalForm(emptyForm);
     }
 
     if (activeTab === "product") {
-      await createPromotion(
+      await savePromotion(
         {
           name: productForm.name,
           type: "product",
           percent: productForm.percent,
+          freeShipping: false,
+          freeShippingDeliveryTypes: [],
+          paymentMethods: productForm.paymentMethods,
           productIds: selectedProducts,
           startsAt: productForm.startsAt || null,
           endsAt: productForm.endsAt || null,
         },
         "product"
       );
-      if (validateForm("product", productForm, promoCode, selectedProducts).length === 0) {
+      if (!editingId && validateForm("product", productForm, promoCode, selectedProducts).length === 0) {
         setProductForm(emptyForm);
         setSelectedProducts([]);
       }
     }
 
     if (activeTab === "code") {
-      await createPromotion(
+      await savePromotion(
         {
           name: codeForm.name,
           type: "code",
           percent: codeForm.percent,
+          freeShipping: false,
+          freeShippingDeliveryTypes: [],
           code: promoCode,
+          paymentMethods: codeForm.paymentMethods,
           startsAt: codeForm.startsAt || null,
           endsAt: codeForm.endsAt || null,
         },
         "code"
       );
-      if (validateForm("code", codeForm, promoCode, selectedProducts).length === 0) {
+      if (!editingId && validateForm("code", codeForm, promoCode, selectedProducts).length === 0) {
         setCodeForm(emptyForm);
         setPromoCode("");
+      }
+    }
+
+    if (activeTab === "shipping") {
+      await savePromotion(
+        {
+          name: shippingForm.name,
+          type: "global",
+          percent: 0,
+          freeShipping: true,
+          freeShippingDeliveryTypes: shippingForm.freeShippingDeliveryTypes,
+          freeShippingCarrierKeys: shippingForm.freeShippingCarrierKeys,
+          paymentMethods: shippingForm.paymentMethods,
+          startsAt: shippingForm.startsAt || null,
+          endsAt: shippingForm.endsAt || null,
+        },
+        "shipping"
+      );
+      if (!editingId && validateForm("shipping", shippingForm, promoCode, selectedProducts).length === 0) {
+        setShippingForm({ ...emptyForm, percent: 0, freeShipping: true, name: "Envío gratis" });
       }
     }
   }
@@ -342,6 +579,19 @@ export default function AdminPromotions({ products }: { products: ProductOption[
               );
             })}
           </div>
+
+          {editingId ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+              <span>Estás editando una promoción cargada.</span>
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="rounded-xl border border-sky-200 bg-white/70 px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-white"
+              >
+                Cancelar edición
+              </button>
+            </div>
+          ) : null}
 
           <div className="mt-6 xl:mt-4 grid gap-6 xl:gap-4 lg:grid-cols-[1.15fr_0.85fr]">
             <form
@@ -430,24 +680,61 @@ export default function AdminPromotions({ products }: { products: ProductOption[
                 </>
               ) : null}
 
+              {activeTab === "shipping" ? (
+                <FreeShippingFields
+                  form={shippingForm}
+                  onChange={setShippingForm}
+                  carriers={shippingCarrierOptions}
+                />
+              ) : null}
+
+              {activeTab === "installments" ? (
+                <InstallmentsFields
+                  plans={installmentPlans}
+                  onChange={setInstallmentPlans}
+                  onSave={async () => {
+                    setSavingInstallments(true);
+                    const res = await fetch("/api/admin/settings/installment-plans", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ plans: installmentPlans }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    setSavingInstallments(false);
+                    if (res.ok && Array.isArray(data?.plans)) {
+                      setInstallmentPlans(data.plans);
+                      setMsg("Configuración de cuotas guardada.");
+                      setError(null);
+                    } else setError(data?.error || "No se pudo guardar la configuración de cuotas.");
+                  }}
+                  saving={savingInstallments}
+                />
+              ) : null}
+
               {activeErrors.length > 0 ? (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 xl:py-2.5 text-sm text-amber-900">
                   {activeErrors[0]}
                 </div>
               ) : null}
 
-              <button
-                disabled={submitting === activeTab}
-                className="w-full rounded-2xl bg-[#8B5A2B] px-5 py-3 xl:py-2.5 text-sm font-semibold text-white shadow-sm transition duration-150 hover:bg-[#70471F] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-              >
-                {submitting === activeTab
-                  ? "Creando..."
-                  : activeTab === "global"
-                    ? "Crear descuento general"
-                    : activeTab === "product"
-                      ? "Crear descuento por producto"
-                      : "Crear código promocional"}
-              </button>
+              {activeTab !== "installments" ? (
+                <button
+                  disabled={submitting === activeTab}
+                  className="w-full rounded-2xl bg-[#8B5A2B] px-5 py-3 xl:py-2.5 text-sm font-semibold text-white shadow-sm transition duration-150 hover:bg-[#70471F] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                >
+                  {submitting === activeTab
+                    ? editingId ? "Guardando..." : "Creando..."
+                    : editingId
+                      ? "Guardar cambios"
+                      : activeTab === "shipping"
+                        ? "Crear envío gratis"
+                      : activeTab === "global"
+                        ? "Crear descuento general"
+                        : activeTab === "product"
+                          ? "Crear descuento por producto"
+                          : "Crear código promocional"}
+                </button>
+              ) : null}
             </form>
 
             <div className="space-y-4">
@@ -456,6 +743,8 @@ export default function AdminPromotions({ products }: { products: ProductOption[
                 form={activeForm}
                 promoCode={promoCode}
                 selectedCount={selectedProducts.length}
+                carriers={shippingCarrierOptions}
+                installmentPlans={installmentPlans}
               />
               {msg ? (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 xl:py-2.5 text-sm text-emerald-900">
@@ -512,6 +801,7 @@ export default function AdminPromotions({ products }: { products: ProductOption[
                       <th className="px-4 py-3 xl:py-2.5">Promoción</th>
                       <th className="px-4 py-3 xl:py-2.5">Tipo</th>
                       <th className="px-4 py-3 xl:py-2.5">Descuento</th>
+                      <th className="px-4 py-3 xl:py-2.5">Medios de pago</th>
                       <th className="px-4 py-3 xl:py-2.5">Vigencia</th>
                       <th className="px-4 py-3 xl:py-2.5">Estado</th>
                       <th className="px-4 py-3 xl:py-2.5 text-right">Acciones</th>
@@ -532,8 +822,20 @@ export default function AdminPromotions({ products }: { products: ProductOption[
                               </div>
                             ) : null}
                           </td>
-                          <td className="px-4 py-4 xl:py-2.5 text-[#70471F]">{promotionTypeLabel(p.type)}</td>
-                          <td className="px-4 py-4 xl:py-2.5 font-semibold text-[#5F3B18]">{p.percent}%</td>
+                          <td className="px-4 py-4 xl:py-2.5 text-[#70471F]">
+                            {p.freeShipping ? "Envío gratis" : promotionTypeLabel(p.type)}
+                          </td>
+                          <td className="px-4 py-4 xl:py-2.5 font-semibold text-[#5F3B18]">
+                            <div>{p.percent > 0 ? `${p.percent}%` : "No aplica a productos"}</div>
+                            {p.freeShipping ? (
+                              <div className="mt-1 text-xs text-emerald-700">
+                                Envío gratis: {freeShippingDeliveryTypesLabel(p.freeShippingDeliveryTypes)}
+                                {" · "}
+                                {freeShippingCarriersLabel(p.freeShippingCarrierKeys, shippingCarrierOptions)}
+                              </div>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-4 xl:py-2.5 text-[#8F6A49]">{paymentMethodsLabel(p.paymentMethods)}</td>
                           <td className="px-4 py-4 xl:py-2.5 text-[#8F6A49]">
                             <div>{formatDate(p.startsAt)}</div>
                             <div className="mt-1 text-xs">hasta {formatDate(p.endsAt)}</div>
@@ -557,10 +859,26 @@ export default function AdminPromotions({ products }: { products: ProductOption[
                               ) : null}
                               <button
                                 type="button"
+                                onClick={() => editPromotion(p)}
+                                className="rounded-xl border border-[#E5D7C8] px-3 py-1.5 text-xs font-semibold text-[#8B5A2B] hover:bg-[#F2ECE5]"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
                                 onClick={() => togglePromotion(p.id, p.isActive)}
+                                disabled={deletingId === p.id}
                                 className="rounded-xl border border-[#E5D7C8] px-3 py-1.5 text-xs font-semibold text-[#8B5A2B] hover:bg-[#F2ECE5]"
                               >
                                 {p.isActive ? "Desactivar" : "Activar"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deletePromotion(p.id)}
+                                disabled={deletingId === p.id}
+                                className="rounded-xl border border-red-800 bg-red-700 px-3 py-1.5 text-xs font-semibold !text-white shadow-sm transition duration-150 hover:bg-red-800 disabled:border-red-400 disabled:bg-red-500 disabled:!text-white disabled:opacity-60"
+                              >
+                                {deletingId === p.id ? "Eliminando..." : "Eliminar"}
                               </button>
                             </div>
                           </td>
@@ -634,12 +952,247 @@ function PromotionFields({
           onChange={(v) => onChange((s) => ({ ...s, endsAt: v }))}
         />
       </div>
+      <PaymentMethodPicker
+        selected={form.paymentMethods}
+        onChange={(paymentMethods) => onChange((s) => ({ ...s, paymentMethods }))}
+      />
       <div className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 xl:py-2.5 text-sm text-[#8F6A49]">
         {help.map((line) => (
           <div key={line}>• {line}</div>
         ))}
       </div>
     </>
+  );
+}
+
+function FreeShippingFields({
+  form,
+  onChange,
+  carriers,
+}: {
+  form: FormState;
+  onChange: (updater: (prev: FormState) => FormState) => void;
+  carriers: ShippingCarrierOption[];
+}) {
+  return (
+    <>
+      <Input
+        label="Nombre"
+        value={form.name}
+        onChange={(v) => onChange((s) => ({ ...s, name: v }))}
+        placeholder="Envío gratis"
+      />
+      <FreeShippingDeliveryTypePicker
+        selected={form.freeShippingDeliveryTypes}
+        onChange={(freeShippingDeliveryTypes) => onChange((s) => ({ ...s, freeShippingDeliveryTypes }))}
+      />
+      <FreeShippingCarrierPicker
+        carriers={carriers}
+        selected={form.freeShippingCarrierKeys}
+        onChange={(freeShippingCarrierKeys) => onChange((s) => ({ ...s, freeShippingCarrierKeys }))}
+      />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <DateInput
+          label="Activo desde"
+          value={form.startsAt}
+          onChange={(v) => onChange((s) => ({ ...s, startsAt: v }))}
+        />
+        <DateInput
+          label="Activo hasta"
+          value={form.endsAt}
+          onChange={(v) => onChange((s) => ({ ...s, endsAt: v }))}
+        />
+      </div>
+      <PaymentMethodPicker
+        selected={form.paymentMethods}
+        onChange={(paymentMethods) => onChange((s) => ({ ...s, paymentMethods }))}
+      />
+      <div className="rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 xl:py-2.5 text-sm text-[#8F6A49]">
+        <div>• No descuenta productos ni modifica el subtotal.</div>
+        <div>• Si coincide con el pago y el tipo de entrega, el costo de envío queda en $0 para el cliente.</div>
+      </div>
+    </>
+  );
+}
+
+function InstallmentsFields({
+  plans,
+  onChange,
+  onSave,
+  saving,
+}: {
+  plans: InstallmentPlan[];
+  onChange: (plans: InstallmentPlan[]) => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  return (
+    <div className="rounded-3xl border border-[#E5D7C8] bg-[#FAF8F5] p-5 xl:p-4">
+      <div className="flex items-start gap-3">
+        <div className="rounded-2xl bg-[#8B5A2B] p-3 text-white">
+          <CreditCard className="h-5 w-5" aria-hidden="true" />
+        </div>
+        <div>
+          <h2 className="font-semibold text-[#5F3B18]">Cuotas sin interés</h2>
+          <p className="mt-1 text-sm leading-6 text-[#8F6A49]">
+            Configurá qué opciones de financiación se muestran en la tienda desde la sección de pagos.
+          </p>
+        </div>
+      </div>
+      <div className="mt-5 space-y-3">
+        {plans.map((plan, index) => (
+          <div key={index} className="grid gap-3 rounded-2xl border border-[#E5D7C8] bg-white p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <label className="block">
+              <span className="text-sm font-semibold text-[#70471F]">Cantidad de cuotas</span>
+              <input type="number" min={1} max={24} value={plan.installments} onChange={(event) => onChange(plans.map((item, i) => i === index ? { ...item, installments: Math.max(1, Math.min(24, Number(event.target.value) || 1)) } : item))} className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]" />
+            </label>
+            <label className="block">
+              <span className="text-sm font-semibold text-[#70471F]">Monto mínimo para aplicar</span>
+              <div className="relative mt-2"><span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-[#8F6A49]">$</span><input type="number" min={0} step={1000} value={plan.minimumAmount} onChange={(event) => onChange(plans.map((item, i) => i === index ? { ...item, minimumAmount: Math.max(0, Number(event.target.value) || 0) } : item))} className="w-full rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] py-3 pl-8 pr-4 text-sm text-[#5F3B18] outline-none focus:border-[#8B5A2B]" /></div>
+            </label>
+            <button type="button" onClick={() => onChange(plans.filter((_, i) => i !== index))} disabled={plans.length === 1} className="rounded-2xl border border-[#E5D7C8] px-4 py-3 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40">Quitar</button>
+          </div>
+        ))}
+        <button type="button" onClick={() => onChange([...plans, { installments: 3, minimumAmount: 0 }])} className="inline-flex items-center gap-2 rounded-2xl border border-[#E5D7C8] px-4 py-3 text-sm font-semibold text-[#8B5A2B] hover:bg-[#F2ECE5]"><Plus className="h-4 w-4" /> Agregar cuota</button>
+      </div>
+      <button type="button" onClick={onSave} disabled={saving} className="mt-5 rounded-2xl bg-[#8B5A2B] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#70471F] disabled:opacity-60">{saving ? "Guardando..." : "Guardar cuotas"}</button>
+    </div>
+  );
+}
+
+function PaymentMethodPicker({
+  selected,
+  onChange,
+}: {
+  selected: PaymentMethodKey[];
+  onChange: (methods: PaymentMethodKey[]) => void;
+}) {
+  return (
+    <div>
+      <div className="text-sm font-semibold text-[#70471F]">Medios de pago donde aplica</div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        {paymentMethodOptions.map((option) => {
+          const checked = selected.includes(option.key);
+          return (
+            <label
+              key={option.key}
+              className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 text-sm text-[#70471F] transition duration-150 hover:bg-[#F2ECE5]"
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(event) => {
+                  onChange(
+                    event.target.checked
+                      ? [...selected, option.key]
+                      : selected.filter((method) => method !== option.key)
+                  );
+                }}
+                className="h-4 w-4 accent-[#8B5A2B]"
+              />
+              <span>{option.label}</span>
+            </label>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-xs text-[#8F6A49]">
+        Si no seleccionás ninguno, la promoción aplica a todos los medios de pago.
+      </p>
+    </div>
+  );
+}
+
+function FreeShippingDeliveryTypePicker({
+  selected,
+  onChange,
+}: {
+  selected: FreeShippingDeliveryTypeKey[];
+  onChange: (types: FreeShippingDeliveryTypeKey[]) => void;
+}) {
+  return (
+    <div>
+      <div className="text-sm font-semibold text-[#70471F]">Tipo de envío bonificado</div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        {freeShippingDeliveryTypeOptions.map((option) => {
+          const checked = selected.includes(option.key);
+          return (
+            <label
+              key={option.key}
+              className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 text-sm text-[#70471F] transition duration-150 hover:bg-[#F2ECE5]"
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(event) => {
+                  onChange(
+                    event.target.checked
+                      ? [...selected, option.key]
+                      : selected.filter((type) => type !== option.key)
+                  );
+                }}
+                className="h-4 w-4 accent-[#8B5A2B]"
+              />
+              <span>{option.label}</span>
+            </label>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-xs text-[#8F6A49]">
+        Si no seleccionás ninguno, el envío se bonifica tanto a domicilio como a sucursal.
+      </p>
+    </div>
+  );
+}
+
+function FreeShippingCarrierPicker({
+  carriers,
+  selected,
+  onChange,
+}: {
+  carriers: ShippingCarrierOption[];
+  selected: string[];
+  onChange: (keys: string[]) => void;
+}) {
+  const availableCarriers = carriers.filter((carrier) => carrier.enabled);
+
+  return (
+    <div>
+      <div className="text-sm font-semibold text-[#70471F]">Métodos de envío donde aplica</div>
+      {availableCarriers.length > 0 ? (
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {availableCarriers.map((carrier) => {
+            const checked = selected.includes(carrier.key);
+            return (
+              <label
+                key={carrier.key}
+                className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 text-sm text-[#70471F] transition duration-150 hover:bg-[#F2ECE5]"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => {
+                    onChange(
+                      event.target.checked
+                        ? [...selected, carrier.key]
+                        : selected.filter((key) => key !== carrier.key)
+                    );
+                  }}
+                  className="h-4 w-4 accent-[#8B5A2B]"
+                />
+                <span>{carrier.name}</span>
+              </label>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mt-2 rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 text-sm text-[#8F6A49]">
+          No hay métodos de envío activos para seleccionar.
+        </div>
+      )}
+      <p className="mt-2 text-xs text-[#8F6A49]">
+        Si no seleccionás ninguno, la promoción aplica a todos los métodos de envío activos.
+      </p>
+    </div>
   );
 }
 
@@ -651,6 +1204,7 @@ function Input({
   min,
   max,
   placeholder,
+  disabled = false,
 }: {
   label: string;
   value: string;
@@ -659,6 +1213,7 @@ function Input({
   min?: number;
   max?: number;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   return (
     <label className="block">
@@ -670,7 +1225,8 @@ function Input({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none transition duration-150 placeholder:text-[#B18B68] focus:border-[#8B5A2B]"
+        disabled={disabled}
+        className="mt-2 w-full rounded-2xl border border-[#E5D7C8] bg-[#FAF8F5] px-4 py-3 xl:py-2.5 text-sm text-[#5F3B18] outline-none transition duration-150 placeholder:text-[#B18B68] focus:border-[#8B5A2B] disabled:cursor-not-allowed disabled:bg-[#EFE7DE] disabled:text-[#8F6A49]"
       />
     </label>
   );
@@ -756,22 +1312,36 @@ function PreviewBox({
   form,
   promoCode,
   selectedCount,
+  carriers,
+  installmentPlans,
 }: {
   tab: ActiveTab;
   form: FormState;
   promoCode: string;
   selectedCount: number;
+  carriers: ShippingCarrierOption[];
+  installmentPlans: InstallmentPlan[];
 }) {
   const hasPercent = Number.isFinite(form.percent) && form.percent > 0;
+  const paymentText = ` Aplica en: ${paymentMethodsLabel(form.paymentMethods)}.`;
+  const shippingText = freeShippingDeliveryTypesLabel(form.freeShippingDeliveryTypes).toLowerCase();
+  const carriersText = freeShippingCarriersLabel(form.freeShippingCarrierKeys, carriers).toLowerCase();
   const text = (() => {
-    if (!hasPercent) return "Completá los datos para ver un resumen del descuento.";
-    if (tab === "global") return `Este descuento aplicará ${form.percent}% a toda la tienda.`;
-    if (tab === "product") {
-      if (selectedCount === 0) return `Este descuento aplicará ${form.percent}% a los productos que selecciones.`;
-      return `Este descuento aplicará ${form.percent}% a ${selectedCount} producto${selectedCount === 1 ? "" : "s"} seleccionado${selectedCount === 1 ? "" : "s"}.`;
+    if (tab === "installments") {
+      const planText = installmentPlans
+        .map((plan) => `${plan.installments} cuotas desde $${plan.minimumAmount.toLocaleString("es-AR")}`)
+        .join(" · ");
+      return `La tienda mostrará: ${planText}.`;
     }
-    if (!promoCode.trim()) return `El código que definas dará ${form.percent}% de descuento en el carrito.`;
-    return `El código ${promoCode.trim().toUpperCase()} dará ${form.percent}% de descuento en el carrito.`;
+    if (!hasPercent && !form.freeShipping) return "Completá los datos para ver un resumen del descuento.";
+    if (form.freeShipping) return `Esta promoción bonificará el costo de envío para ${shippingText} en ${carriersText}.${paymentText}`;
+    if (tab === "global") return `Este descuento aplicará ${form.percent}% a toda la tienda.${paymentText}`;
+    if (tab === "product") {
+      if (selectedCount === 0) return `Este descuento aplicará ${form.percent}% a los productos que selecciones.${paymentText}`;
+      return `Este descuento aplicará ${form.percent}% a ${selectedCount} producto${selectedCount === 1 ? "" : "s"} seleccionado${selectedCount === 1 ? "" : "s"}.${paymentText}`;
+    }
+    if (!promoCode.trim()) return `El código que definas dará ${form.percent}% de descuento en el carrito.${paymentText}`;
+    return `El código ${promoCode.trim().toUpperCase()} dará ${form.percent}% de descuento en el carrito.${paymentText}`;
   })();
 
   return (
@@ -781,7 +1351,7 @@ function PreviewBox({
           <BadgePercent className="h-5 w-5" aria-hidden="true" />
         </div>
         <div>
-          <h2 className="font-semibold text-[#5F3B18]">Preview del descuento</h2>
+          <h2 className="font-semibold text-[#5F3B18]">Preview de la promoción</h2>
           <p className="mt-1 text-sm text-[#8F6A49]">Resumen antes de crear la promoción.</p>
         </div>
       </div>

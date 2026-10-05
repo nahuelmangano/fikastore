@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { sendMail } from "@/lib/mailer";
-import { cartAbandonedTemplate, pendingPaymentTemplate } from "@/lib/email-templates";
 import { publicBaseUrl } from "@/lib/publicUrl";
+import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName } from "@/lib/orderAccess";
+import { queueAndSendEmailNotification } from "@/lib/emailNotificationService";
+import { absoluteImageUrl, emailOrderItemsHtml, emailOrderItemsText, emailProductRowsHtml } from "@/lib/emailProductRows";
 
 export const runtime = "nodejs";
 
@@ -12,12 +13,66 @@ function isAuthorized(req: Request) {
   return req.headers.get("x-cron-secret") === secret;
 }
 
+type SnapshotCartItem = {
+  productId: string;
+  name: string;
+  price: number;
+  quantity: number;
+};
+
+function money(value: number) {
+  return `$${value.toLocaleString("es-AR")}`;
+}
+
+function parseCartItems(itemsJson: string): SnapshotCartItem[] {
+  const parsed = JSON.parse(itemsJson);
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .map((item) => ({
+      productId: String(item?.productId || "").trim(),
+      name: String(item?.name || "").trim(),
+      price: Number(item?.price),
+      quantity: Math.floor(Number(item?.quantity)),
+    }))
+    .filter(
+      (item) =>
+        item.productId &&
+        item.name &&
+        Number.isFinite(item.price) &&
+        item.price >= 0 &&
+        Number.isFinite(item.quantity) &&
+        item.quantity > 0
+    );
+}
+
+function cartItemsHtml(items: SnapshotCartItem[], baseUrl: string, imageByProductId: Map<string, string>) {
+  if (items.length === 0) return "<p style=\"margin:0;color:#555;\">Tu carrito guardado tiene productos pendientes.</p>";
+  const total = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
+
+  return emailProductRowsHtml(
+    items.map((item) => ({
+      name: item.name,
+      imageUrl: absoluteImageUrl(baseUrl, imageByProductId.get(item.productId)),
+      details: [`Cantidad: ${item.quantity}`, `Unitario: ${money(item.price)}`],
+      amount: money(item.price * item.quantity),
+    })),
+    { totalHtml: `<div style="padding-top:12px;text-align:right;font-weight:800;color:#111;">Total: ${money(total)}</div>` }
+  );
+}
+
+function cartItemsText(items: SnapshotCartItem[]) {
+  if (items.length === 0) return "Productos pendientes en tu carrito.";
+  const total = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  return `${items.map((item) => `${item.name} x${item.quantity} (${money(item.price * item.quantity)})`).join("; ")}. Total: ${money(total)}`;
+}
+
 export async function POST(req: Request) {
   if (!isAuthorized(req)) {
     return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
   }
 
-  const cutoff = new Date(Date.now() - 10 * 60 * 1000);
+  const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000);
   const baseUrl = publicBaseUrl(req);
 
   const [carts, payments] = await Promise.all([
@@ -37,7 +92,22 @@ export async function POST(req: Request) {
         order: { status: "pending_payment" },
         pendingAt: { lte: cutoff },
       },
-      include: { order: { include: { items: true, user: true } } },
+      include: {
+        order: {
+          include: {
+            items: {
+              include: {
+                product: {
+                  include: {
+                    images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }], take: 1 },
+                  },
+                },
+              },
+            },
+            user: true,
+          },
+        },
+      },
       take: 50,
     }),
   ]);
@@ -46,19 +116,9 @@ export async function POST(req: Request) {
   let pendingSent = 0;
 
   for (const cart of carts) {
-    let items: { name: string; qty: number; unit: number; subtotal: number }[] = [];
+    let items: SnapshotCartItem[] = [];
     try {
-      const parsed = JSON.parse(cart.itemsJson) as {
-        name: string;
-        price: number;
-        quantity: number;
-      }[];
-      items = parsed.map((it) => ({
-        name: it.name,
-        qty: it.quantity,
-        unit: it.price,
-        subtotal: it.price * it.quantity,
-      }));
+      items = parseCartItems(cart.itemsJson);
     } catch {
       await prisma.cartSnapshot.update({
         where: { id: cart.id },
@@ -67,17 +127,28 @@ export async function POST(req: Request) {
       continue;
     }
 
-    const total = items.reduce((acc, it) => acc + it.subtotal, 0);
+    const products = await prisma.product.findMany({
+      where: { id: { in: items.map((item) => item.productId) } },
+      select: {
+        id: true,
+        images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }], take: 1, select: { url: true } },
+      },
+    });
+    const imageByProductId = new Map(products.map((product) => [product.id, product.images[0]?.url || ""]));
 
-    await sendMail({
+    await queueAndSendEmailNotification({
+      templateKey: "cart-abandoned",
       to: cart.user.email,
-      subject: "Tenés productos en tu carrito",
-      html: cartAbandonedTemplate({
+      recipientUserId: cart.userId,
+      idempotencyKey: `cart-abandoned:${cart.id}`,
+      payload: {
         customerName: cart.user.name || cart.user.email,
-        siteUrl: baseUrl,
-        items,
-        total,
-      }),
+        cartItemsHtml: cartItemsHtml(items, baseUrl, imageByProductId),
+        cartItemsText: cartItemsText(items),
+        cartUrl: `${baseUrl}/cart`,
+        storeName: "FikaStore",
+        storeUrl: baseUrl,
+      },
     });
 
     await prisma.cartSnapshot.update({
@@ -90,26 +161,37 @@ export async function POST(req: Request) {
 
   for (const payment of payments) {
     const order = payment.order;
-    const items = order.items.map((it) => ({
-      name: it.nameSnapshot,
-      qty: it.quantity,
-      unit: Number(it.unitPrice),
-      subtotal: Number(it.subtotal),
-    }));
+    const orderEmail = getOrderContactEmail(order);
+    if (!orderEmail) continue;
+    const itemsSubtotal = order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
+    const publicOrderUrl = buildPublicOrderUrl(baseUrl, order);
 
-    const total = items.reduce((acc, it) => acc + it.subtotal, 0);
-
-    await sendMail({
-      to: order.user.email,
-      subject: "Tu pago quedó pendiente",
-      html: pendingPaymentTemplate({
-        customerName: order.user.name || order.user.email,
-        orderNumber: order.orderNumber,
-        orderId: order.id,
-        siteUrl: baseUrl,
-        items,
-        total,
-      }),
+    await queueAndSendEmailNotification({
+      templateKey: "payment-pending-reminder",
+      to: orderEmail,
+      recipientUserId: order.userId,
+      orderId: order.id,
+      paymentId: payment.id,
+      idempotencyKey: `payment-reminder:${payment.id}:legacy`,
+      payload: {
+        customerName: getOrderCustomerName(order),
+        orderNumber: order.orderNumber ? `#${order.orderNumber}` : order.id,
+        productsHtml: emailOrderItemsHtml(order.items, baseUrl, {
+          subtotal: itemsSubtotal,
+          shipping: order.shippingAmount,
+          total: order.total,
+        }),
+        productsText: emailOrderItemsText(order.items, {
+          subtotal: itemsSubtotal,
+          shipping: order.shippingAmount,
+          total: order.total,
+        }),
+        paymentAmount: money(Number(order.total)),
+        reminderNumber: "1",
+        paymentUrl: publicOrderUrl,
+        storeName: "FikaStore",
+        storeUrl: baseUrl,
+      },
     });
 
     await prisma.payment.update({

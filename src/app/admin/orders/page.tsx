@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { CalendarClock, CreditCard, PackageCheck, ShoppingBag } from "lucide-react";
 import type { Prisma } from "@prisma/client";
+import type { ReactNode } from "react";
 import { prisma } from "@/lib/prisma";
+import { getMetricsSettings } from "@/lib/storeSettings";
 import AdminPageHeader from "@/components/admin/layout/AdminPageHeader";
 import PageToolbar from "@/components/admin/layout/PageToolbar";
 import SectionCard from "@/components/admin/cards/SectionCard";
@@ -30,6 +32,8 @@ type ListedOrder = {
   createdAt: Date;
   shippedAt: Date | null;
   shippingMethod: string | null;
+  shippingName: string | null;
+  contactEmail: string | null;
   user: { name: string | null; email: string | null } | null;
   items: Array<{ id: string; nameSnapshot: string; quantity: number }>;
   payments: Array<{ status: string; paymentId: string | null }>;
@@ -84,6 +88,7 @@ function orderStatus(status: string) {
     pending_payment: { label: "Pendiente", variant: "warning" },
     paid: { label: "Pagado", variant: "success" },
     shipped: { label: "Enviado", variant: "info" },
+    delivered: { label: "Entregado", variant: "success" },
     cancelled: { label: "Cancelado", variant: "danger" },
     refunded: { label: "Reembolsado", variant: "neutral" },
   };
@@ -104,6 +109,7 @@ function paymentStatus(status?: string) {
 }
 
 function shippingStatus(order: ListedOrder) {
+  if (order.status === "delivered") return { label: "Entregado", variant: "success" as const };
   if (order.shippedAt || order.status === "shipped") return { label: "Enviado", variant: "success" as const };
   if (order.correoShipment?.status) return { label: `Correo · ${translateCorreo(order.correoShipment.status)}`, variant: "info" as const };
   if (order.epickShipment?.status) return { label: `E-pick · ${translateEpick(order.epickShipment.status)}`, variant: "info" as const };
@@ -137,8 +143,22 @@ function paymentOptionLabel(status: string) {
   return paymentStatus(status).label;
 }
 
+function customerInfo(order: ListedOrder) {
+  const name = order.user?.name || order.shippingName || order.user?.email || order.contactEmail || "Sin nombre";
+  const email = order.user?.email || order.contactEmail || "";
+  return { name, email, hasAccount: Boolean(order.user) };
+}
+
+function formatMetricsStartAt(value: string | null) {
+  if (!value) return null;
+  return new Intl.DateTimeFormat("es-AR", { dateStyle: "long", timeStyle: "short" }).format(new Date(value));
+}
+
 export default async function AdminOrdersPage({ searchParams }: { searchParams: Params | Promise<Params> }) {
   const resolved = await Promise.resolve(searchParams);
+  const metricsSettings = await getMetricsSettings();
+  const metricsStartAt = metricsSettings.startAt ? new Date(metricsSettings.startAt) : null;
+  const metricsStartLabel = formatMetricsStartAt(metricsSettings.startAt);
   const q = (resolved.q ?? "").trim();
   const status = (resolved.status ?? "all").toLowerCase();
   const payment = (resolved.payment ?? "all").toLowerCase();
@@ -146,6 +166,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
   const page = toInt(resolved.page ?? "1", 1);
 
   const and: Prisma.OrderWhereInput[] = [];
+  if (metricsStartAt) and.push({ createdAt: { gte: metricsStartAt } });
   if (q) {
     const maybeNumber = Number(q);
     and.push({
@@ -153,6 +174,8 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
         { id: { contains: q } },
         { user: { email: { contains: q } } },
         { user: { name: { contains: q } } },
+        { shippingName: { contains: q } },
+        { contactEmail: { contains: q } },
         ...(Number.isFinite(maybeNumber) ? [{ orderNumber: Math.floor(maybeNumber) }] : []),
       ],
     });
@@ -177,6 +200,8 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
         createdAt: true,
         shippedAt: true,
         shippingMethod: true,
+        shippingName: true,
+        contactEmail: true,
         items: {
           take: 3,
           select: { id: true, nameSnapshot: true, quantity: true },
@@ -192,15 +217,19 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
       },
     }),
     prisma.order.count({ where }),
-    prisma.order.count(),
-    prisma.order.count({ where: { status: "pending_payment" } }),
-    prisma.order.count({ where: { status: { in: ["paid", "shipped"] } } }),
+    prisma.order.count({ where: metricsStartAt ? { createdAt: { gte: metricsStartAt } } : {} }),
+    prisma.order.count({ where: { status: "pending_payment", ...(metricsStartAt ? { createdAt: { gte: metricsStartAt } } : {}) } }),
+    prisma.order.count({ where: { status: { in: ["paid", "shipped", "delivered"] }, ...(metricsStartAt ? { createdAt: { gte: metricsStartAt } } : {}) } }),
     prisma.order.aggregate({
-      where: { status: { in: ["paid", "shipped"] } },
+      where: { status: { in: ["paid", "shipped", "delivered"] }, ...(metricsStartAt ? { createdAt: { gte: metricsStartAt } } : {}) },
       _sum: { total: true },
     }),
-    prisma.order.groupBy({ by: ["status"], _count: { _all: true } }),
-    prisma.payment.groupBy({ by: ["status"], _count: { _all: true } }),
+    prisma.order.groupBy({ by: ["status"], where, _count: { _all: true } }),
+    prisma.payment.groupBy({
+      by: ["status"],
+      where: metricsStartAt ? { order: { createdAt: { gte: metricsStartAt } } } : undefined,
+      _count: { _all: true },
+    }),
   ]);
 
   const orders: ListedOrder[] = ordersRaw.map((order) => ({
@@ -219,25 +248,28 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
       key: "order",
       header: "Pedido",
       cell: (order) => (
-        <div>
-          <Link href={`/admin/orders/${order.id}`} className="font-semibold text-[var(--admin-primary)] hover:underline">
+        <OrderTableCellLink orderId={order.id}>
+          <div className="font-semibold text-[var(--admin-primary)]">
             #{order.orderNumber}
-          </Link>
-          <div className="mt-1 max-w-32 truncate text-xs text-[var(--admin-muted)]" title={order.id}>
-            {order.id}
           </div>
-        </div>
+        </OrderTableCellLink>
       ),
     },
     {
       key: "customer",
       header: "Cliente",
-      cell: (order) => (
-        <div>
-          <div className="font-semibold text-[var(--admin-text)]">{order.user?.name || order.user?.email || "Sin cliente"}</div>
-          {order.user?.name && order.user?.email ? <div className="mt-1 text-xs text-[var(--admin-muted)]">{order.user.email}</div> : null}
-        </div>
-      ),
+      cell: (order) => {
+        const customer = customerInfo(order);
+        return (
+          <OrderTableCellLink orderId={order.id}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-[var(--admin-text)]">{customer.name}</span>
+              {!customer.hasAccount ? <span className="rounded-full bg-[var(--admin-surface-muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--admin-muted)]">Sin cuenta</span> : null}
+            </div>
+            {customer.email && customer.email !== customer.name ? <div className="mt-1 text-xs text-[var(--admin-muted)]">{customer.email}</div> : null}
+          </OrderTableCellLink>
+        );
+      },
     },
     {
       key: "date",
@@ -245,10 +277,10 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
       cell: (order) => {
         const date = formatDate(order.createdAt);
         return (
-          <div>
+          <OrderTableCellLink orderId={order.id}>
             <div className="font-medium text-[var(--admin-text-soft)]">{date.day}</div>
             <div className="mt-1 text-xs text-[var(--admin-muted)]">{date.time}</div>
-          </div>
+          </OrderTableCellLink>
         );
       },
     },
@@ -257,7 +289,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
       header: "Pago",
       cell: (order) => {
         const statusInfo = paymentStatus(order.payments[0]?.status);
-        return <StatusBadge label={statusInfo.label} variant={statusInfo.variant} />;
+        return <OrderTableCellLink orderId={order.id}><StatusBadge label={statusInfo.label} variant={statusInfo.variant} /></OrderTableCellLink>;
       },
     },
     {
@@ -265,7 +297,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
       header: "Estado pedido",
       cell: (order) => {
         const statusInfo = orderStatus(order.status);
-        return <StatusBadge label={statusInfo.label} variant={statusInfo.variant} />;
+        return <OrderTableCellLink orderId={order.id}><StatusBadge label={statusInfo.label} variant={statusInfo.variant} /></OrderTableCellLink>;
       },
     },
     {
@@ -273,13 +305,17 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
       header: "Envío",
       cell: (order) => {
         const statusInfo = shippingStatus(order);
-        return <StatusBadge label={statusInfo.label} variant={statusInfo.variant} />;
+        return <OrderTableCellLink orderId={order.id}><StatusBadge label={statusInfo.label} variant={statusInfo.variant} /></OrderTableCellLink>;
       },
     },
     {
       key: "total",
       header: "Total",
-      cell: (order) => <span className="font-semibold text-[var(--admin-text)]">{money(order.total)}</span>,
+      cell: (order) => (
+        <OrderTableCellLink orderId={order.id}>
+          <span className="font-semibold text-[var(--admin-text)]">{money(order.total)}</span>
+        </OrderTableCellLink>
+      ),
     },
     {
       key: "actions",
@@ -306,12 +342,17 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
           subtitle={`Gestioná las compras, pagos y envíos de tu tienda. ${totalOrders} pedido${totalOrders === 1 ? "" : "s"}.`}
           backHref="/admin"
         />
+        {metricsStartLabel ? (
+          <div className="mt-4 rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-4 py-3 text-sm text-[var(--admin-muted)]">
+            Métricas y listado comercial calculados desde {metricsStartLabel}.
+          </div>
+        ) : null}
 
         <section className="mt-8 xl:mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard title="Pedidos" value={totalOrders} description="Total histórico" icon={ShoppingBag} />
+          <StatCard title="Pedidos" value={totalOrders} description={metricsStartLabel ? "Total desde inicio de métricas" : "Total histórico"} icon={ShoppingBag} />
           <StatCard title="Pendientes" value={pendingOrders} description="Esperando pago" icon={CalendarClock} />
-          <StatCard title="Pagados" value={paidOrders} description="Pagados o enviados" icon={PackageCheck} />
-          <StatCard title="Facturación" value={money(paidRevenue)} description="Pedidos pagados/enviados" icon={CreditCard} />
+          <StatCard title="Pagados" value={paidOrders} description="Pagados, enviados o entregados" icon={PackageCheck} />
+          <StatCard title="Facturación" value={money(paidRevenue)} description="Pedidos pagos/enviados/entregados" icon={CreditCard} />
         </section>
 
         <SectionCard className="mt-8 xl:mt-6">
@@ -326,6 +367,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
                   pending_payment: statusCounts.pending_payment ?? 0,
                   paid: statusCounts.paid ?? 0,
                   shipped: statusCounts.shipped ?? 0,
+                  delivered: statusCounts.delivered ?? 0,
                   cancelled: statusCounts.cancelled ?? 0,
                   refunded: statusCounts.refunded ?? 0,
                 }}
@@ -348,7 +390,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
                 <label className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Estado pedido</label>
                 <select name="status" defaultValue={status} className="admin-input mt-2">
                   <option value="all">Todos</option>
-                  {["pending_payment", "paid", "shipped", "cancelled", "refunded"]
+                  {["pending_payment", "paid", "shipped", "delivered", "cancelled", "refunded"]
                     .filter((value) => activeStatusValues.includes(value) || value === status)
                     .map((value) => (
                       <option key={value} value={value}>
@@ -453,11 +495,23 @@ function OrdersEmptyState({ hasFilters }: { hasFilters: boolean }) {
   );
 }
 
+function OrderTableCellLink({ orderId, children }: { orderId: string; children: ReactNode }) {
+  return (
+    <Link
+      href={`/admin/orders/${orderId}`}
+      className="-m-4 block px-4 py-4 xl:-my-3 xl:px-4 xl:py-3"
+    >
+      {children}
+    </Link>
+  );
+}
+
 function OrderMobileCard({ order }: { order: ListedOrder }) {
   const orderInfo = orderStatus(order.status);
   const paymentInfo = paymentStatus(order.payments[0]?.status);
   const shippingInfo = shippingStatus(order);
   const date = formatDate(order.createdAt);
+  const customer = customerInfo(order);
 
   return (
     <article className="rounded-3xl border border-[var(--admin-border)] bg-[var(--admin-surface)] p-4 shadow-[var(--admin-shadow)]">
@@ -466,7 +520,11 @@ function OrderMobileCard({ order }: { order: ListedOrder }) {
           <Link href={`/admin/orders/${order.id}`} className="font-semibold text-[var(--admin-primary)]">
             Pedido #{order.orderNumber}
           </Link>
-          <div className="mt-1 text-sm text-[var(--admin-muted)]">{order.user?.name || order.user?.email || "Sin cliente"}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[var(--admin-muted)]">
+            <span>{customer.name}</span>
+            {!customer.hasAccount ? <span className="rounded-full bg-[var(--admin-surface-muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">Sin cuenta</span> : null}
+          </div>
+          {customer.email && customer.email !== customer.name ? <div className="mt-1 text-xs text-[var(--admin-muted)]">{customer.email}</div> : null}
           <div className="mt-1 text-xs text-[var(--admin-muted)]">
             {date.day} · {date.time}
           </div>

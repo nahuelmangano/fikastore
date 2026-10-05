@@ -1,14 +1,88 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import Image from "next/image";
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Banknote,
+  CheckCircle2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  CreditCard,
+  Handshake,
+  Landmark,
+  Store,
+  Tag,
+  X,
+} from "lucide-react";
 import { addToCart } from "@/lib/cart";
+import { lineItemKey } from "@/lib/productVariants";
 import SiteHeader from "@/components/SiteHeader";
 import { sanitizeRichText } from "@/lib/richText";
+import { trackMetaAddToCart, trackMetaViewContent } from "@/lib/metaPixelEvents";
+import { trackGA4AddToCart, trackGA4ViewItem } from "@/lib/ga4";
 
 function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
+}
+
+function moneyWithCents(n: number) {
+  return `$${n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+const SHIPPING_LOGO_BASE_URL = "https://dk0k1i3js6c49.cloudfront.net/iconos-envio";
+
+function shippingLogoUrl(method: string) {
+  if (method === "epick") return "/images/epick.png";
+  if (method === "correo") return "/images/correo-argentino.png";
+  if (method === "andreani") return `${SHIPPING_LOGO_BASE_URL}/andreani.png`;
+  if (method === "pickup") return `${SHIPPING_LOGO_BASE_URL}/acordar.png`;
+  return `${SHIPPING_LOGO_BASE_URL}/personalizado.png`;
+}
+
+function isPickupCarrier(row: Pick<ShippingQuoteRow, "carrierKey" | "label" | "description">) {
+  const text = `${row.carrierKey} ${row.label} ${row.description || ""}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return row.carrierKey === "pickup" || text.includes("punto de retiro") || text.includes("retiro");
+}
+
+function shippingQuoteOrder(row: ShippingQuoteRow) {
+  const text = `${row.carrierKey} ${row.label} ${row.description || ""}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (row.carrierKey === "epick") return 0;
+  if (row.carrierKey === "correo" && row.deliveryType === "S") return 1;
+  if (row.carrierKey === "correo" && row.deliveryType === "D") return 2;
+  if (isPickupCarrier(row)) return 3;
+  if (text.includes("moto mensajeria") || text.includes("motomensajeria")) return 4;
+  return 5;
+}
+
+function ShippingMethodLogo({ row }: { row: Pick<ShippingQuoteRow, "carrierKey" | "label" | "description"> }) {
+  if (isPickupCarrier(row)) {
+    return (
+      <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#F8EFE4] text-[#9A6028]">
+        <Store className="h-3.5 w-3.5" aria-hidden="true" />
+      </span>
+    );
+  }
+
+  return (
+    <Image
+      src={shippingLogoUrl(row.carrierKey)}
+      alt=""
+      width={28}
+      height={28}
+      unoptimized
+      className="mt-0.5 h-7 w-7 rounded-full object-contain"
+    />
+  );
 }
 
 function splitProductName(name: string) {
@@ -46,6 +120,21 @@ function optionRank(attribute: string, value: string) {
   return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
 }
 
+function normalizeOptionKey(value: string) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function modernOptionDisplayRank(name: string) {
+  const key = normalizeOptionKey(name);
+  if (key === "talle") return 0;
+  if (key === "color") return 1;
+  return 2;
+}
+
 type ProductVariant = {
   id: string;
   slug: string;
@@ -57,27 +146,152 @@ type ProductVariant = {
   images?: Array<{ url: string }>;
 };
 
+type ModernVariantOption = {
+  id: string;
+  name: string;
+  values: Array<{ id: string; value: string }>;
+};
+
+type ModernProductVariant = {
+  id: string;
+  label: string;
+  sku?: string | null;
+  stock: number;
+  priceOverride?: number | null;
+  optionValueIds: string[];
+  imageUrls?: string[];
+};
+
 type ShippingRate = {
   deliveredType?: string;
   price?: unknown;
 };
 
+type PickupPoint = {
+  id: string;
+  name: string;
+  notes: string;
+};
+
+type ShippingQuoteRow = {
+  label: string;
+  description?: string;
+  pickupPoints?: PickupPoint[];
+  amount: number;
+  carrierKey: string;
+  deliveryType: "D" | "S" | null;
+  freeShipping: boolean;
+  pricingMode: "fixed" | "agreement";
+};
+
+type PaymentMethodKey = "mercadopago" | "agreement" | "cash" | "transfer";
+
+type PaymentSettings = {
+  mercadopagoEnabled: boolean;
+  installmentPlans: Array<{ installments: number; minimumAmount: number }>;
+  financingDisplay: {
+    goCuotas: boolean;
+    mercadopago: boolean;
+    manualMethods: Record<"agreement" | "cash" | "transfer", boolean>;
+  };
+  manualMethods: Array<{
+    key: "agreement" | "cash" | "transfer";
+    label: string;
+    enabled: boolean;
+    instructions: string;
+  }>;
+};
+
 export default function ProductDetailClient({
   product,
   variants = [product],
+  modernVariantOptions = [],
+  modernVariants = [],
+  initialModernVariantId = null,
   promoPercent = 0,
   promoPercents = {},
+  productPromoPercents = {},
+  promoPercentsByPaymentMethod = {},
+  globalPromoPercentsByPaymentMethod = {},
+  paymentSettings = {
+    mercadopagoEnabled: false,
+    installmentPlans: [{ installments: 3, minimumAmount: 50000 }],
+    financingDisplay: {
+      goCuotas: true,
+      mercadopago: true,
+      manualMethods: { agreement: true, cash: true, transfer: true },
+    },
+    manualMethods: [],
+  },
 }: {
   product: ProductVariant;
   variants?: ProductVariant[];
+  modernVariantOptions?: ModernVariantOption[];
+  modernVariants?: ModernProductVariant[];
+  initialModernVariantId?: string | null;
   promoPercent?: number;
   promoPercents?: Record<string, number>;
+  productPromoPercents?: Record<string, number>;
+  promoPercentsByPaymentMethod?: Partial<Record<PaymentMethodKey, Record<string, number>>>;
+  globalPromoPercentsByPaymentMethod?: Partial<Record<PaymentMethodKey, Record<string, number>>>;
+  paymentSettings?: PaymentSettings;
 }) {
+  const isModernVariantProduct = modernVariantOptions.length > 0 && modernVariants.length > 0;
+  const orderedModernVariantOptions = useMemo(
+    () =>
+      [...modernVariantOptions].sort((a, b) => {
+        const rankDiff = modernOptionDisplayRank(a.name) - modernOptionDisplayRank(b.name);
+        return rankDiff || a.name.localeCompare(b.name, "es");
+      }),
+    [modernVariantOptions]
+  );
   const [selectedId, setSelectedId] = useState<string>(product.id);
   const selected = variants.find((variant) => variant.id === selectedId) ?? product;
+  const initialModernVariant =
+    modernVariants.find((variant) => variant.id === initialModernVariantId) ??
+    modernVariants.find((variant) => variant.stock > 0) ??
+    modernVariants[0] ??
+    null;
+  const [selectedModernOptionValues, setSelectedModernOptionValues] = useState<Record<string, string>>(() => {
+    if (!initialModernVariant) return {};
+    const next: Record<string, string> = {};
+    for (const option of orderedModernVariantOptions) {
+      const optionValueId = option.values.find((value) => initialModernVariant.optionValueIds.includes(value.id))?.id;
+      if (optionValueId) next[option.id] = optionValueId;
+    }
+    return next;
+  });
   const { baseName } = splitProductName(product.name);
   const fallback = "https://placehold.co/800x800/png?text=Fika";
-  const images = useMemo<string[]>(() => (selected.images ?? product.images ?? []).map((x) => x.url), [product.images, selected.images]);
+  const modernVariantSelectionKey = Object.values(selectedModernOptionValues).sort().join("|");
+  const selectedModernVariant =
+    isModernVariantProduct && modernVariantOptions.every((option) => selectedModernOptionValues[option.id])
+      ? modernVariants.find((variant) => [...variant.optionValueIds].sort().join("|") === modernVariantSelectionKey) || null
+      : null;
+  const inferredModernVariantPrimaryImage = useMemo(() => {
+    if (!isModernVariantProduct || !selectedModernVariant) return null;
+    const colorOption = modernVariantOptions.find((option) => normalizeOptionKey(option.name) === "color");
+    if (!colorOption) return null;
+    const selectedValueId = selectedModernOptionValues[colorOption.id];
+    if (!selectedValueId) return null;
+    const selectedValueIndex = colorOption.values.findIndex((value) => value.id === selectedValueId);
+    if (selectedValueIndex < 0) return null;
+    return product.images?.[selectedValueIndex]?.url ?? null;
+  }, [isModernVariantProduct, modernVariantOptions, product.images, selectedModernOptionValues, selectedModernVariant]);
+  const images = useMemo<string[]>(
+    () => {
+      if (!isModernVariantProduct) return (selected.images ?? product.images ?? []).map((x) => x.url);
+      const assignedImages = selectedModernVariant?.imageUrls?.filter(Boolean) ?? [];
+      if (assignedImages.length > 0) return assignedImages;
+      const baseImages = (product.images ?? []).map((x) => x.url);
+      if (!inferredModernVariantPrimaryImage) return baseImages;
+      return [
+        inferredModernVariantPrimaryImage,
+        ...baseImages.filter((url) => url !== inferredModernVariantPrimaryImage),
+      ];
+    },
+    [inferredModernVariantPrimaryImage, isModernVariantProduct, product.images, selected.images, selectedModernVariant?.imageUrls]
+  );
   const galleryImages = useMemo(() => (images.length > 0 ? images : [fallback]), [images]);
   const [active, setActive] = useState<string>(images[0] ?? fallback);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -85,19 +299,39 @@ export default function ProductDetailClient({
   const [postalCode, setPostalCode] = useState("");
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
-  const [quoteRows, setQuoteRows] = useState<Array<{ label: string; amount: number }>>([]);
+  const [quoteRows, setQuoteRows] = useState<ShippingQuoteRow[]>([]);
   const [stockAlertLoading, setStockAlertLoading] = useState(false);
   const [stockAlertMessage, setStockAlertMessage] = useState<string | null>(null);
-
-  const price = Number(selected.price);
-  const promo = Number(promoPercents[selected.id] ?? promoPercent ?? 0);
-  const finalPrice = promo > 0 ? Math.round(price * (1 - promo / 100) * 100) / 100 : price;
-  const stock = Number(selected.stock);
+  const [financingOpen, setFinancingOpen] = useState(false);
+  const lastTrackedViewContentId = useRef<string | null>(null);
+  const price = isModernVariantProduct
+    ? selectedModernVariant?.priceOverride !== null && selectedModernVariant?.priceOverride !== undefined
+      ? Number(selectedModernVariant.priceOverride)
+      : Number(product.price)
+    : Number(selected.price);
+  const promotionTargetId = isModernVariantProduct ? product.id : selected.id;
+  const cashTransferPromo = Math.max(
+    Number(promoPercentsByPaymentMethod.cash?.[promotionTargetId] ?? 0),
+    Number(promoPercentsByPaymentMethod.transfer?.[promotionTargetId] ?? 0)
+  );
+  const promo = cashTransferPromo || Number(promoPercents[promotionTargetId] ?? promoPercent ?? 0);
+  const productPromo = Number(productPromoPercents[promotionTargetId] ?? 0);
+  const productFinalPrice = productPromo > 0 ? Math.round(price * (1 - productPromo / 100) * 100) / 100 : price;
+  const globalPromo = Math.max(
+    Number(globalPromoPercentsByPaymentMethod.cash?.[promotionTargetId] ?? 0),
+    Number(globalPromoPercentsByPaymentMethod.transfer?.[promotionTargetId] ?? 0)
+  );
+  const combinedFinalPrice = Math.round(productFinalPrice * (1 - globalPromo / 100) * 100) / 100;
+  const finalPrice = promo > 0 ? combinedFinalPrice : price;
+  const eligibleInstallmentPlans = paymentSettings.installmentPlans.filter((plan) => price >= plan.minimumAmount);
+  const installmentPlan = [...eligibleInstallmentPlans].sort((a, b) => b.installments - a.installments)[0] ?? null;
+  const installmentAmount = installmentPlan ? Math.round((price / installmentPlan.installments) * 100) / 100 : 0;
+  const stock = isModernVariantProduct ? Number(selectedModernVariant?.stock ?? 0) : Number(selected.stock);
   const activeIndex = Math.max(0, galleryImages.indexOf(active));
   const activeImage = galleryImages[activeIndex] ?? galleryImages[0] ?? fallback;
-
-  const canBuy = selected.isActive && stock > 0;
-  const canRequestStockAlert = selected.isActive && stock <= 0;
+  const missingModernSelection = isModernVariantProduct && orderedModernVariantOptions.some((option) => !selectedModernOptionValues[option.id]);
+  const canBuy = (isModernVariantProduct ? !missingModernSelection : selected.isActive) && stock > 0;
+  const canRequestStockAlert = !isModernVariantProduct && selected.isActive && stock <= 0;
   const variantAttributeEntries = variants.map((variant) => ({
     variant,
     attrs: variantAttributes(variant.name),
@@ -111,12 +345,53 @@ export default function ProductDetailClient({
     variantAttributeEntries.every((entry) => attributeNames.every((name) => entry.attrs.has(name)));
   const selectedAttrs = variantAttributes(selected.name);
 
+  useEffect(() => {
+    if (lastTrackedViewContentId.current === selected.id) return;
+    const trackingId = isModernVariantProduct ? selectedModernVariant?.id || product.id : selected.id;
+    if (lastTrackedViewContentId.current === trackingId) return;
+    lastTrackedViewContentId.current = trackingId;
+    const trackingName = isModernVariantProduct ? `${product.name}${selectedModernVariant?.label ? ` · ${selectedModernVariant.label}` : ""}` : selected.name;
+    const trackingVariant = isModernVariantProduct
+      ? selectedModernVariant?.label ?? undefined
+      : splitProductName(selected.name).variantName || undefined;
+    trackMetaViewContent({
+      id: trackingId,
+      name: trackingName,
+      price: finalPrice,
+    });
+    trackGA4ViewItem({
+      item_id: trackingId,
+      item_name: trackingName,
+      item_variant: trackingVariant,
+      price: finalPrice,
+      quantity: 1,
+    });
+  }, [finalPrice, isModernVariantProduct, product.id, product.name, selected.id, selected.name, selectedModernVariant?.id, selectedModernVariant?.label]);
+
+  useEffect(() => {
+    setActive(galleryImages[0] ?? fallback);
+  }, [fallback, galleryImages, selected.id, selectedModernVariant?.id]);
+
   function selectVariant(variant: ProductVariant) {
     setSelectedId(variant.id);
     setActive((variant.images ?? [])[0]?.url ?? fallback);
     setLightboxOpen(false);
     setQty(1);
     setStockAlertMessage(null);
+    setFinancingOpen(false);
+  }
+
+  function finalPriceForPaymentMethod(method: PaymentMethodKey) {
+    const methodProductPromo = Number(promoPercentsByPaymentMethod[method]?.[promotionTargetId] ?? 0);
+    const methodGlobalPromo = Number(globalPromoPercentsByPaymentMethod[method]?.[promotionTargetId] ?? 0);
+    const methodProductPrice = price * (1 - methodProductPromo / 100);
+    return Math.round(methodProductPrice * (1 - methodGlobalPromo / 100) * 100) / 100;
+  }
+
+  function promoForPaymentMethod(method: PaymentMethodKey) {
+    const productPercent = Number(promoPercentsByPaymentMethod[method]?.[promotionTargetId] ?? 0);
+    const globalPercent = Number(globalPromoPercentsByPaymentMethod[method]?.[promotionTargetId] ?? 0);
+    return Math.round((1 - (1 - productPercent / 100) * (1 - globalPercent / 100)) * 10000) / 100;
   }
 
   const showImageAt = useCallback((index: number) => {
@@ -202,16 +477,20 @@ export default function ProductDetailClient({
     const andreaniData = await andreaniRes.json().catch(() => ({}));
     const correoData = await correoRes.json().catch(() => ({}));
 
-    const rows: Array<{ label: string; amount: number }> = [];
+    const rows: ShippingQuoteRow[] = [];
     const isEnabled = (k: string) => enabled.get(k) !== false;
 
     if (isEnabled("epick") && epickRes.ok) {
       const amount = Number(epickData?.quote?.price ?? epickData?.quote?.total ?? 0);
-      if (Number.isFinite(amount) && amount > 0) rows.push({ label: "E-pick", amount });
+      if (Number.isFinite(amount) && amount > 0) {
+        rows.push({ label: "E-pick", amount, carrierKey: "epick", deliveryType: "D", freeShipping: false, pricingMode: "fixed" });
+      }
     }
     if (isEnabled("andreani") && andreaniRes.ok) {
       const amount = Number(andreaniData?.quote?.tarifaConIva?.total ?? 0);
-      if (Number.isFinite(amount) && amount > 0) rows.push({ label: "Andreani", amount });
+      if (Number.isFinite(amount) && amount > 0) {
+        rows.push({ label: "Andreani", amount, carrierKey: "andreani", deliveryType: "D", freeShipping: false, pricingMode: "fixed" });
+      }
     }
     if (isEnabled("correo") && correoRes.ok) {
       const rates = Array.isArray(correoData?.quote?.rates)
@@ -221,19 +500,79 @@ export default function ProductDetailClient({
       const sucursal = rates.find((r) => r?.deliveredType === "S");
       const domicilioAmount = Number(domicilio?.price ?? 0);
       const sucursalAmount = Number(sucursal?.price ?? 0);
-      if (Number.isFinite(domicilioAmount) && domicilioAmount > 0) {
-        rows.push({ label: "Correo Argentino (domicilio)", amount: domicilioAmount });
+      if (Number.isFinite(domicilioAmount) && domicilioAmount >= 0) {
+        rows.push({
+          label: "Correo Argentino (domicilio)",
+          amount: domicilioAmount,
+          carrierKey: "correo",
+          deliveryType: "D",
+          freeShipping: false,
+          pricingMode: "fixed",
+        });
       }
-      if (Number.isFinite(sucursalAmount) && sucursalAmount > 0) {
-        rows.push({ label: "Correo Argentino (sucursal)", amount: sucursalAmount });
+      if (Number.isFinite(sucursalAmount) && sucursalAmount >= 0) {
+        rows.push({
+          label: "Correo Argentino (sucursal)",
+          amount: sucursalAmount,
+          carrierKey: "correo",
+          deliveryType: "S",
+          freeShipping: false,
+          pricingMode: "fixed",
+        });
       }
     }
 
-    rows.sort((a, b) => a.amount - b.amount);
-    setQuoteRows(rows);
+    // Los medios configurados manualmente (retiros, puntos de retiro y
+    // entregas a acordar) no requieren una cotización externa.
+    for (const carrier of carriers) {
+      const key = String(carrier?.key || "");
+      if (!key || ["epick", "andreani", "correo"].includes(key) || !isEnabled(key)) continue;
+      const pricingMode = carrier?.pricingMode === "agreement" ? "agreement" : "fixed";
+      const amount = Number(carrier?.flatRate ?? 0);
+      if (!Number.isFinite(amount) || amount < 0) continue;
+      rows.push({
+        label: String(carrier?.name || key),
+        description: String(carrier?.description || "").trim() || undefined,
+        pickupPoints: Array.isArray(carrier?.pickupPoints) ? carrier.pickupPoints : [],
+        amount,
+        carrierKey: key,
+        deliveryType: null,
+        freeShipping: pricingMode === "fixed" && amount === 0,
+        pricingMode,
+      });
+    }
+
+    const rowsWithPromos = await Promise.all(
+      rows.map(async (row) => {
+        const res = await fetch("/api/promotions/cart-pricing", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            items: [{
+              productId: product.id,
+              productVariantId: isModernVariantProduct ? selectedModernVariant?.id ?? null : null,
+              lineKey: lineItemKey(product.id, isModernVariantProduct ? selectedModernVariant?.id ?? null : null),
+              quantity: qty,
+            }],
+            promoCode: null,
+            paymentMethod: null,
+            deliveryType: row.deliveryType,
+            carrierKey: row.carrierKey,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        return {
+          ...row,
+          freeShipping: res.ok && data?.pricing?.summary?.freeShipping === true,
+        };
+      })
+    );
+
+    rowsWithPromos.sort((a, b) => shippingQuoteOrder(a) - shippingQuoteOrder(b) || a.amount - b.amount);
+    setQuoteRows(rowsWithPromos);
     setQuoteLoading(false);
 
-    if (rows.length === 0) {
+    if (rowsWithPromos.length === 0) {
       setQuoteError("No se pudo cotizar con los proveedores disponibles.");
     }
   }
@@ -243,7 +582,7 @@ export default function ProductDetailClient({
     setStockAlertMessage(null);
 
     try {
-      const res = await fetch(`/api/products/${selected.id}/stock-notifications`, {
+      const res = await fetch(`/api/products/${product.id}/stock-notifications`, {
         method: "POST",
       });
       const data = await res.json().catch(() => ({}));
@@ -306,21 +645,81 @@ export default function ProductDetailClient({
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6">
             <h1 className="text-2xl font-semibold">{baseName}</h1>
 
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              {promo > 0 ? (
+            <div className="mt-4">
+              {productPromo > 0 ? (
                 <div>
-                  <div className="text-sm text-zinc-500 line-through">{money(price)}</div>
-                  <div className="text-2xl font-semibold">
-                    {money(finalPrice)}{" "}
-                    <span className="text-sm text-zinc-400">({promo}% OFF)</span>
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <span className="text-lg font-medium text-zinc-400 line-through decoration-zinc-500 sm:text-xl">
+                      {money(price)}
+                    </span>
+                    <span className="text-3xl font-bold tracking-normal text-zinc-100 sm:text-[2.15rem]">
+                      {money(productFinalPrice)}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2 text-sm font-semibold text-orange-300 sm:text-[15px]">
+                    <Tag className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>{productPromo}% OFF por promoción del producto</span>
+                  </div>
+                </div>
+              ) : promo > 0 ? (
+                <div>
+                  <div className="text-3xl font-bold tracking-normal text-zinc-100 sm:text-[2.15rem]">
+                    {money(price)}
+                  </div>
+                  <div className="mt-3 flex items-center gap-2 text-sm font-semibold text-orange-300 sm:text-[15px]">
+                    <Tag className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>{promo}% OFF con transferencia o efectivo</span>
                   </div>
                 </div>
               ) : (
-                <div className="text-2xl font-semibold">{money(price)}</div>
+                <div className="text-3xl font-bold tracking-normal text-zinc-100 sm:text-[2.15rem]">{money(price)}</div>
               )}
             </div>
 
-            {variants.length > 1 && (
+            {(promo > 0 || finalPrice > 0) && (
+              <div className="mt-5 overflow-hidden rounded-2xl border border-orange-200 bg-white text-[#351204] shadow-sm">
+                {promo > 0 && (
+                  <div className="flex items-center gap-3 border-b border-orange-100 px-4 py-4">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-orange-50 text-[#9A4F16]">
+                      <Tag className="h-5 w-5" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-[#351204]">
+                        Pagando con transferencia o efectivo
+                      </div>
+                      <div className="mt-1 text-base text-[#351204]">
+                        Precio final: <span className="font-bold">{money(finalPrice)}</span>
+                      </div>
+                    </div>
+                    <div className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-emerald-100 px-2.5 py-1.5 text-xs font-semibold text-emerald-700">
+                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                      {promo}% OFF
+                    </div>
+                  </div>
+                )}
+
+                {finalPrice > 0 && installmentPlan && (
+                  <button
+                    type="button"
+                    onClick={() => setFinancingOpen(true)}
+                    className="flex w-full items-center gap-3 px-4 py-4 text-left transition hover:bg-orange-50/70"
+                  >
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-orange-50 text-[#70471F]">
+                      <CreditCard className="h-5 w-5" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0 flex-1 text-base leading-6 text-[#351204]">
+                      <div>{installmentPlan.installments} cuotas sin interés</div>
+                      <div>
+                        de <span className="font-bold">{money(installmentAmount)}</span>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-5 w-5 shrink-0 text-[#351204]" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {!isModernVariantProduct && variants.length > 1 && (
               <div className="mt-6">
                 <div className="text-sm font-medium text-zinc-300">Variantes</div>
                 {canUseGroupedVariants ? (
@@ -377,6 +776,86 @@ export default function ProductDetailClient({
               </div>
             )}
 
+            {isModernVariantProduct && (
+              <div className="mt-6 space-y-4">
+                {orderedModernVariantOptions.map((option) => (
+                  <div key={option.id}>
+                    <div className="text-sm font-medium text-zinc-300">{option.name}</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {option.values.map((value) => {
+                        const selectedValue = selectedModernOptionValues[option.id] === value.id;
+                        const available = modernVariants.some((variant) => {
+                          if (!variant.optionValueIds.includes(value.id)) return false;
+                          return orderedModernVariantOptions.every((candidate) => {
+                            if (candidate.id === option.id) return true;
+                            const chosen = selectedModernOptionValues[candidate.id];
+                            return !chosen || variant.optionValueIds.includes(chosen);
+                          });
+                        });
+                        return (
+                          <button
+                            key={value.id}
+                            type="button"
+                            disabled={!available}
+                            onClick={() =>
+                              setSelectedModernOptionValues((current) => ({
+                                ...current,
+                                [option.id]: value.id,
+                              }))
+                            }
+                            className={[
+                              "rounded-xl border px-3 py-2 text-sm transition",
+                              selectedValue
+                                ? "border-zinc-100 bg-zinc-100 text-zinc-900"
+                                : available
+                                  ? "border-zinc-800 bg-zinc-950 text-zinc-200 hover:bg-zinc-900/60"
+                                  : "cursor-not-allowed border-zinc-800 bg-zinc-950 text-zinc-600 opacity-50",
+                            ].join(" ")}
+                          >
+                            {value.value}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+                {missingModernSelection ? (
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-3 text-sm text-zinc-400">
+                    Seleccioná una opción de cada grupo para elegir la combinación.
+                  </div>
+                ) : selectedModernVariant ? (
+                  <div
+                    className={[
+                      "rounded-xl border p-3 text-sm",
+                      selectedModernVariant.stock > 0
+                        ? "border-zinc-800 bg-zinc-900/30 text-zinc-300"
+                        : "border-red-300 bg-red-100 text-red-800",
+                    ].join(" ")}
+                    role={selectedModernVariant.stock > 0 ? undefined : "alert"}
+                  >
+                    <div
+                      className={selectedModernVariant.stock > 0 ? "font-medium text-zinc-100" : "font-medium text-red-900"}
+                    >
+                      {selectedModernVariant.label}
+                    </div>
+                    <div
+                      className={
+                        selectedModernVariant.stock > 0 ? "mt-1 text-xs text-zinc-500" : "mt-1 text-xs text-red-700"
+                      }
+                    >
+                      {selectedModernVariant.stock > 0
+                        ? `${selectedModernVariant.stock} disponibles`
+                        : "Esta variante no tiene stock disponible."}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+                    Esa combinación no está disponible.
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="mt-6 grid gap-3">
               <label className="text-sm text-zinc-300">Cantidad</label>
 
@@ -411,26 +890,46 @@ export default function ProductDetailClient({
               {canBuy ? (
                 <button
                   onClick={() => {
+                    const selectedVariantId = isModernVariantProduct ? selectedModernVariant?.id ?? null : null;
+                    const selectedVariantLabel = isModernVariantProduct ? selectedModernVariant?.label ?? null : null;
                     addToCart(
                       {
-                        productId: selected.id,
-                        slug: selected.slug,
-                        name: selected.name,
+                        productId: product.id,
+                        productVariantId: selectedVariantId,
+                        lineKey: lineItemKey(product.id, selectedVariantId),
+                        slug: product.slug,
+                        name: product.name,
+                        variantLabel: selectedVariantLabel,
                         price,
                         stock,
                         imageUrl: images[0],
                       },
                       qty
                     );
+                    trackMetaAddToCart({
+                      id: selectedVariantId || product.id,
+                      name: selectedVariantLabel ? `${product.name} · ${selectedVariantLabel}` : product.name,
+                      price: finalPrice,
+                      quantity: qty,
+                    });
+                    trackGA4AddToCart({
+                      item_id: selectedVariantId || product.id,
+                      item_name: selectedVariantLabel ? `${product.name} · ${selectedVariantLabel}` : product.name,
+                      item_variant: selectedVariantLabel || undefined,
+                      price: finalPrice,
+                      quantity: qty,
+                    });
                     window.dispatchEvent(new Event("cart:open"));
                   }}
                   className="mt-4 w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-white"
                 >
-                  Agregar al carrito
+                  {missingModernSelection ? "Seleccioná tus opciones" : "Agregar al carrito"}
                 </button>
               ) : (
                 <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/30 p-4">
-                  <div className="text-sm font-medium text-zinc-200">Producto sin stock</div>
+                  <div className="text-sm font-medium text-zinc-200">
+                    {missingModernSelection ? "Seleccioná tus opciones" : "Producto sin stock"}
+                  </div>
                   {canRequestStockAlert && (
                     <button
                       type="button"
@@ -453,12 +952,18 @@ export default function ProductDetailClient({
                 * En el checkout validamos stock nuevamente al crear la orden.
               </p>
 
-              <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/20 p-4">
-                <div className="text-sm font-medium">Calculá el costo de envío</div>
+              <div className="mt-4 rounded-2xl border border-zinc-800 bg-[var(--surface)] p-4">
+                <div className="text-sm font-semibold text-zinc-100">Calculá el costo de envío</div>
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                   <input
                     value={postalCode}
                     onChange={(e) => setPostalCode(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (!quoteLoading) void quoteShipping();
+                      }
+                    }}
                     placeholder="Código postal"
                     className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
                   />
@@ -474,20 +979,52 @@ export default function ProductDetailClient({
                 {quoteError && <div className="mt-3 text-xs text-amber-300">{quoteError}</div>}
 
                 {quoteRows.length > 0 && (
-                  <div className="mt-3 space-y-2 text-sm">
-                    {quoteRows.map((row, idx) => (
+                  <div className="mt-3 grid gap-3 text-sm">
+                    {quoteRows.map((row) => (
                       <div
                         key={row.label}
-                        className={[
-                          "flex items-center justify-between rounded-xl border px-3 py-2",
-                          idx === 0 ? "border-amber-700/40 bg-amber-50/10" : "border-zinc-800 bg-zinc-900/20",
-                        ].join(" ")}
+                        className="flex items-start justify-between gap-3 rounded-xl border border-zinc-800 bg-[var(--surface)] p-3"
                       >
-                        <span className="text-zinc-300">
-                          {row.label}
-                          {idx === 0 && <span className="ml-2 text-xs text-amber-300">Más conveniente</span>}
+                        <span className="flex items-start gap-2">
+                          <ShippingMethodLogo row={row} />
+                          <span className="text-zinc-100">
+                            <span className="font-medium">{row.label}</span>
+                            {row.description && !isPickupCarrier(row) && (
+                              <span className="mt-0.5 block text-xs text-zinc-500">{row.description}</span>
+                            )}
+                            {row.pickupPoints?.length ? (
+                              <details className="group mt-2 text-xs text-zinc-500">
+                                <summary className="cursor-pointer list-none font-medium text-zinc-300 transition hover:text-zinc-100">
+                                  Ver puntos de retiro
+                                </summary>
+                                <span className="mt-2 block space-y-1.5 rounded-xl border border-zinc-800 bg-zinc-950/40 p-2.5">
+                                  {row.pickupPoints.map((point) => (
+                                    <span key={point.id} className="block">
+                                      <span className="font-medium text-zinc-300">{point.name}</span>
+                                      {point.notes ? <span className="block">{point.notes}</span> : null}
+                                    </span>
+                                  ))}
+                                </span>
+                              </details>
+                            ) : null}
+                          </span>
                         </span>
-                        <span className="font-semibold">${row.amount.toLocaleString("es-AR")}</span>
+                        <span className="shrink-0 font-semibold text-zinc-100">
+                          {row.pricingMode === "agreement" ? (
+                            <span>Acordar</span>
+                          ) : row.freeShipping || row.amount === 0 ? (
+                            <span className="inline-flex items-center gap-2">
+                              {row.amount > 0 && (
+                                <span className="text-xs font-medium text-zinc-500 line-through">
+                                  ${row.amount.toLocaleString("es-AR")}
+                                </span>
+                              )}
+                              <span className="text-zinc-100">Gratis</span>
+                            </span>
+                          ) : (
+                            `$${row.amount.toLocaleString("es-AR")}`
+                          )}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -559,6 +1096,169 @@ export default function ProductDetailClient({
           </div>
         </div>
       )}
+
+      {financingOpen && (
+        <PaymentFinancingModal
+          price={price}
+          paymentSettings={paymentSettings}
+          finalPriceForPaymentMethod={finalPriceForPaymentMethod}
+          promoForPaymentMethod={promoForPaymentMethod}
+          onClose={() => setFinancingOpen(false)}
+        />
+      )}
     </main>
+  );
+}
+
+function PaymentFinancingModal({
+  price,
+  paymentSettings,
+  finalPriceForPaymentMethod,
+  promoForPaymentMethod,
+  onClose,
+}: {
+  price: number;
+  paymentSettings: PaymentSettings;
+  finalPriceForPaymentMethod: (method: PaymentMethodKey) => number;
+  promoForPaymentMethod: (method: PaymentMethodKey) => number;
+  onClose: () => void;
+}) {
+  const enabledManualMethods = paymentSettings.manualMethods.filter((method) =>
+    method.enabled && paymentSettings.financingDisplay.manualMethods[method.key]
+  );
+  const eligibleInstallmentPlans = paymentSettings.installmentPlans.filter(
+    (plan) => price >= plan.minimumAmount
+  );
+  const installmentPlan = [...eligibleInstallmentPlans].sort((a, b) => b.installments - a.installments)[0] ?? null;
+  const hasVisibleFinancingOptions =
+    (paymentSettings.financingDisplay.goCuotas && Boolean(installmentPlan)) ||
+    (paymentSettings.mercadopagoEnabled && paymentSettings.financingDisplay.mercadopago) ||
+    enabledManualMethods.length > 0;
+
+  const manualMeta: Record<"cash" | "transfer" | "agreement", { icon: typeof Banknote; label: string }> = {
+    cash: { icon: Banknote, label: "Efectivo" },
+    transfer: { icon: Landmark, label: "Transferencia" },
+    agreement: { icon: Handshake, label: "Acordar" },
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/60 px-4 py-4 text-[#351204] sm:py-8">
+      <button
+        type="button"
+        className="absolute inset-0"
+        aria-label="Cerrar métodos de pago"
+        onClick={onClose}
+      />
+
+      <section className="relative mx-auto max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto bg-white shadow-2xl sm:max-h-[calc(100vh-4rem)]">
+        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-200 bg-white px-5 py-4 sm:px-6">
+          <h2 className="text-lg font-normal text-zinc-800">Métodos de pago y financiación</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-2 text-zinc-700 transition hover:bg-zinc-100"
+            aria-label="Cerrar"
+          >
+            <X className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </header>
+
+        <div className="space-y-3 bg-white px-4 py-4 sm:px-7">
+          {paymentSettings.financingDisplay.goCuotas && installmentPlan ? (
+            <FinancingCard
+              leading={
+                <div className="flex items-center gap-2 text-sm font-bold text-pink-500">
+                  <span className="rounded border-2 border-pink-500 px-1 text-xs leading-5">GO</span>
+                  <span>Cuotas con DÉBITO</span>
+                </div>
+              }
+              badge={`Hasta ${installmentPlan.installments} cuotas sin interés`}
+              collapsible
+            />
+          ) : null}
+
+          {paymentSettings.mercadopagoEnabled && paymentSettings.financingDisplay.mercadopago ? (
+            <FinancingCard
+              leading={
+                <div className="flex items-center gap-2 text-sm font-bold text-sky-700">
+                  <span className="flex h-7 w-9 items-center justify-center rounded-full bg-sky-100 text-xs">mp</span>
+                  <span>mercado pago</span>
+                </div>
+              }
+              badge={`Hasta ${installmentPlan.installments} cuotas sin interés`}
+              collapsible
+            />
+          ) : null}
+
+          {enabledManualMethods.map((method) => {
+            const meta = manualMeta[method.key];
+            const Icon = meta.icon;
+            const methodPromo = promoForPaymentMethod(method.key);
+            const total = finalPriceForPaymentMethod(method.key);
+
+            return (
+              <FinancingCard
+                key={method.key}
+                leading={
+                  <div className="flex items-center gap-3">
+                    <Icon className="h-6 w-6 text-green-600" aria-hidden="true" />
+                    <span className="text-sm font-semibold text-zinc-700">{meta.label}</span>
+                  </div>
+                }
+                badge={methodPromo > 0 ? `${methodPromo}% OFF` : undefined}
+                detail={
+                  <>
+                    Total en 1 pago: <span className="font-bold">{moneyWithCents(total)}</span>
+                  </>
+                }
+              />
+            );
+          })}
+
+          {!hasVisibleFinancingOptions ? (
+            <FinancingCard
+              leading={
+                <div className="flex items-center gap-3">
+                  <CreditCard className="h-6 w-6 text-green-600" aria-hidden="true" />
+                  <span className="text-sm font-semibold text-zinc-700">Precio de lista</span>
+                </div>
+              }
+              detail={
+                <>
+                  Total en 1 pago: <span className="font-bold">{moneyWithCents(price)}</span>
+                </>
+              }
+            />
+          ) : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function FinancingCard({
+  leading,
+  badge,
+  detail,
+  collapsible = false,
+}: {
+  leading: ReactNode;
+  detail?: ReactNode;
+  badge?: string;
+  collapsible?: boolean;
+}) {
+  return (
+    <div className="rounded-md bg-white px-5 py-4 shadow-[0_2px_12px_rgba(0,0,0,0.1)]">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">{leading}</div>
+        {badge ? (
+          <span className="shrink-0 rounded-full bg-green-600 px-3 py-1.5 text-[11px] font-medium text-white">
+            {badge}
+          </span>
+        ) : null}
+        {collapsible ? <ChevronDown className="h-4 w-4 shrink-0 text-black" aria-hidden="true" /> : null}
+      </div>
+      {detail ? <div className="mt-5 text-xs text-black sm:text-sm">{detail}</div> : null}
+    </div>
   );
 }

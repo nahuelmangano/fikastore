@@ -31,6 +31,17 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: false, error: "Todas las secciones necesitan un titulo." }, { status: 400 });
   }
 
-  const sections = await setInformationSections(rawSections);
-  return NextResponse.json({ ok: true, sections });
+  try {
+    const sections = await setInformationSections(rawSections);
+    return NextResponse.json({ ok: true, sections });
+  } catch (error) {
+    console.error("information sections save failed", error);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "No se pudieron guardar las secciones.",
+      },
+      { status: 500 },
+    );
+  }
 }

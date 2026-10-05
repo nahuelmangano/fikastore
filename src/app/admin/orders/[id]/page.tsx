@@ -1,6 +1,32 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { notFound } from "next/navigation";
 import AdminOrderDetail from "./ui";
+import { getWhatsappMessageTemplate } from "@/lib/storeSettings";
+import { getShippingCarriers } from "@/lib/shippingCarriers";
+
+type AdminOrderDetailPayload = Prisma.OrderGetPayload<{
+  include: {
+    user: { select: { email: true; name: true } };
+    items: {
+      include: {
+        product: {
+          select: {
+            images: {
+              where: { visible: true };
+              orderBy: [{ sortOrder: "asc" }, { id: "asc" }];
+              take: 1;
+              select: { url: true };
+            };
+          };
+        };
+      };
+    };
+    payments: true;
+    epickShipment: true;
+    correoShipment: true;
+  };
+}>;
 
 export default async function AdminOrderDetailPage({
   params,
@@ -14,7 +40,20 @@ export default async function AdminOrderDetailPage({
     where: { id: orderId },
     include: {
       user: { select: { email: true, name: true } },
-      items: true,
+      items: {
+        include: {
+          product: {
+            select: {
+              images: {
+                where: { visible: true },
+                orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+                take: 1,
+                select: { url: true },
+              },
+            },
+          },
+        },
+      },
       payments: { orderBy: { createdAt: "desc" } },
       epickShipment: true,
       correoShipment: true,
@@ -23,5 +62,14 @@ export default async function AdminOrderDetailPage({
 
   if (!order) return notFound();
 
-  return <AdminOrderDetail order={order as any} />;
+  const [whatsappMessageTemplate, carriers] = await Promise.all([
+    getWhatsappMessageTemplate(),
+    getShippingCarriers(),
+  ]);
+  const carrier = carriers.find((item) => item.key === order.shippingMethod);
+  return <AdminOrderDetail
+    order={order as AdminOrderDetailPayload}
+    whatsappMessageTemplate={whatsappMessageTemplate}
+    shippingCarrier={carrier ? { name: carrier.name, pricingMode: carrier.pricingMode } : undefined}
+  />;
 }

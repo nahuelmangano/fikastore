@@ -4,12 +4,16 @@ import { authOptions } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { notifyBackInStock } from "@/lib/stockNotifications";
 
+type SessionUser = {
+  id?: string;
+};
+
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions);
-  const userId = (session?.user as any)?.id;
+  const userId = (session?.user as SessionUser | undefined)?.id;
 
   if (!userId) {
     return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
@@ -48,6 +52,13 @@ export async function POST(
           select: { stock: true },
         });
 
+        if (it.productVariantId) {
+          await tx.productVariant.update({
+            where: { id: it.productVariantId },
+            data: { stock: { increment: it.quantity } },
+          });
+        }
+
         const updatedProduct = await tx.product.update({
           where: { id: it.productId },
           data: { stock: { increment: it.quantity } },
@@ -68,11 +79,11 @@ export async function POST(
     });
 
     await Promise.all(Array.from(restoredProductIds).map((productId) => notifyBackInStock(productId, req)));
-  } catch (err: any) {
-    if (err?.message === "not_found") {
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message === "not_found") {
       return NextResponse.json({ ok: false, error: "Orden no encontrada." }, { status: 404 });
     }
-    if (err?.message === "invalid_status") {
+    if (err instanceof Error && err.message === "invalid_status") {
       return NextResponse.json(
         { ok: false, error: "La orden no se puede cancelar en este estado." },
         { status: 400 }

@@ -1,16 +1,43 @@
 import { prisma } from "@/lib/prisma";
 import crypto from "crypto";
+import { DEFAULT_WHATSAPP_MESSAGE } from "@/lib/whatsapp";
+
+export async function getWhatsappMessageTemplate(): Promise<string> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: { provider_key: { provider: "storefront", key: "whatsapp_message" } },
+    select: { value: true },
+  });
+  return row?.value ?? DEFAULT_WHATSAPP_MESSAGE;
+}
+
+export async function setWhatsappMessageTemplate(value: string) {
+  await prisma.shippingProviderSetting.upsert({
+    where: { provider_key: { provider: "storefront", key: "whatsapp_message" } },
+    create: { provider: "storefront", key: "whatsapp_message", value, isSecret: false },
+    update: { value, isSecret: false },
+  });
+}
 
 const STOREFRONT_SETTINGS_PROVIDER = "storefront";
 const ANNOUNCEMENT_TEXT_KEY = "announcement_text";
 const LOGO_URL_KEY = "logo_url";
 const HOME_CATEGORY_TILES_KEY = "home_category_tiles";
+const HOME_BANNER_SETTINGS_KEY = "home_banner_settings";
 const SITE_TITLE_KEY = "site_title";
 const FAVICON_URL_KEY = "favicon_url";
 const TEMPORARY_SHUTDOWN_KEY = "temporary_shutdown";
 const MAILING_SETTINGS_KEY = "mailing_settings";
 const MAILING_SMTP_SETTINGS_KEY = "mailing_smtp_settings";
+const EMAIL_JOB_SETTINGS_KEY = "email_job_settings";
 const MERCADOPAGO_SETTINGS_KEY = "mercadopago_settings";
+const MANUAL_PAYMENT_SETTINGS_KEY = "manual_payment_settings";
+const PAYMENT_FINANCING_DISPLAY_SETTINGS_KEY = "payment_financing_display_settings";
+const INSTALLMENT_PLANS_SETTINGS_KEY = "installment_plans_settings";
+const GOOGLE_ANALYTICS_MEASUREMENT_ID_KEY = "google_analytics_measurement_id";
+const META_PIXEL_ID_KEY = "meta_pixel_id";
+const SOCIAL_LINKS_SETTINGS_KEY = "social_links_settings";
+const METRICS_SETTINGS_KEY = "metrics_settings";
+const SCREEN_TEXT_SETTINGS_KEY = "screen_text_settings";
 const ENCRYPTED_VALUE_PREFIX = "enc:v1:";
 
 export const DEFAULT_ANNOUNCEMENT_TEXT =
@@ -27,9 +54,37 @@ export type HomeCategoryTile = {
   imageUrl: string;
 };
 
+export type HomeBannerSlide = {
+  id: string;
+  imageUrl: string;
+  title: string;
+  subtitle: string;
+  href: string;
+};
+
+export type HomeBannerSettings = {
+  enabled: boolean;
+  slides: HomeBannerSlide[];
+};
+
 export type TemporaryShutdownSettings = {
   isShutdown: boolean;
   message: string;
+};
+
+export type EmailJobSettings = {
+  paymentRemindersEnabled: boolean;
+  paymentReminderHours: number[];
+  maxPaymentReminders: number;
+  reviewRequestEnabled: boolean;
+  reviewRequestDelayDays: number;
+  birthdayCouponEnabled: boolean;
+  birthdayCouponOffsetDays: number;
+  birthdayCouponDiscountType: "percent" | "amount";
+  birthdayCouponDiscountValue: number;
+  birthdayCouponDurationDays: number;
+  birthdayCouponMinPurchaseAmount: number;
+  birthdayCouponMaxUses: number;
 };
 
 export type MailingSettings = {
@@ -45,10 +100,16 @@ export type MailingSettings = {
   smtpFrom: string;
   smtpReplyTo: string;
   smtpPassConfigured: boolean;
+  smtpAuthType: "password" | "microsoft_oauth2";
+  smtpMicrosoftClientId: string;
+  smtpMicrosoftTenantId: string;
+  smtpMicrosoftClientSecretConfigured: boolean;
+  smtpMicrosoftRefreshTokenConfigured: boolean;
   smtpSource: "admin" | "env" | "none";
 };
 
-export type ResolvedSmtpConfig = {
+export type ResolvedSmtpPasswordConfig = {
+  authType: "password";
   host: string;
   port: number;
   user: string;
@@ -58,12 +119,209 @@ export type ResolvedSmtpConfig = {
   source: "admin" | "env";
 };
 
+export type ResolvedSmtpMicrosoftOAuth2Config = {
+  authType: "microsoft_oauth2";
+  host: string;
+  port: number;
+  user: string;
+  from: string;
+  replyTo?: string;
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+  tenantId: string;
+  source: "admin";
+};
+
+export type ResolvedSmtpConfig = ResolvedSmtpPasswordConfig | ResolvedSmtpMicrosoftOAuth2Config;
+
 export type MercadoPagoSettings = {
   accessTokenConfigured: boolean;
+  publicKeyConfigured: boolean;
+  cardPaymentEnabled: boolean;
+  publicKey?: string;
   source: "oauth" | "manual" | "env" | "none";
   connectedUserId?: string;
   expiresAt?: string;
 };
+
+export type ManualPaymentMethodKey = "agreement" | "cash" | "transfer";
+
+export type TransferBankDetails = {
+  accountNumber: string;
+  cbu: string;
+  alias: string;
+  holder: string;
+  taxId: string;
+  accountType: string;
+  bank: string;
+};
+
+export type ManualPaymentMethodSettings = {
+  key: ManualPaymentMethodKey;
+  label: string;
+  enabled: boolean;
+  instructions: string;
+  bankDetails?: TransferBankDetails;
+};
+
+export type CheckoutPaymentSettings = {
+  mercadopagoEnabled: boolean;
+  mercadoPagoCardEnabled: boolean;
+  mercadoPagoPublicKey: string;
+  mercadoPagoDebug: boolean;
+  manualMethods: ManualPaymentMethodSettings[];
+  financingDisplay: PaymentFinancingDisplaySettings;
+  installmentPlans: InstallmentPlan[];
+};
+
+export type PaymentFinancingDisplaySettings = {
+  goCuotas: boolean;
+  mercadopago: boolean;
+  manualMethods: Record<ManualPaymentMethodKey, boolean>;
+  merchantCanSee: boolean;
+  merchantOptions: {
+    goCuotas: boolean;
+    mercadopago: boolean;
+    manualMethods: Record<ManualPaymentMethodKey, boolean>;
+  };
+};
+
+export type InstallmentPlan = {
+  installments: number;
+  minimumAmount: number;
+};
+
+export type AnalyticsSettings = {
+  googleAnalyticsMeasurementId: string;
+  metaPixelId: string;
+};
+
+export type SocialLinksSettings = {
+  facebook: string;
+  instagram: string;
+  tiktok: string;
+};
+
+export type MetricsSettings = {
+  startAt: string | null;
+};
+
+export type ScreenTextSettings = {
+  orderCreatedTitle: string;
+  orderCreatedNumberLabel: string;
+  orderCreatedPaymentLabel: string;
+  orderCreatedMercadoPagoText: string;
+  orderCreatedMercadoPagoButton: string;
+  orderCreatedStockNote: string;
+  paymentSuccessTitle: string;
+  paymentSuccessSubtitle: string;
+  paymentSuccessHint: string;
+  paymentSuccessBackToStoreButton: string;
+  paymentSuccessViewOrderButton: string;
+  paymentPendingTitle: string;
+  paymentPendingSubtitle: string;
+  paymentPendingBoxTitle: string;
+  paymentPendingInstructions: string;
+  paymentPendingButton: string;
+  paymentFailureTitle: string;
+  paymentFailureSubtitle: string;
+  paymentFailureHint: string;
+  paymentFailureBackToStoreButton: string;
+  paymentFailureViewOrderButton: string;
+  manualPaymentTitle: string;
+  manualPaymentSubtitle: string;
+  manualPaymentInstructionsTitle: string;
+  manualPaymentEmailNote: string;
+  orderLookupTitle: string;
+  orderLookupSubtitle: string;
+  orderLookupOrderLabel: string;
+  orderLookupEmailLabel: string;
+  orderLookupButton: string;
+};
+
+export const DEFAULT_SCREEN_TEXT_SETTINGS: ScreenTextSettings = {
+  orderCreatedTitle: "Pedido creado OK",
+  orderCreatedNumberLabel: "Numero de pedido",
+  orderCreatedPaymentLabel: "Pago",
+  orderCreatedMercadoPagoText: "Al pagar, Mercado Pago nos notificara por webhook y actualizaremos el estado del pedido automaticamente.",
+  orderCreatedMercadoPagoButton: "Pagar con Mercado Pago",
+  orderCreatedStockNote: "El pedido ya fue generado y el stock queda reservado mientras se completa el pago.",
+  paymentSuccessTitle: "Pago realizado ✅",
+  paymentSuccessSubtitle: "Si el pedido todavía figura como pendiente, en unos segundos debería actualizarse cuando llegue el webhook.",
+  paymentSuccessHint: "Tip: esta pantalla refresca el estado automáticamente unos segundos.",
+  paymentSuccessBackToStoreButton: "Volver a la tienda",
+  paymentSuccessViewOrderButton: "Ver pedido",
+  paymentPendingTitle: "Pago pendiente",
+  paymentPendingSubtitle: "Tu pedido fue procesado y el pago todavía está pendiente.",
+  paymentPendingBoxTitle: "Datos de pago",
+  paymentPendingInstructions: "Podés completar el pago desde Mercado Pago o seguir las instrucciones del medio elegido.",
+  paymentPendingButton: "Completar pago",
+  paymentFailureTitle: "Pago rechazado ❌",
+  paymentFailureSubtitle: "No se pudo completar el pago. Podés intentar nuevamente desde el checkout.",
+  paymentFailureHint: "Si el pedido estaba pendiente, el stock queda reservado. Podés reintentar el pago.",
+  paymentFailureBackToStoreButton: "Volver a la tienda",
+  paymentFailureViewOrderButton: "Ver pedido",
+  manualPaymentTitle: "Un paso más.",
+  manualPaymentSubtitle: "Tu orden fue procesada.",
+  manualPaymentInstructionsTitle: "Datos para completar el pago",
+  manualPaymentEmailNote: "Te enviamos un email con el detalle del pedido.",
+  orderLookupTitle: "Consultar pedido",
+  orderLookupSubtitle: "Ingresá el número de pedido y el email usado en la compra.",
+  orderLookupOrderLabel: "Número de pedido",
+  orderLookupEmailLabel: "Email",
+  orderLookupButton: "Buscar pedido",
+};
+
+const DEFAULT_MANUAL_PAYMENT_METHODS: ManualPaymentMethodSettings[] = [
+  {
+    key: "agreement",
+    label: "Acordar con la tienda",
+    enabled: true,
+    instructions: "Nos vamos a contactar para coordinar el pago.",
+  },
+  {
+    key: "cash",
+    label: "Efectivo",
+    enabled: true,
+    instructions: "Pagás en efectivo al retirar o según lo acordado con la tienda.",
+  },
+  {
+    key: "transfer",
+    label: "Transferencia",
+    enabled: true,
+    bankDetails: {
+      accountNumber: "5025-566703/8",
+      cbu: "0140033503502556670388",
+      alias: "FIKAPIJAMAS",
+      holder: "CINTIA YANINA,NIZ",
+      taxId: "27-37175129-2",
+      accountType: "Caja de Ahorro",
+      bank: "Banco de la Provincia de Buenos Aires",
+    },
+    instructions: [
+      "Recordá enviar el comprobante por mail, indicando el número de pedido, para poder confirmar tu compra.",
+    ].join("\n"),
+  },
+];
+
+const DEFAULT_PAYMENT_FINANCING_DISPLAY_SETTINGS: PaymentFinancingDisplaySettings = {
+  goCuotas: true,
+  mercadopago: true,
+  merchantCanSee: true,
+  manualMethods: {
+    agreement: true,
+    cash: true,
+    transfer: true,
+  },
+  merchantOptions: {
+    goCuotas: true,
+    mercadopago: true,
+    manualMethods: { agreement: true, cash: true, transfer: true },
+  },
+};
+
+export const DEFAULT_INSTALLMENT_PLANS: InstallmentPlan[] = [{ installments: 3, minimumAmount: 50000 }];
 
 type StoredMailingSettings = Pick<
   MailingSettings,
@@ -81,12 +339,20 @@ type StoredMailingSmtpSettings = {
   smtpUser: string;
   smtpFrom: string;
   smtpReplyTo: string;
+  smtpAuthType?: "password" | "microsoft_oauth2";
+  smtpMicrosoftClientId?: string;
+  smtpMicrosoftTenantId?: string;
   encryptedSmtpPass?: string;
+  encryptedMicrosoftClientSecret?: string;
+  encryptedMicrosoftRefreshToken?: string;
 };
 
 type StoredMercadoPagoSettings = {
   encryptedAccessToken?: string;
   encryptedRefreshToken?: string;
+  publicKey?: string;
+  platformPublicKey?: string;
+  cardPaymentEnabled?: boolean;
   expiresAt?: string;
   connectedUserId?: string;
   tokenType?: string;
@@ -96,6 +362,21 @@ type StoredMercadoPagoSettings = {
 
 export const DEFAULT_TEMPORARY_SHUTDOWN_MESSAGE =
   "La tienda se encuentra apagada temporalmente. Volve a visitarnos pronto.";
+
+export const DEFAULT_EMAIL_JOB_SETTINGS: EmailJobSettings = {
+  paymentRemindersEnabled: true,
+  paymentReminderHours: [24, 48],
+  maxPaymentReminders: 2,
+  reviewRequestEnabled: true,
+  reviewRequestDelayDays: 10,
+  birthdayCouponEnabled: true,
+  birthdayCouponOffsetDays: 0,
+  birthdayCouponDiscountType: "percent",
+  birthdayCouponDiscountValue: 15,
+  birthdayCouponDurationDays: 14,
+  birthdayCouponMinPurchaseAmount: 0,
+  birthdayCouponMaxUses: 1,
+};
 
 export const DEFAULT_MAILING_SETTINGS: MailingSettings = {
   purchaseEnabled: true,
@@ -110,6 +391,11 @@ export const DEFAULT_MAILING_SETTINGS: MailingSettings = {
   smtpFrom: "",
   smtpReplyTo: "",
   smtpPassConfigured: false,
+  smtpAuthType: "password",
+  smtpMicrosoftClientId: "",
+  smtpMicrosoftTenantId: "common",
+  smtpMicrosoftClientSecretConfigured: false,
+  smtpMicrosoftRefreshTokenConfigured: false,
   smtpSource: "none",
 };
 
@@ -261,6 +547,304 @@ export async function setFaviconUrl(value: string) {
   });
 }
 
+export function normalizeGoogleAnalyticsMeasurementId(value: string) {
+  return value.trim().toUpperCase();
+}
+
+export function isValidGoogleAnalyticsMeasurementId(value: string) {
+  return /^G-[A-Z0-9]{4,32}$/.test(normalizeGoogleAnalyticsMeasurementId(value));
+}
+
+export function normalizeMetaPixelId(value: string) {
+  return value.trim().replace(/\D/g, "");
+}
+
+export function isValidMetaPixelId(value: string) {
+  return /^\d{5,30}$/.test(normalizeMetaPixelId(value));
+}
+
+export async function getAnalyticsSettings(): Promise<AnalyticsSettings> {
+  const [googleAnalyticsRow, metaPixelRow] = await Promise.all([
+    prisma.shippingProviderSetting.findUnique({
+      where: {
+        provider_key: {
+          provider: STOREFRONT_SETTINGS_PROVIDER,
+          key: GOOGLE_ANALYTICS_MEASUREMENT_ID_KEY,
+        },
+      },
+      select: { value: true },
+    }),
+    prisma.shippingProviderSetting.findUnique({
+      where: {
+        provider_key: {
+          provider: STOREFRONT_SETTINGS_PROVIDER,
+          key: META_PIXEL_ID_KEY,
+        },
+      },
+      select: { value: true },
+    }),
+  ]);
+
+  const googleAnalyticsMeasurementId = normalizeGoogleAnalyticsMeasurementId(googleAnalyticsRow?.value || "");
+  const metaPixelId = normalizeMetaPixelId(metaPixelRow?.value || "");
+  return {
+    googleAnalyticsMeasurementId: isValidGoogleAnalyticsMeasurementId(googleAnalyticsMeasurementId)
+      ? googleAnalyticsMeasurementId
+      : "",
+    metaPixelId: isValidMetaPixelId(metaPixelId) ? metaPixelId : "",
+  };
+}
+
+export async function setAnalyticsSettings(settings: AnalyticsSettings) {
+  const googleAnalyticsMeasurementId = normalizeGoogleAnalyticsMeasurementId(settings.googleAnalyticsMeasurementId);
+  const metaPixelId = normalizeMetaPixelId(settings.metaPixelId);
+
+  return Promise.all([
+    prisma.shippingProviderSetting.upsert({
+      where: {
+        provider_key: {
+          provider: STOREFRONT_SETTINGS_PROVIDER,
+          key: GOOGLE_ANALYTICS_MEASUREMENT_ID_KEY,
+        },
+      },
+      create: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: GOOGLE_ANALYTICS_MEASUREMENT_ID_KEY,
+        value: googleAnalyticsMeasurementId,
+        isSecret: false,
+      },
+      update: {
+        value: googleAnalyticsMeasurementId,
+        isSecret: false,
+      },
+    }),
+    prisma.shippingProviderSetting.upsert({
+      where: {
+        provider_key: {
+          provider: STOREFRONT_SETTINGS_PROVIDER,
+          key: META_PIXEL_ID_KEY,
+        },
+      },
+      create: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: META_PIXEL_ID_KEY,
+        value: metaPixelId,
+        isSecret: false,
+      },
+      update: {
+        value: metaPixelId,
+        isSecret: false,
+      },
+    }),
+  ]);
+}
+
+function normalizeMetricsStartAt(value: unknown): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function normalizeMetricsSettings(input: unknown): MetricsSettings {
+  const value = input && typeof input === "object" ? input as Partial<MetricsSettings> : {};
+  return {
+    startAt: normalizeMetricsStartAt(value.startAt),
+  };
+}
+
+export async function getMetricsSettings(): Promise<MetricsSettings> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: METRICS_SETTINGS_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return { startAt: null };
+
+  try {
+    return normalizeMetricsSettings(JSON.parse(row.value));
+  } catch {
+    return { startAt: null };
+  }
+}
+
+export async function setMetricsSettings(settings: unknown) {
+  const value = JSON.stringify(normalizeMetricsSettings(settings));
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: METRICS_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: METRICS_SETTINGS_KEY,
+      value,
+      isSecret: false,
+    },
+    update: {
+      value,
+      isSecret: false,
+    },
+  });
+}
+
+function normalizeScreenText(value: unknown, fallback: string, maxLength = 240) {
+  const raw = String(value || "").trim();
+  return (raw || fallback).slice(0, maxLength);
+}
+
+function normalizeScreenTextSettings(input: unknown): ScreenTextSettings {
+  const value = input && typeof input === "object" ? input as Partial<ScreenTextSettings> : {};
+  return {
+    orderCreatedTitle: normalizeScreenText(value.orderCreatedTitle, DEFAULT_SCREEN_TEXT_SETTINGS.orderCreatedTitle, 80),
+    orderCreatedNumberLabel: normalizeScreenText(value.orderCreatedNumberLabel, DEFAULT_SCREEN_TEXT_SETTINGS.orderCreatedNumberLabel, 60),
+    orderCreatedPaymentLabel: normalizeScreenText(value.orderCreatedPaymentLabel, DEFAULT_SCREEN_TEXT_SETTINGS.orderCreatedPaymentLabel, 60),
+    orderCreatedMercadoPagoText: normalizeScreenText(value.orderCreatedMercadoPagoText, DEFAULT_SCREEN_TEXT_SETTINGS.orderCreatedMercadoPagoText, 260),
+    orderCreatedMercadoPagoButton: normalizeScreenText(value.orderCreatedMercadoPagoButton, DEFAULT_SCREEN_TEXT_SETTINGS.orderCreatedMercadoPagoButton, 80),
+    orderCreatedStockNote: normalizeScreenText(value.orderCreatedStockNote, DEFAULT_SCREEN_TEXT_SETTINGS.orderCreatedStockNote, 200),
+    paymentSuccessTitle: normalizeScreenText(value.paymentSuccessTitle, DEFAULT_SCREEN_TEXT_SETTINGS.paymentSuccessTitle, 80),
+    paymentSuccessSubtitle: normalizeScreenText(value.paymentSuccessSubtitle, DEFAULT_SCREEN_TEXT_SETTINGS.paymentSuccessSubtitle, 260),
+    paymentSuccessHint: normalizeScreenText(value.paymentSuccessHint, DEFAULT_SCREEN_TEXT_SETTINGS.paymentSuccessHint, 180),
+    paymentSuccessBackToStoreButton: normalizeScreenText(value.paymentSuccessBackToStoreButton, DEFAULT_SCREEN_TEXT_SETTINGS.paymentSuccessBackToStoreButton, 80),
+    paymentSuccessViewOrderButton: normalizeScreenText(value.paymentSuccessViewOrderButton, DEFAULT_SCREEN_TEXT_SETTINGS.paymentSuccessViewOrderButton, 80),
+    paymentPendingTitle: normalizeScreenText(value.paymentPendingTitle, DEFAULT_SCREEN_TEXT_SETTINGS.paymentPendingTitle, 80),
+    paymentPendingSubtitle: normalizeScreenText(value.paymentPendingSubtitle, DEFAULT_SCREEN_TEXT_SETTINGS.paymentPendingSubtitle, 220),
+    paymentPendingBoxTitle: normalizeScreenText(value.paymentPendingBoxTitle, DEFAULT_SCREEN_TEXT_SETTINGS.paymentPendingBoxTitle, 80),
+    paymentPendingInstructions: normalizeScreenText(value.paymentPendingInstructions, DEFAULT_SCREEN_TEXT_SETTINGS.paymentPendingInstructions, 260),
+    paymentPendingButton: normalizeScreenText(value.paymentPendingButton, DEFAULT_SCREEN_TEXT_SETTINGS.paymentPendingButton, 80),
+    paymentFailureTitle: normalizeScreenText(value.paymentFailureTitle, DEFAULT_SCREEN_TEXT_SETTINGS.paymentFailureTitle, 80),
+    paymentFailureSubtitle: normalizeScreenText(value.paymentFailureSubtitle, DEFAULT_SCREEN_TEXT_SETTINGS.paymentFailureSubtitle, 220),
+    paymentFailureHint: normalizeScreenText(value.paymentFailureHint, DEFAULT_SCREEN_TEXT_SETTINGS.paymentFailureHint, 180),
+    paymentFailureBackToStoreButton: normalizeScreenText(value.paymentFailureBackToStoreButton, DEFAULT_SCREEN_TEXT_SETTINGS.paymentFailureBackToStoreButton, 80),
+    paymentFailureViewOrderButton: normalizeScreenText(value.paymentFailureViewOrderButton, DEFAULT_SCREEN_TEXT_SETTINGS.paymentFailureViewOrderButton, 80),
+    manualPaymentTitle: normalizeScreenText(value.manualPaymentTitle, DEFAULT_SCREEN_TEXT_SETTINGS.manualPaymentTitle, 80),
+    manualPaymentSubtitle: normalizeScreenText(value.manualPaymentSubtitle, DEFAULT_SCREEN_TEXT_SETTINGS.manualPaymentSubtitle, 160),
+    manualPaymentInstructionsTitle: normalizeScreenText(value.manualPaymentInstructionsTitle, DEFAULT_SCREEN_TEXT_SETTINGS.manualPaymentInstructionsTitle, 80),
+    manualPaymentEmailNote: normalizeScreenText(value.manualPaymentEmailNote, DEFAULT_SCREEN_TEXT_SETTINGS.manualPaymentEmailNote, 160),
+    orderLookupTitle: normalizeScreenText(value.orderLookupTitle, DEFAULT_SCREEN_TEXT_SETTINGS.orderLookupTitle, 80),
+    orderLookupSubtitle: normalizeScreenText(value.orderLookupSubtitle, DEFAULT_SCREEN_TEXT_SETTINGS.orderLookupSubtitle, 180),
+    orderLookupOrderLabel: normalizeScreenText(value.orderLookupOrderLabel, DEFAULT_SCREEN_TEXT_SETTINGS.orderLookupOrderLabel, 80),
+    orderLookupEmailLabel: normalizeScreenText(value.orderLookupEmailLabel, DEFAULT_SCREEN_TEXT_SETTINGS.orderLookupEmailLabel, 80),
+    orderLookupButton: normalizeScreenText(value.orderLookupButton, DEFAULT_SCREEN_TEXT_SETTINGS.orderLookupButton, 80),
+  };
+}
+
+export async function getScreenTextSettings(): Promise<ScreenTextSettings> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: SCREEN_TEXT_SETTINGS_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return normalizeScreenTextSettings(null);
+
+  try {
+    return normalizeScreenTextSettings(JSON.parse(row.value));
+  } catch {
+    return normalizeScreenTextSettings(null);
+  }
+}
+
+export async function setScreenTextSettings(settings: unknown) {
+  const normalized = normalizeScreenTextSettings(settings);
+  const value = JSON.stringify(normalized);
+
+  await prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: SCREEN_TEXT_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: SCREEN_TEXT_SETTINGS_KEY,
+      value,
+      isSecret: false,
+    },
+    update: {
+      value,
+      isSecret: false,
+    },
+  });
+
+  return normalized;
+}
+
+function normalizeSocialUrl(value: unknown) {
+  const raw = String(value || "").trim().slice(0, 300);
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^[\w.-]+\.[a-z]{2,}/i.test(raw)) return `https://${raw}`;
+  return raw;
+}
+
+function normalizeSocialLinksSettings(input: unknown): SocialLinksSettings {
+  const value = input && typeof input === "object" ? input as Partial<SocialLinksSettings> : {};
+  return {
+    facebook: normalizeSocialUrl(value.facebook),
+    instagram: normalizeSocialUrl(value.instagram),
+    tiktok: normalizeSocialUrl(value.tiktok),
+  };
+}
+
+export async function getSocialLinksSettings(): Promise<SocialLinksSettings> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: SOCIAL_LINKS_SETTINGS_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return normalizeSocialLinksSettings(null);
+
+  try {
+    return normalizeSocialLinksSettings(JSON.parse(row.value));
+  } catch {
+    return normalizeSocialLinksSettings(null);
+  }
+}
+
+export async function setSocialLinksSettings(settings: unknown) {
+  const value = JSON.stringify(normalizeSocialLinksSettings(settings));
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: SOCIAL_LINKS_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: SOCIAL_LINKS_SETTINGS_KEY,
+      value,
+      isSecret: false,
+    },
+    update: {
+      value,
+      isSecret: false,
+    },
+  });
+}
+
 export async function getHomeCategoryTiles() {
   const row = await prisma.shippingProviderSetting.findUnique({
     where: {
@@ -297,7 +881,7 @@ export async function getHomeCategoryTiles() {
 }
 
 export async function setHomeCategoryTiles(tiles: HomeCategoryTile[]) {
-  const value = JSON.stringify(tiles.slice(0, 6));
+  const value = JSON.stringify(tiles);
 
   return prisma.shippingProviderSetting.upsert({
     where: {
@@ -309,6 +893,75 @@ export async function setHomeCategoryTiles(tiles: HomeCategoryTile[]) {
     create: {
       provider: STOREFRONT_SETTINGS_PROVIDER,
       key: HOME_CATEGORY_TILES_KEY,
+      value,
+      isSecret: false,
+    },
+    update: {
+      value,
+      isSecret: false,
+    },
+  });
+}
+
+export async function getHomeBannerSettings(): Promise<HomeBannerSettings> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: HOME_BANNER_SETTINGS_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return { enabled: false, slides: [] };
+
+  try {
+    const parsed = JSON.parse(row.value) as Partial<HomeBannerSettings>;
+    const rawSlides = Array.isArray(parsed.slides) ? parsed.slides : [];
+    const slides = rawSlides
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const slide = item as Partial<HomeBannerSlide>;
+        const id = String(slide.id || "").trim();
+        const imageUrl = String(slide.imageUrl || "").trim();
+        const title = String(slide.title || "").trim();
+        const subtitle = String(slide.subtitle || "").trim();
+        const href = String(slide.href || "").trim();
+        if (!id || !imageUrl) return null;
+        return { id, imageUrl, title, subtitle, href };
+      })
+      .filter((item): item is HomeBannerSlide => Boolean(item));
+
+    return { enabled: parsed.enabled === true, slides };
+  } catch {
+    return { enabled: false, slides: [] };
+  }
+}
+
+export async function setHomeBannerSettings(settings: HomeBannerSettings) {
+  const normalized: HomeBannerSettings = {
+    enabled: settings.enabled === true,
+    slides: settings.slides.map((slide) => ({
+      id: slide.id,
+      imageUrl: slide.imageUrl.trim(),
+      title: slide.title.trim().slice(0, 90),
+      subtitle: slide.subtitle.trim().slice(0, 120),
+      href: slide.href.trim().slice(0, 240),
+    })),
+  };
+  const value = JSON.stringify(normalized);
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: HOME_BANNER_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: HOME_BANNER_SETTINGS_KEY,
       value,
       isSecret: false,
     },
@@ -359,6 +1012,73 @@ export async function setTemporaryShutdownSettings(settings: TemporaryShutdownSe
     create: {
       provider: STOREFRONT_SETTINGS_PROVIDER,
       key: TEMPORARY_SHUTDOWN_KEY,
+      value,
+      isSecret: false,
+    },
+    update: {
+      value,
+      isSecret: false,
+    },
+  });
+}
+
+function normalizeEmailJobSettings(value: Partial<EmailJobSettings> | null | undefined): EmailJobSettings {
+  const reminderHours = Array.isArray(value?.paymentReminderHours)
+    ? value.paymentReminderHours
+        .map((item) => Math.floor(Number(item)))
+        .filter((item) => Number.isFinite(item) && item > 0 && item <= 24 * 30)
+        .slice(0, 5)
+    : DEFAULT_EMAIL_JOB_SETTINGS.paymentReminderHours;
+
+  return {
+    paymentRemindersEnabled: value?.paymentRemindersEnabled !== false,
+    paymentReminderHours: reminderHours.length ? reminderHours : DEFAULT_EMAIL_JOB_SETTINGS.paymentReminderHours,
+    maxPaymentReminders: Math.max(0, Math.min(5, Math.floor(Number(value?.maxPaymentReminders ?? DEFAULT_EMAIL_JOB_SETTINGS.maxPaymentReminders)))),
+    reviewRequestEnabled: value?.reviewRequestEnabled !== false,
+    reviewRequestDelayDays: Math.max(7, Math.min(15, Math.floor(Number(value?.reviewRequestDelayDays ?? DEFAULT_EMAIL_JOB_SETTINGS.reviewRequestDelayDays)))),
+    birthdayCouponEnabled: value?.birthdayCouponEnabled !== false,
+    birthdayCouponOffsetDays: Math.max(-30, Math.min(30, Math.floor(Number(value?.birthdayCouponOffsetDays ?? DEFAULT_EMAIL_JOB_SETTINGS.birthdayCouponOffsetDays)))),
+    birthdayCouponDiscountType: value?.birthdayCouponDiscountType === "amount" ? "amount" : "percent",
+    birthdayCouponDiscountValue: Math.max(0, Number(value?.birthdayCouponDiscountValue ?? DEFAULT_EMAIL_JOB_SETTINGS.birthdayCouponDiscountValue)),
+    birthdayCouponDurationDays: Math.max(1, Math.min(365, Math.floor(Number(value?.birthdayCouponDurationDays ?? DEFAULT_EMAIL_JOB_SETTINGS.birthdayCouponDurationDays)))),
+    birthdayCouponMinPurchaseAmount: Math.max(0, Number(value?.birthdayCouponMinPurchaseAmount ?? DEFAULT_EMAIL_JOB_SETTINGS.birthdayCouponMinPurchaseAmount)),
+    birthdayCouponMaxUses: Math.max(1, Math.min(20, Math.floor(Number(value?.birthdayCouponMaxUses ?? DEFAULT_EMAIL_JOB_SETTINGS.birthdayCouponMaxUses)))),
+  };
+}
+
+export async function getEmailJobSettings(): Promise<EmailJobSettings> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: EMAIL_JOB_SETTINGS_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return DEFAULT_EMAIL_JOB_SETTINGS;
+
+  try {
+    return normalizeEmailJobSettings(JSON.parse(row.value) as Partial<EmailJobSettings>);
+  } catch {
+    return DEFAULT_EMAIL_JOB_SETTINGS;
+  }
+}
+
+export async function setEmailJobSettings(settings: Partial<EmailJobSettings>) {
+  const value = JSON.stringify(normalizeEmailJobSettings(settings));
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: EMAIL_JOB_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: EMAIL_JOB_SETTINGS_KEY,
       value,
       isSecret: false,
     },
@@ -439,13 +1159,19 @@ function envSmtpSettings() {
 
 function normalizeSmtpSettings(value: Partial<StoredMailingSmtpSettings> | null | undefined): StoredMailingSmtpSettings {
   const port = String(value?.smtpPort || "").trim() || "587";
+  const authType = value?.smtpAuthType === "microsoft_oauth2" ? "microsoft_oauth2" : "password";
   return {
     smtpHost: String(value?.smtpHost || "").trim(),
     smtpPort: port,
     smtpUser: String(value?.smtpUser || "").trim(),
     smtpFrom: String(value?.smtpFrom || "").trim(),
     smtpReplyTo: String(value?.smtpReplyTo || "").trim(),
+    smtpAuthType: authType,
+    smtpMicrosoftClientId: String(value?.smtpMicrosoftClientId || "").trim(),
+    smtpMicrosoftTenantId: String(value?.smtpMicrosoftTenantId || "common").trim() || "common",
     encryptedSmtpPass: String(value?.encryptedSmtpPass || "").trim() || undefined,
+    encryptedMicrosoftClientSecret: String(value?.encryptedMicrosoftClientSecret || "").trim() || undefined,
+    encryptedMicrosoftRefreshToken: String(value?.encryptedMicrosoftRefreshToken || "").trim() || undefined,
   };
 }
 
@@ -471,10 +1197,37 @@ async function getStoredMailingSmtpSettings(): Promise<StoredMailingSmtpSettings
 
 export async function getResolvedSmtpConfig(): Promise<ResolvedSmtpConfig> {
   const stored = await getStoredMailingSmtpSettings();
+  if (
+    stored?.smtpAuthType === "microsoft_oauth2" &&
+    stored.smtpUser &&
+    stored.smtpMicrosoftClientId &&
+    stored.encryptedMicrosoftClientSecret &&
+    stored.encryptedMicrosoftRefreshToken
+  ) {
+    const clientSecret = decryptSecret(stored.encryptedMicrosoftClientSecret);
+    const refreshToken = decryptSecret(stored.encryptedMicrosoftRefreshToken);
+    if (clientSecret && refreshToken) {
+      return {
+        authType: "microsoft_oauth2",
+        host: stored.smtpHost || "smtp.office365.com",
+        port: Number(stored.smtpPort || "587"),
+        user: stored.smtpUser,
+        from: stored.smtpFrom || stored.smtpUser,
+        replyTo: stored.smtpReplyTo || undefined,
+        clientId: stored.smtpMicrosoftClientId,
+        clientSecret,
+        refreshToken,
+        tenantId: stored.smtpMicrosoftTenantId || "common",
+        source: "admin",
+      };
+    }
+  }
+
   if (stored?.smtpHost && stored.smtpUser && stored.encryptedSmtpPass) {
     const pass = decryptSecret(stored.encryptedSmtpPass);
     if (pass) {
       return {
+        authType: "password",
         host: stored.smtpHost,
         port: Number(stored.smtpPort || "587"),
         user: stored.smtpUser,
@@ -492,6 +1245,7 @@ export async function getResolvedSmtpConfig(): Promise<ResolvedSmtpConfig> {
   }
 
   return {
+    authType: "password",
     host: env.host,
     port: Number(env.port || "587"),
     user: env.user,
@@ -507,12 +1261,20 @@ export async function setMailingSmtpSettings(settings: {
   smtpUser: string;
   smtpFrom: string;
   smtpReplyTo: string;
+  smtpAuthType?: "password" | "microsoft_oauth2";
   smtpPass?: string;
+  smtpMicrosoftClientId?: string;
+  smtpMicrosoftTenantId?: string;
+  smtpMicrosoftClientSecret?: string;
+  smtpMicrosoftRefreshToken?: string;
 }) {
   const current = await getStoredMailingSmtpSettings();
   const smtpPass = String(settings.smtpPass || "").trim();
+  const microsoftClientSecret = String(settings.smtpMicrosoftClientSecret || "").trim();
+  const microsoftRefreshToken = String(settings.smtpMicrosoftRefreshToken || "").trim();
+  const hasNewSecret = Boolean(smtpPass || microsoftClientSecret || microsoftRefreshToken);
 
-  if (smtpPass && !canEncryptMailingSecrets()) {
+  if (hasNewSecret && !canEncryptMailingSecrets()) {
     throw new Error("MAILING_ENCRYPTION_KEY missing");
   }
 
@@ -522,15 +1284,75 @@ export async function setMailingSmtpSettings(settings: {
     smtpUser: settings.smtpUser,
     smtpFrom: settings.smtpFrom,
     smtpReplyTo: settings.smtpReplyTo,
+    smtpAuthType: settings.smtpAuthType,
+    smtpMicrosoftClientId: settings.smtpMicrosoftClientId,
+    smtpMicrosoftTenantId: settings.smtpMicrosoftTenantId,
     encryptedSmtpPass: smtpPass ? encryptSecret(smtpPass) : current?.encryptedSmtpPass,
+    encryptedMicrosoftClientSecret: microsoftClientSecret
+      ? encryptSecret(microsoftClientSecret)
+      : current?.encryptedMicrosoftClientSecret,
+    encryptedMicrosoftRefreshToken: microsoftRefreshToken
+      ? encryptSecret(microsoftRefreshToken)
+      : current?.encryptedMicrosoftRefreshToken,
   });
 
-  const hasPublicConfig = Boolean(value.smtpHost || value.smtpUser || value.smtpFrom || value.smtpReplyTo);
-  if (!hasPublicConfig && !smtpPass) {
+  const hasPublicConfig = Boolean(
+    value.smtpHost ||
+    value.smtpUser ||
+    value.smtpFrom ||
+    value.smtpReplyTo ||
+    value.smtpMicrosoftClientId
+  );
+  if (!hasPublicConfig && !hasNewSecret) {
     return prisma.shippingProviderSetting.deleteMany({
       where: { provider: STOREFRONT_SETTINGS_PROVIDER, key: MAILING_SMTP_SETTINGS_KEY },
     });
   }
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: MAILING_SMTP_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: MAILING_SMTP_SETTINGS_KEY,
+      value: JSON.stringify(value),
+      isSecret: true,
+    },
+    update: {
+      value: JSON.stringify(value),
+      isSecret: true,
+    },
+  });
+}
+
+export async function getMailingMicrosoftOAuthCredentials() {
+  const stored = await getStoredMailingSmtpSettings();
+  if (!stored?.smtpMicrosoftClientId || !stored.encryptedMicrosoftClientSecret) return null;
+
+  return {
+    smtpUser: stored.smtpUser,
+    smtpFrom: stored.smtpFrom,
+    smtpReplyTo: stored.smtpReplyTo,
+    smtpHost: stored.smtpHost || "smtp.office365.com",
+    smtpPort: stored.smtpPort || "587",
+    clientId: stored.smtpMicrosoftClientId,
+    clientSecret: decryptSecret(stored.encryptedMicrosoftClientSecret),
+    tenantId: stored.smtpMicrosoftTenantId || "common",
+  };
+}
+
+export async function disconnectMailingMicrosoftOAuth() {
+  const current = await getStoredMailingSmtpSettings();
+  if (!current) return null;
+
+  const value = normalizeSmtpSettings({
+    ...current,
+    encryptedMicrosoftRefreshToken: undefined,
+  });
 
   return prisma.shippingProviderSetting.upsert({
     where: {
@@ -575,7 +1397,15 @@ export async function getMailingSettings(): Promise<MailingSettings> {
 
   const storedSmtp = await getStoredMailingSmtpSettings();
   const envSmtp = envSmtpSettings();
-  const smtpSource = storedSmtp?.smtpHost && storedSmtp.smtpUser && storedSmtp.encryptedSmtpPass
+  const hasAdminMicrosoftOAuth2 = Boolean(
+    storedSmtp?.smtpAuthType === "microsoft_oauth2" &&
+    storedSmtp.smtpUser &&
+    storedSmtp.smtpMicrosoftClientId &&
+    storedSmtp.encryptedMicrosoftClientSecret &&
+    storedSmtp.encryptedMicrosoftRefreshToken
+  );
+  const hasAdminPasswordSmtp = Boolean(storedSmtp?.smtpHost && storedSmtp.smtpUser && storedSmtp.encryptedSmtpPass);
+  const smtpSource = hasAdminMicrosoftOAuth2 || hasAdminPasswordSmtp
     ? "admin"
     : envSmtp.host && envSmtp.user && envSmtp.pass
       ? "env"
@@ -589,6 +1419,11 @@ export async function getMailingSettings(): Promise<MailingSettings> {
     smtpFrom: storedSmtp?.smtpFrom || "",
     smtpReplyTo: storedSmtp?.smtpReplyTo || "",
     smtpPassConfigured: Boolean(storedSmtp?.encryptedSmtpPass),
+    smtpAuthType: storedSmtp?.smtpAuthType || "password",
+    smtpMicrosoftClientId: storedSmtp?.smtpMicrosoftClientId || "",
+    smtpMicrosoftTenantId: storedSmtp?.smtpMicrosoftTenantId || "common",
+    smtpMicrosoftClientSecretConfigured: Boolean(storedSmtp?.encryptedMicrosoftClientSecret),
+    smtpMicrosoftRefreshTokenConfigured: Boolean(storedSmtp?.encryptedMicrosoftRefreshToken),
     smtpSource,
   };
 }
@@ -632,7 +1467,14 @@ async function getStoredMercadoPagoSettings(): Promise<StoredMercadoPagoSettings
   try {
     const parsed = JSON.parse(row.value) as Partial<StoredMercadoPagoSettings>;
     const encryptedAccessToken = String(parsed.encryptedAccessToken || "").trim();
-    return encryptedAccessToken ? { encryptedAccessToken } : null;
+    const publicKey = String(parsed.publicKey || "").trim();
+    if (!encryptedAccessToken && !publicKey) return null;
+    return {
+      ...parsed,
+      encryptedAccessToken: encryptedAccessToken || undefined,
+      publicKey: publicKey || undefined,
+      cardPaymentEnabled: parsed.cardPaymentEnabled === true,
+    };
   } catch {
     return null;
   }
@@ -641,27 +1483,248 @@ async function getStoredMercadoPagoSettings(): Promise<StoredMercadoPagoSettings
 export async function getMercadoPagoSettings(): Promise<MercadoPagoSettings> {
   const stored = await getStoredMercadoPagoSettings();
   const envAccessToken = String(process.env.MP_ACCESS_TOKEN || "").trim();
+  const envPublicKey = String(process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY || "").trim();
 
   if (stored?.encryptedAccessToken) {
+    const isOAuth = stored.mode === "oauth" || Boolean(stored.encryptedRefreshToken);
+    const publicKey = isOAuth
+      ? stored.publicKey || ""
+      : envPublicKey || stored.platformPublicKey || stored.publicKey || "";
     return {
       accessTokenConfigured: true,
-      source: stored.mode === "oauth" || stored.encryptedRefreshToken ? "oauth" : "manual",
+      publicKeyConfigured: Boolean(publicKey),
+      cardPaymentEnabled: stored.cardPaymentEnabled === true,
+      publicKey,
+      source: isOAuth ? "oauth" : "manual",
       connectedUserId: stored.connectedUserId,
       expiresAt: stored.expiresAt,
     };
   }
 
   if (envAccessToken) {
-    return { accessTokenConfigured: true, source: "env" };
+    return { accessTokenConfigured: true, publicKeyConfigured: Boolean(envPublicKey), cardPaymentEnabled: false, publicKey: envPublicKey, source: "env" };
   }
 
-  return { accessTokenConfigured: false, source: "none" };
+  return { accessTokenConfigured: false, publicKeyConfigured: Boolean(envPublicKey), cardPaymentEnabled: false, publicKey: envPublicKey, source: "none" };
 }
 
-export async function setMercadoPagoSettings(settings: { accessToken?: string }) {
-  const accessToken = String(settings.accessToken || "").trim();
+function normalizeManualPaymentMethods(input: unknown): ManualPaymentMethodSettings[] {
+  const byKey = new Map<ManualPaymentMethodKey, ManualPaymentMethodSettings>(
+    DEFAULT_MANUAL_PAYMENT_METHODS.map((method) => [method.key, method]),
+  );
+  const raw = Array.isArray(input) ? input : [];
 
-  if (!accessToken) {
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const method = item as Partial<ManualPaymentMethodSettings>;
+    if (method.key !== "agreement" && method.key !== "cash" && method.key !== "transfer") continue;
+    const current = byKey.get(method.key);
+    if (!current) continue;
+    const rawBankDetails = method.bankDetails;
+    const bankDetails = rawBankDetails && typeof rawBankDetails === "object"
+      ? {
+          accountNumber: String(rawBankDetails.accountNumber || "").trim().slice(0, 100),
+          cbu: String(rawBankDetails.cbu || "").trim().slice(0, 100),
+          alias: String(rawBankDetails.alias || "").trim().slice(0, 100),
+          holder: String(rawBankDetails.holder || "").trim().slice(0, 120),
+          taxId: String(rawBankDetails.taxId || "").trim().slice(0, 100),
+          accountType: String(rawBankDetails.accountType || "").trim().slice(0, 100),
+          bank: String(rawBankDetails.bank || "").trim().slice(0, 160),
+        }
+      : current.bankDetails;
+    byKey.set(method.key, {
+      ...current,
+      enabled: method.enabled === true,
+      instructions: String(method.instructions || "").trim().slice(0, 500) || current.instructions,
+      ...(method.key === "transfer" ? { bankDetails } : {}),
+    });
+  }
+
+  return DEFAULT_MANUAL_PAYMENT_METHODS.map((method) => byKey.get(method.key) || method);
+}
+
+export async function getManualPaymentSettings(): Promise<ManualPaymentMethodSettings[]> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: MANUAL_PAYMENT_SETTINGS_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return DEFAULT_MANUAL_PAYMENT_METHODS;
+
+  try {
+    return normalizeManualPaymentMethods(JSON.parse(row.value));
+  } catch {
+    return DEFAULT_MANUAL_PAYMENT_METHODS;
+  }
+}
+
+export async function setManualPaymentSettings(methods: unknown) {
+  const value = JSON.stringify(normalizeManualPaymentMethods(methods));
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: MANUAL_PAYMENT_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: MANUAL_PAYMENT_SETTINGS_KEY,
+      value,
+      isSecret: false,
+    },
+    update: {
+      value,
+      isSecret: false,
+    },
+  });
+}
+
+function normalizePaymentFinancingDisplaySettings(input: unknown): PaymentFinancingDisplaySettings {
+  if (!input || typeof input !== "object") return DEFAULT_PAYMENT_FINANCING_DISPLAY_SETTINGS;
+  const value = input as Partial<PaymentFinancingDisplaySettings>;
+  const manualMethods: Partial<Record<ManualPaymentMethodKey, boolean>> =
+    value.manualMethods && typeof value.manualMethods === "object"
+    ? value.manualMethods
+    : {};
+  const merchantOptions = value.merchantOptions && typeof value.merchantOptions === "object"
+    ? value.merchantOptions as Partial<PaymentFinancingDisplaySettings["merchantOptions"]>
+    : {};
+  const merchantManualMethods: Partial<Record<ManualPaymentMethodKey, boolean>> = merchantOptions.manualMethods && typeof merchantOptions.manualMethods === "object"
+    ? merchantOptions.manualMethods as Partial<Record<ManualPaymentMethodKey, boolean>>
+    : {};
+
+  return {
+    goCuotas: value.goCuotas !== false,
+    mercadopago: value.mercadopago !== false,
+    merchantCanSee: value.merchantCanSee !== false,
+    merchantOptions: {
+      goCuotas: merchantOptions.goCuotas !== false,
+      mercadopago: merchantOptions.mercadopago !== false,
+      manualMethods: {
+        agreement: merchantManualMethods.agreement !== false,
+        cash: merchantManualMethods.cash !== false,
+        transfer: merchantManualMethods.transfer !== false,
+      },
+    },
+    manualMethods: {
+      agreement: manualMethods.agreement !== false,
+      cash: manualMethods.cash !== false,
+      transfer: manualMethods.transfer !== false,
+    },
+  };
+}
+
+export async function getPaymentFinancingDisplaySettings(): Promise<PaymentFinancingDisplaySettings> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: PAYMENT_FINANCING_DISPLAY_SETTINGS_KEY,
+      },
+    },
+    select: { value: true },
+  });
+
+  if (!row?.value) return DEFAULT_PAYMENT_FINANCING_DISPLAY_SETTINGS;
+
+  try {
+    return normalizePaymentFinancingDisplaySettings(JSON.parse(row.value));
+  } catch {
+    return DEFAULT_PAYMENT_FINANCING_DISPLAY_SETTINGS;
+  }
+}
+
+export async function setPaymentFinancingDisplaySettings(settings: unknown) {
+  const value = JSON.stringify(normalizePaymentFinancingDisplaySettings(settings));
+
+  return prisma.shippingProviderSetting.upsert({
+    where: {
+      provider_key: {
+        provider: STOREFRONT_SETTINGS_PROVIDER,
+        key: PAYMENT_FINANCING_DISPLAY_SETTINGS_KEY,
+      },
+    },
+    create: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: PAYMENT_FINANCING_DISPLAY_SETTINGS_KEY,
+      value,
+      isSecret: false,
+    },
+    update: {
+      value,
+      isSecret: false,
+    },
+  });
+}
+
+function normalizeInstallmentPlans(input: unknown): InstallmentPlan[] {
+  if (!Array.isArray(input)) return DEFAULT_INSTALLMENT_PLANS;
+  const plans = input
+    .map((item) => {
+      const value = item as Partial<InstallmentPlan>;
+      return {
+        installments: Math.max(1, Math.min(24, Math.floor(Number(value?.installments) || 0))),
+        minimumAmount: Math.max(0, Math.floor(Number(value?.minimumAmount) || 0)),
+      };
+    })
+    .filter((item) => item.installments > 0);
+  return plans.length > 0 ? plans : DEFAULT_INSTALLMENT_PLANS;
+}
+
+export async function getInstallmentPlans(): Promise<InstallmentPlan[]> {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: { provider_key: { provider: STOREFRONT_SETTINGS_PROVIDER, key: INSTALLMENT_PLANS_SETTINGS_KEY } },
+    select: { value: true },
+  });
+  if (!row?.value) return DEFAULT_INSTALLMENT_PLANS;
+  try {
+    return normalizeInstallmentPlans(JSON.parse(row.value));
+  } catch {
+    return DEFAULT_INSTALLMENT_PLANS;
+  }
+}
+
+export async function setInstallmentPlans(settings: unknown) {
+  return prisma.shippingProviderSetting.upsert({
+    where: { provider_key: { provider: STOREFRONT_SETTINGS_PROVIDER, key: INSTALLMENT_PLANS_SETTINGS_KEY } },
+    create: { provider: STOREFRONT_SETTINGS_PROVIDER, key: INSTALLMENT_PLANS_SETTINGS_KEY, value: JSON.stringify(normalizeInstallmentPlans(settings)), isSecret: false },
+    update: { value: JSON.stringify(normalizeInstallmentPlans(settings)), isSecret: false },
+  });
+}
+
+export async function getCheckoutPaymentSettings(): Promise<CheckoutPaymentSettings> {
+  const [mercadoPagoSettings, manualMethods, financingDisplay, installmentPlans] = await Promise.all([
+    getMercadoPagoSettings(),
+    getManualPaymentSettings(),
+    getPaymentFinancingDisplaySettings(),
+    getInstallmentPlans(),
+  ]);
+
+  return {
+    mercadopagoEnabled: mercadoPagoSettings.accessTokenConfigured,
+    mercadoPagoCardEnabled: mercadoPagoSettings.cardPaymentEnabled,
+    mercadoPagoPublicKey: mercadoPagoSettings.publicKey || "",
+    mercadoPagoDebug: process.env.MERCADOPAGO_DEBUG === "true",
+    manualMethods,
+    financingDisplay,
+    installmentPlans,
+  };
+}
+
+export async function setMercadoPagoSettings(settings: { accessToken?: string; publicKey?: string; cardPaymentEnabled?: boolean }) {
+  const accessToken = String(settings.accessToken || "").trim();
+  const publicKey = String(settings.publicKey || "").trim();
+  const hasCardPaymentEnabled = typeof settings.cardPaymentEnabled === "boolean";
+  const stored = await getStoredMercadoPagoSettings();
+
+  if (!accessToken && !publicKey && !stored?.encryptedAccessToken) {
     return prisma.shippingProviderSetting.deleteMany({
       where: { provider: STOREFRONT_SETTINGS_PROVIDER, key: MERCADOPAGO_SETTINGS_KEY },
     });
@@ -671,10 +1734,20 @@ export async function setMercadoPagoSettings(settings: { accessToken?: string })
     throw new Error("APP_SECRET_ENCRYPTION_KEY or MAILING_ENCRYPTION_KEY missing");
   }
 
-  const value: StoredMercadoPagoSettings = {
-    encryptedAccessToken: encryptSecret(accessToken),
-    mode: "manual",
-  };
+  const value: StoredMercadoPagoSettings = accessToken
+    ? {
+        encryptedAccessToken: encryptSecret(accessToken),
+        publicKey: stored?.publicKey,
+        platformPublicKey: publicKey || stored?.platformPublicKey,
+        cardPaymentEnabled: hasCardPaymentEnabled ? settings.cardPaymentEnabled : stored?.cardPaymentEnabled === true,
+        mode: "manual",
+      }
+    : {
+        ...stored,
+        publicKey: stored?.publicKey,
+        platformPublicKey: publicKey || stored?.platformPublicKey,
+        cardPaymentEnabled: hasCardPaymentEnabled ? settings.cardPaymentEnabled : stored?.cardPaymentEnabled === true,
+      };
 
   return prisma.shippingProviderSetting.upsert({
     where: {
@@ -699,6 +1772,7 @@ export async function setMercadoPagoSettings(settings: { accessToken?: string })
 export async function setMercadoPagoOAuthSettings(settings: {
   accessToken: string;
   refreshToken?: string;
+  publicKey?: string;
   expiresIn?: number;
   connectedUserId?: string;
   tokenType?: string;
@@ -706,6 +1780,8 @@ export async function setMercadoPagoOAuthSettings(settings: {
 }) {
   const accessToken = String(settings.accessToken || "").trim();
   const refreshToken = String(settings.refreshToken || "").trim();
+  const publicKey = String(settings.publicKey || "").trim();
+  const stored = await getStoredMercadoPagoSettings();
 
   if (!accessToken) throw new Error("Mercado Pago access token missing");
   if (!canEncryptMercadoPagoSecrets()) {
@@ -720,7 +1796,10 @@ export async function setMercadoPagoOAuthSettings(settings: {
 
   const value: StoredMercadoPagoSettings = {
     encryptedAccessToken: encryptSecret(accessToken),
-    encryptedRefreshToken: refreshToken ? encryptSecret(refreshToken) : undefined,
+    encryptedRefreshToken: refreshToken ? encryptSecret(refreshToken) : stored?.encryptedRefreshToken,
+    publicKey: publicKey || stored?.publicKey,
+    platformPublicKey: stored?.platformPublicKey,
+    cardPaymentEnabled: stored?.cardPaymentEnabled === true,
     expiresAt,
     connectedUserId: String(settings.connectedUserId || "").trim() || undefined,
     tokenType: String(settings.tokenType || "").trim() || undefined,
@@ -781,6 +1860,7 @@ async function refreshMercadoPagoOAuthToken(stored: StoredMercadoPagoSettings) {
   await setMercadoPagoOAuthSettings({
     accessToken: String(data.access_token || ""),
     refreshToken: String(data.refresh_token || ""),
+    publicKey: String(data.public_key || stored.publicKey || ""),
     expiresIn: Number(data.expires_in || 0),
     connectedUserId: data.user_id ? String(data.user_id) : stored.connectedUserId,
     tokenType: data.token_type ? String(data.token_type) : stored.tokenType,
@@ -803,4 +1883,28 @@ export async function getResolvedMercadoPagoAccessToken() {
   }
 
   return String(process.env.MP_ACCESS_TOKEN || "").trim();
+}
+
+export async function getMercadoPagoOAuthPaymentContext() {
+  const stored = await getStoredMercadoPagoSettings();
+  const isOAuth = Boolean(stored?.encryptedAccessToken && (stored.mode === "oauth" || stored.encryptedRefreshToken));
+  if (!stored?.encryptedAccessToken || !isOAuth) return null;
+
+  let accessToken: string;
+  if (stored.encryptedRefreshToken && stored.expiresAt) {
+    const expiresAt = new Date(stored.expiresAt).getTime();
+    const shouldRefresh = Number.isFinite(expiresAt) && expiresAt - Date.now() < 7 * 24 * 60 * 60 * 1000;
+    accessToken = shouldRefresh
+      ? await refreshMercadoPagoOAuthToken(stored)
+      : decryptSecret(stored.encryptedAccessToken);
+  } else {
+    accessToken = decryptSecret(stored.encryptedAccessToken);
+  }
+
+  return {
+    accessToken,
+    connectedUserId: stored.connectedUserId,
+    scope: stored.scope,
+    tokenType: stored.tokenType,
+  };
 }

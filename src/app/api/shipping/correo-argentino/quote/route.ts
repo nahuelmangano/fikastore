@@ -52,6 +52,11 @@ async function envInt(name: string, def: number) {
   return Math.max(1, Math.round(v));
 }
 
+async function shippingSurcharge() {
+  const v = Number(await getProviderConfigValue("correo", "SHIPPING_SURCHARGE", "0"));
+  return Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : 0;
+}
+
 function clampDim(n: number) {
   return Math.min(150, Math.max(1, Math.round(n)));
 }
@@ -110,6 +115,7 @@ export async function POST(req: Request) {
   }
 
   try {
+    const surcharge = await shippingSurcharge();
     const toFormBody = (p: RatesPayload) => {
       const form = new URLSearchParams();
       form.set("customerId", String(p.customerId));
@@ -161,6 +167,14 @@ export async function POST(req: Request) {
       return { data, hasRates };
     };
 
+    const applySurcharge = (rates: CorreoRate[] | undefined) =>
+      Array.isArray(rates)
+        ? rates.map((rate) => ({
+            ...rate,
+            price: Math.round((Number(rate?.price || 0) + surcharge) * 100) / 100,
+          }))
+        : rates;
+
     const attempts = payload.deliveredType ? [payload.deliveredType] : ["D", "S"];
 
     let last: CorreoQuoteResponse | null = null;
@@ -182,7 +196,7 @@ export async function POST(req: Request) {
         }
       }
       if (payload.deliveredType && hasRates) {
-        return NextResponse.json({ ok: true, quote: data });
+        return NextResponse.json({ ok: true, quote: { ...data, rates: applySurcharge(data.rates) } });
       }
     }
 
@@ -191,7 +205,7 @@ export async function POST(req: Request) {
         ok: true,
         quote: {
           ...(baseResponse || {}),
-          rates: mergedRates,
+          rates: applySurcharge(mergedRates),
         },
       });
     }

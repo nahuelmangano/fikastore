@@ -31,7 +31,7 @@ type SalesOrder = {
   orderNumber: number;
   total: number;
   status: string;
-  userId: string;
+  userId: string | null;
   createdAt: string;
   items: {
     id: string;
@@ -59,6 +59,18 @@ type LowStockProduct = {
   stock: number;
   isActive: boolean;
   imageUrl: string | null;
+};
+
+type AbandonedCart = {
+  id: string;
+  customerName: string;
+  customerEmail: string;
+  itemCount: number;
+  total: number;
+  items: { name: string; quantity: number }[];
+  reminderSentAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type PeriodKey = "all" | "today" | "7d" | "30d" | "month";
@@ -134,18 +146,30 @@ function inventoryStatus(stock: number) {
   return { key: "ok" as const, label: "Stock correcto", variant: "success" as const };
 }
 
+function formatMetricsStartAt(value: string | null) {
+  if (!value) return null;
+  return new Intl.DateTimeFormat("es-AR", { dateStyle: "long", timeStyle: "short" }).format(new Date(value));
+}
+
 export default function AdminStatsDashboard({
   salesOrders,
   lowStockProducts,
+  abandonedCarts,
+  showAbandonedCarts,
   salesStatuses,
+  metricsStartAt,
 }: {
   salesOrders: SalesOrder[];
   lowStockProducts: LowStockProduct[];
+  abandonedCarts: AbandonedCart[];
+  showAbandonedCarts: boolean;
   salesStatuses: string[];
+  metricsStartAt: string | null;
 }) {
   const [period, setPeriod] = useState<PeriodKey>("all");
   const [inventoryFilter, setInventoryFilter] = useState<InventoryFilter>("all");
   const [inventoryQuery, setInventoryQuery] = useState("");
+  const metricsStartLabel = formatMetricsStartAt(metricsStartAt);
 
   const periodStart = getPeriodStart(period);
   const periodLabel = periodOptions.find((option) => option.value === period)?.label || "Todo el historial";
@@ -330,11 +354,16 @@ export default function AdminStatsDashboard({
           subtitle="Analizá el rendimiento comercial y el estado del inventario de tu tienda."
           backHref="/admin"
         />
+        {metricsStartLabel ? (
+          <div className="mt-4 rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-4 py-3 text-sm text-[var(--admin-muted)]">
+            Métricas comerciales calculadas desde {metricsStartLabel}.
+          </div>
+        ) : null}
 
         <SectionCard className="mt-8 xl:mt-6">
           <PageToolbar
             title="Período"
-            description={`Métricas calculadas sobre: ${periodLabel}. Pedidos considerados: ${salesStatuses.join(" / ")}.`}
+            description={`Métricas calculadas sobre: ${periodLabel}${metricsStartLabel ? `, desde ${metricsStartLabel}` : ""}. Pedidos considerados: ${salesStatuses.join(" / ")}.`}
             filters={<FilterChips options={periodOptions} value={period} onChange={setPeriod} ariaLabel="Seleccionar período de estadísticas" />}
           />
         </SectionCard>
@@ -347,6 +376,8 @@ export default function AdminStatsDashboard({
           <StatCard icon={Package} title="Producto más vendido" value={topProduct?.baseName || "Sin ventas"} description={topProduct ? `${topProduct.units} unidad${topProduct.units === 1 ? "" : "es"} vendida${topProduct.units === 1 ? "" : "s"}` : "No hay datos suficientes"} />
           <StatCard icon={Boxes} title="Unidades vendidas" value={unitsSold} description="Suma de productos vendidos" />
         </section>
+
+        {showAbandonedCarts ? <AbandonedCartsSection carts={abandonedCarts} /> : null}
 
         <section className="mt-8 xl:mt-6 grid gap-6 xl:gap-4 xl:grid-cols-[1.25fr_0.75fr]">
           <SectionCard title="Ventas en el tiempo" description="Monto vendido por día dentro del período seleccionado.">
@@ -460,6 +491,33 @@ export default function AdminStatsDashboard({
         </SectionCard>
       </div>
     </main>
+  );
+}
+
+function AbandonedCartsSection({ carts }: { carts: AbandonedCart[] }) {
+  return (
+    <SectionCard className="mt-8 xl:mt-6" title="Carritos abandonados" description="Clientes con productos guardados que todavía no completaron su compra.">
+      {carts.length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="border-b border-[var(--admin-border)] text-xs uppercase tracking-wide text-[var(--admin-muted-2)]">
+              <tr><th className="px-3 py-3">Cliente</th><th className="px-3 py-3">Productos</th><th className="px-3 py-3">Total estimado</th><th className="px-3 py-3">Última actividad</th><th className="px-3 py-3">Recordatorio</th></tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--admin-border)]">
+              {carts.map((cart) => (
+                <tr key={cart.id} className="align-top hover:bg-[var(--admin-surface-muted)]">
+                  <td className="px-3 py-4"><div className="font-semibold text-[var(--admin-text)]">{cart.customerName}</div><div className="mt-1 text-xs text-[var(--admin-muted)]">{cart.customerEmail}</div></td>
+                  <td className="max-w-xs px-3 py-4 text-[var(--admin-text-soft)]"><div>{cart.itemCount} unidad{cart.itemCount === 1 ? "" : "es"}</div><div className="mt-1 truncate text-xs text-[var(--admin-muted)]" title={cart.items.map((item) => `${item.name} x${item.quantity}`).join(" · ")}>{cart.items.map((item) => `${item.name} x${item.quantity}`).join(" · ") || "Sin detalle"}</div></td>
+                  <td className="px-3 py-4 font-semibold text-[var(--admin-text)]">{money(cart.total)}</td>
+                  <td className="px-3 py-4 text-[var(--admin-muted)]">{fullDate(cart.updatedAt)}</td>
+                  <td className="px-3 py-4"><StatusBadge label={cart.reminderSentAt ? "Enviado" : "Pendiente"} variant={cart.reminderSentAt ? "success" : "warning"} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <EmptyState icon={ShoppingBag} title="No hay carritos abandonados." description="Los carritos guardados por clientes aparecerán en esta sección." />}
+    </SectionCard>
   );
 }
 

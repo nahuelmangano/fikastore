@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import ProductDetailClient from "./ui";
 import { getAutomaticDiscountsForProducts } from "@/lib/promotions";
 import StoreTemporarilyClosed from "@/components/StoreTemporarilyClosed";
-import { getTemporaryShutdownSettings } from "@/lib/storeSettings";
+import { getCheckoutPaymentSettings, getTemporaryShutdownSettings } from "@/lib/storeSettings";
 
 function splitProductName(name: string) {
   const [base, ...rest] = name.split(/\s+—\s+/);
@@ -31,11 +31,15 @@ function sortVariantsBySize<T extends { name: string }>(variants: T[]) {
 
 export default async function ProductDetailPage({
   params,
+  searchParams,
 }: {
   params: { slug?: string } | Promise<{ slug?: string }>;
+  searchParams?: { variant?: string } | Promise<{ variant?: string }>;
 }) {
   const resolvedParams = await Promise.resolve(params);
+  const resolvedSearchParams = await Promise.resolve(searchParams);
   const slug = resolvedParams?.slug?.trim();
+  const initialVariantId = String(resolvedSearchParams?.variant || "").trim() || null;
   if (!slug) return notFound();
 
   const temporaryShutdown = await getTemporaryShutdownSettings();
@@ -45,31 +49,123 @@ export default async function ProductDetailPage({
 
   const product = await prisma.product.findUnique({
     where: { slug },
-    include: { images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } },
+    include: {
+      images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
+      options: {
+        orderBy: { position: "asc" },
+        include: {
+          values: { orderBy: { position: "asc" } },
+        },
+      },
+      variants: {
+        where: { isActive: true },
+        orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+        include: {
+          images: {
+            orderBy: [{ sortOrder: "asc" }, { imageId: "asc" }],
+            include: {
+              image: true,
+            },
+          },
+          values: {
+            include: {
+              optionValue: {
+                include: {
+                  option: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
   });
 
   if (!product || !product.isActive) return notFound();
 
   const { baseName } = splitProductName(product.name);
-  const variants = await prisma.product.findMany({
-    where: {
-      isActive: true,
-      OR: [{ name: baseName }, { name: { startsWith: `${baseName} —` } }],
-    },
-    include: { images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } },
-    orderBy: [{ name: "asc" }],
-  });
+  const legacyVariants = product.hasVariants
+    ? []
+    : await prisma.product.findMany({
+        where: {
+          isActive: true,
+          OR: [{ name: baseName }, { name: { startsWith: `${baseName} —` } }],
+        },
+        include: { images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } },
+        orderBy: [{ name: "asc" }],
+      });
 
-  const activeVariants = sortVariantsBySize(variants.length > 0 ? variants : [product]);
-  const promoMap = await getAutomaticDiscountsForProducts(activeVariants.map((variant) => variant.id));
+  const activeVariants = sortVariantsBySize(legacyVariants.length > 0 ? legacyVariants : [product]);
+  const discountTargetIds = product.hasVariants ? [product.id] : activeVariants.map((variant) => variant.id);
+  const [paymentSettings, cashPromoMap, transferPromoMap, mercadoPagoPromoMap, agreementPromoMap, productCashPromoMap, productTransferPromoMap, globalCashPromoMap, globalTransferPromoMap, globalMercadoPagoPromoMap, globalAgreementPromoMap] = await Promise.all([
+    getCheckoutPaymentSettings(),
+    getAutomaticDiscountsForProducts(discountTargetIds, "cash"),
+    getAutomaticDiscountsForProducts(discountTargetIds, "transfer"),
+    getAutomaticDiscountsForProducts(discountTargetIds, "mercadopago"),
+    getAutomaticDiscountsForProducts(discountTargetIds, "agreement"),
+    getAutomaticDiscountsForProducts(discountTargetIds, "cash", false),
+    getAutomaticDiscountsForProducts(discountTargetIds, "transfer", false),
+    getAutomaticDiscountsForProducts(discountTargetIds, "cash", true, true),
+    getAutomaticDiscountsForProducts(discountTargetIds, "transfer", true, true),
+    getAutomaticDiscountsForProducts(discountTargetIds, "mercadopago", true, true),
+    getAutomaticDiscountsForProducts(discountTargetIds, "agreement", true, true),
+  ]);
+  const promoMap = new Map(
+    discountTargetIds.map((id) => [
+      id,
+      Math.max(
+        cashPromoMap.get(id) ?? 0,
+        transferPromoMap.get(id) ?? 0,
+        mercadoPagoPromoMap.get(id) ?? 0,
+        agreementPromoMap.get(id) ?? 0
+      ),
+    ])
+  );
   const promoPercent = promoMap.get(product.id) ?? 0;
+  const productPromoPercents = Object.fromEntries(
+    discountTargetIds.map((id) => [id, Math.max(productCashPromoMap.get(id) ?? 0, productTransferPromoMap.get(id) ?? 0)])
+  );
 
   return (
     <ProductDetailClient
       product={product}
-      variants={activeVariants}
+      variants={product.hasVariants ? [product] : activeVariants}
+      modernVariantOptions={product.options.map((option) => ({
+        id: option.id,
+        name: option.name,
+        values: option.values.map((value) => ({
+          id: value.id,
+          value: value.value,
+        })),
+      }))}
+      modernVariants={product.variants.map((variant) => ({
+        id: variant.id,
+        label: variant.label,
+        sku: variant.sku,
+        stock: variant.stock,
+        priceOverride: variant.priceOverride ? Number(variant.priceOverride) : null,
+        optionValueIds: variant.values.map((value) => value.optionValueId),
+        imageUrls: variant.images
+          .map((item) => (item.image.visible ? item.image.url : null))
+          .filter(Boolean) as string[],
+        }))}
+      initialModernVariantId={initialVariantId}
       promoPercent={promoPercent}
-      promoPercents={Object.fromEntries(promoMap)}
+      productPromoPercents={productPromoPercents}
+      promoPercents={Object.fromEntries(product.hasVariants ? [[product.id, promoPercent]] : promoMap)}
+      promoPercentsByPaymentMethod={{
+        cash: Object.fromEntries(cashPromoMap),
+        transfer: Object.fromEntries(transferPromoMap),
+        mercadopago: Object.fromEntries(mercadoPagoPromoMap),
+        agreement: Object.fromEntries(agreementPromoMap),
+      }}
+      globalPromoPercentsByPaymentMethod={{
+        cash: Object.fromEntries(globalCashPromoMap),
+        transfer: Object.fromEntries(globalTransferPromoMap),
+        mercadopago: Object.fromEntries(globalMercadoPagoPromoMap),
+        agreement: Object.fromEntries(globalAgreementPromoMap),
+      }}
+      paymentSettings={paymentSettings}
     />
   );
 }

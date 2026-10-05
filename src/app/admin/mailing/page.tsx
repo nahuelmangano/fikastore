@@ -9,12 +9,16 @@ export default async function MailingPage() {
   const role = (session?.user as { role?: string } | undefined)?.role;
   if (!isStaffRole(role)) redirect("/admin");
 
+  const isAdmin = isAdminRole(role);
   const settings = await getMailingSettings();
   return (
     <AdminMailingPage
       initialSettings={settings}
       canSaveSmtpSecrets={canEncryptMailingSecrets()}
-      canManageSmtp={isAdminRole(role)}
+      canManageSmtp={isAdmin}
+      canManageAutomaticEmails
+      canManageAutomaticEmailAdminActions={isAdmin}
+      canViewMerchantEmails={isAdmin}
     />
   );
 }

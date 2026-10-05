@@ -2,7 +2,7 @@ function trimTrailingSlash(value: string) {
   return value.replace(/\/$/, "");
 }
 
-function isPrivateOrLocalHost(hostname: string) {
+export function isPrivateOrLocalHost(hostname: string) {
   const host = hostname.toLowerCase();
 
   if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true;
@@ -49,6 +49,12 @@ export function publicBaseUrl(req?: Request) {
 
     const origin = usablePublicUrl(req.headers.get("origin"));
     if (origin) return origin;
+
+    const referer = req.headers.get("referer");
+    if (referer) {
+      const fromReferer = usablePublicUrl(referer);
+      if (fromReferer) return fromReferer;
+    }
   }
 
   return trimTrailingSlash(process.env.SITE_URL || process.env.NEXTAUTH_URL || "http://localhost:3000");

@@ -1,4 +1,13 @@
 export function sanitizeRichText(value: string | null | undefined) {
+  function attr(attrs: string, name: string) {
+    const match = attrs.match(new RegExp(`\\s${name}=(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
+    return match?.[1] || match?.[2] || match?.[3] || "";
+  }
+
+  function cleanAttr(value: string) {
+    return value.replace(/"/g, "&quot;");
+  }
+
   return String(value || "")
     .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
     .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, "")
@@ -6,12 +15,21 @@ export function sanitizeRichText(value: string | null | undefined) {
     .replace(/\s(href|src)=(?:"javascript:[^"]*"|'javascript:[^']*'|javascript:[^\s>]+)/gi, "")
     .replace(/<img\b(?![^>]*\bsrc=)[^>]*>/gi, "")
     .replace(/<img\b([^>]*)>/gi, (_match, attrs: string) => {
-      const src = String(attrs).match(/\ssrc=(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
-      const alt = String(attrs).match(/\salt=(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
-      const srcValue = src?.[1] || src?.[2] || src?.[3] || "";
-      const altValue = alt?.[1] || alt?.[2] || alt?.[3] || "";
+      const srcValue = attr(String(attrs), "src");
+      const altValue = attr(String(attrs), "alt");
+      const width = attr(String(attrs), "width").replace(/[^\d]/g, "");
+      const height = attr(String(attrs), "height").replace(/[^\d]/g, "");
+      const style = attr(String(attrs), "style");
       if (!srcValue || /^javascript:/i.test(srcValue)) return "";
-      return `<img src="${srcValue.replace(/"/g, "&quot;")}" alt="${altValue.replace(/"/g, "&quot;")}" loading="lazy">`;
+      const safeStyle = /javascript:|expression\s*\(|url\s*\(/i.test(style) ? "" : style;
+      return [
+        `<img src="${cleanAttr(srcValue)}"`,
+        `alt="${cleanAttr(altValue)}"`,
+        width ? `width="${width}"` : "",
+        height ? `height="${height}"` : "",
+        safeStyle ? `style="${cleanAttr(safeStyle)}"` : "",
+        ">",
+      ].filter(Boolean).join(" ");
     })
     .trim();
 }

@@ -35,6 +35,7 @@ function splitAddress(line: string) {
 type CorreoImportOrder = Awaited<ReturnType<typeof getCorreoImportOrder>>;
 type CorreoShipmentImportOptions = {
   recipientEmail?: string;
+  extOrderId?: string;
 };
 
 function errorMessage(e: unknown) {
@@ -82,7 +83,10 @@ export async function buildCorreoShipmentPayload(
   const { streetName, streetNumber } = splitAddress(order.shippingAddressLine);
   const recipientEmail =
     options.recipientEmail ||
-    order.user?.email || (await envString("CORREO_ARG_RECIPIENT_EMAIL")) || sender.email;
+    order.contactEmail ||
+    order.user?.email ||
+    (await envString("CORREO_ARG_RECIPIENT_EMAIL")) ||
+    sender.email;
   const recipientProvince =
     order.shippingProvinceCode ||
     (await envString("CORREO_ARG_RECIPIENT_PROVINCE_CODE")) ||
@@ -98,7 +102,7 @@ export async function buildCorreoShipmentPayload(
 
   return {
     customerId: await requireEnv("CORREO_ARG_CUSTOMER_ID"),
-    extOrderId: order.id,
+    extOrderId: options.extOrderId || order.id,
     orderNumber: order.orderNumber || undefined,
     sender,
     recipient: {
@@ -113,8 +117,8 @@ export async function buildCorreoShipmentPayload(
       address: {
         streetName,
         streetNumber,
-        floor: "",
-        apartment: "",
+        floor: order.shippingFloor || "",
+        apartment: order.shippingApartment || "",
         city: order.shippingCity,
         provinceCode: recipientProvince,
         postalCode: order.shippingZip,
@@ -142,7 +146,11 @@ export async function importCorreoShipment(
     return { ok: true as const, shipment: existingShipment, reused: true };
   }
 
-  const payload = await buildCorreoShipmentPayload(order, options);
+  const extOrderId =
+    existingShipment && (existingShipment.status !== "IMPORTED" || !existingShipment.shippingId)
+      ? `${order.id}-${Date.now().toString(36)}`
+      : order.id;
+  const payload = await buildCorreoShipmentPayload(order, { ...options, extOrderId });
 
   let placeholder: CorreoShipment;
   try {

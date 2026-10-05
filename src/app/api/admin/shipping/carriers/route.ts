@@ -1,8 +1,17 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { getShippingCarriers, type ShippingCarrierKey } from "@/lib/shippingCarriers";
-import { isStaffRole } from "@/lib/roles";
+import {
+  createCustomShippingCarrier,
+  getShippingCarriers,
+  isMissingVisibleToMerchantError,
+  isCustomShippingCarrierKey,
+  setCustomShippingCarrierSettings,
+  type ShippingCarrierKey,
+  type ShippingDeliveryTypeKey,
+  type ShippingPickupPoint,
+} from "@/lib/shippingCarriers";
+import { isAdminRole, isStaffRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
 
@@ -14,29 +23,130 @@ function isValidKey(k: string): k is ShippingCarrierKey {
   return k === "epick" || k === "andreani" || k === "correo" || k === "pickup";
 }
 
+function canTargetCarrierKey(key: string) {
+  return isValidKey(key) || isCustomShippingCarrierKey(key);
+}
+
+function normalizeDeliveryTypes(value: unknown): ShippingDeliveryTypeKey[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is ShippingDeliveryTypeKey => item === "D" || item === "S");
+}
+
 export async function GET() {
   const session = await auth();
-  const role = (session?.user as any)?.role as string | undefined;
+  const role = (session?.user as { role?: string } | undefined)?.role;
   if (!isStaffRole(role)) return deny();
 
-  const carriers = await getShippingCarriers();
+  const isAdmin = isAdminRole(role);
+  const carriers = await getShippingCarriers({ visibleToMerchantOnly: !isAdmin });
   return NextResponse.json({
     ok: true,
-    carriers: carriers.map((c) => ({ key: c.key, name: c.name, enabled: c.enabled })),
+    carriers: carriers.map((c) => ({
+      key: c.key,
+      name: c.name,
+      enabled: c.enabled,
+      visibleToMerchant: c.visibleToMerchant,
+      custom: c.custom,
+      description: c.description,
+      flatRate: c.flatRate,
+      pricingMode: c.pricingMode,
+      pickupPoints: c.pickupPoints,
+      deliveryDays: c.deliveryDays,
+      shippingSurcharge: c.shippingSurcharge,
+      freeShippingMinimumSubtotal: c.freeShippingMinimumSubtotal,
+      freeShippingMinimumDeliveryTypes: c.freeShippingMinimumDeliveryTypes,
+    })),
   });
+}
+
+export async function POST(req: Request) {
+  const session = await auth();
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  if (!isStaffRole(role)) return deny();
+
+  const body = (await req.json().catch(() => null)) as {
+    name?: string;
+    description?: string;
+    flatRate?: number;
+    pricingMode?: "fixed" | "agreement" | "free";
+    pickupPoints?: ShippingPickupPoint[];
+    deliveryDays?: string;
+    shippingSurcharge?: number;
+    freeShippingMinimumSubtotal?: number;
+    freeShippingMinimumDeliveryTypes?: string[];
+  } | null;
+
+  try {
+    const carrier = await createCustomShippingCarrier({
+      name: String(body?.name || ""),
+      description: String(body?.description || ""),
+      flatRate: Number(body?.flatRate || 0),
+      pricingMode: body?.pricingMode === "agreement" ? "agreement" : body?.pricingMode === "free" ? "free" : "fixed",
+      pickupPoints: Array.isArray(body?.pickupPoints) ? body.pickupPoints : [],
+    });
+    return NextResponse.json({ ok: true, carrier });
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : "No se pudo crear el método." },
+      { status: 400 },
+    );
+  }
 }
 
 export async function PATCH(req: Request) {
   const session = await auth();
-  const role = (session?.user as any)?.role as string | undefined;
+  const role = (session?.user as { role?: string } | undefined)?.role;
   if (!isStaffRole(role)) return deny();
 
-  const body = (await req.json().catch(() => null)) as { key?: string; enabled?: boolean } | null;
+  const isAdmin = isAdminRole(role);
+  const body = (await req.json().catch(() => null)) as {
+    key?: string;
+    enabled?: boolean;
+    visibleToMerchant?: boolean;
+    name?: string;
+    description?: string;
+    flatRate?: number;
+    pricingMode?: "fixed" | "agreement" | "free";
+    pickupPoints?: ShippingPickupPoint[];
+    deliveryDays?: string;
+    shippingSurcharge?: number;
+    freeShippingMinimumSubtotal?: number;
+    freeShippingMinimumDeliveryTypes?: string[];
+  } | null;
   const key = String(body?.key || "").trim();
   const enabled = body?.enabled;
+  const visibleToMerchant = body?.visibleToMerchant;
+  const name = body?.name;
+  const description = body?.description;
+  const flatRate = body?.flatRate;
+  const pricingMode = body?.pricingMode;
+  const pickupPoints = body?.pickupPoints;
+  const deliveryDays = body?.deliveryDays;
+  const shippingSurcharge = body?.shippingSurcharge;
+  const freeShippingMinimumSubtotal = body?.freeShippingMinimumSubtotal;
+  const freeShippingMinimumDeliveryTypes = normalizeDeliveryTypes(body?.freeShippingMinimumDeliveryTypes);
 
-  if (!isValidKey(key) || typeof enabled !== "boolean") {
+  if (
+    !canTargetCarrierKey(key) ||
+    (typeof enabled !== "boolean" &&
+      typeof visibleToMerchant !== "boolean" &&
+      typeof name !== "string" &&
+      typeof description !== "string" &&
+      typeof flatRate !== "number" &&
+      !Array.isArray(pickupPoints) &&
+      typeof shippingSurcharge !== "number" &&
+      typeof freeShippingMinimumSubtotal !== "number" &&
+      !Array.isArray(body?.freeShippingMinimumDeliveryTypes) &&
+      typeof deliveryDays !== "string" &&
+      pricingMode !== "fixed" &&
+      pricingMode !== "agreement" &&
+      pricingMode !== "free")
+  ) {
     return NextResponse.json({ ok: false, error: "Payload inválido." }, { status: 400 });
+  }
+
+  if (typeof visibleToMerchant === "boolean" && !isAdmin) {
+    return NextResponse.json({ ok: false, error: "Solo un admin puede cambiar la visibilidad para merchants." }, { status: 403 });
   }
 
   const carriers = await getShippingCarriers();
@@ -45,13 +155,128 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: false, error: "Carrier inexistente." }, { status: 404 });
   }
 
-  const updated = await prisma.shippingCarrier.update({
-    where: { key },
-    data: { enabled },
-  });
+  if (!isAdmin && !found.visibleToMerchant) {
+    return NextResponse.json({ ok: false, error: "Método no disponible para merchant." }, { status: 403 });
+  }
+
+  if ((typeof description === "string" || typeof flatRate === "number" || Array.isArray(pickupPoints)) && !found.custom) {
+    return NextResponse.json({ ok: false, error: "Solo se puede editar precio y descripción en métodos personalizados." }, { status: 400 });
+  }
+
+  if (typeof deliveryDays === "string" && !/^(\d+)(\s*-\s*\d+)?$/.test(deliveryDays.trim())) {
+    return NextResponse.json({ ok: false, error: "Ingresá un día o rango válido, por ejemplo 3-6." }, { status: 400 });
+  }
+
+  if (typeof shippingSurcharge === "number" && (!Number.isFinite(shippingSurcharge) || shippingSurcharge < 0)) {
+    return NextResponse.json({ ok: false, error: "Ingresá un recargo válido mayor o igual a 0." }, { status: 400 });
+  }
+
+  if (
+    typeof freeShippingMinimumSubtotal === "number" &&
+    (!Number.isFinite(freeShippingMinimumSubtotal) || freeShippingMinimumSubtotal < 0)
+  ) {
+    return NextResponse.json({ ok: false, error: "Ingresá un monto mínimo válido mayor o igual a 0." }, { status: 400 });
+  }
+
+  if (typeof deliveryDays === "string") {
+    await prisma.shippingProviderSetting.upsert({
+      where: { provider_key: { provider: key, key: "DELIVERY_DAYS" } },
+      create: { provider: key, key: "DELIVERY_DAYS", value: deliveryDays.trim(), isSecret: false },
+      update: { value: deliveryDays.trim(), isSecret: false },
+    });
+  }
+
+  if (typeof shippingSurcharge === "number") {
+    await prisma.shippingProviderSetting.upsert({
+      where: { provider_key: { provider: key, key: "SHIPPING_SURCHARGE" } },
+      create: { provider: key, key: "SHIPPING_SURCHARGE", value: String(Math.round(shippingSurcharge * 100) / 100), isSecret: false },
+      update: { value: String(Math.round(shippingSurcharge * 100) / 100), isSecret: false },
+    });
+  }
+
+  if (typeof freeShippingMinimumSubtotal === "number") {
+    await prisma.shippingProviderSetting.upsert({
+      where: { provider_key: { provider: key, key: "FREE_SHIPPING_MIN_SUBTOTAL" } },
+      create: {
+        provider: key,
+        key: "FREE_SHIPPING_MIN_SUBTOTAL",
+        value: String(Math.round(freeShippingMinimumSubtotal * 100) / 100),
+        isSecret: false,
+      },
+      update: { value: String(Math.round(freeShippingMinimumSubtotal * 100) / 100), isSecret: false },
+    });
+  }
+
+  if (Array.isArray(body?.freeShippingMinimumDeliveryTypes)) {
+    await prisma.shippingProviderSetting.upsert({
+      where: { provider_key: { provider: key, key: "FREE_SHIPPING_MIN_DELIVERY_TYPES" } },
+      create: {
+        provider: key,
+        key: "FREE_SHIPPING_MIN_DELIVERY_TYPES",
+        value: JSON.stringify(freeShippingMinimumDeliveryTypes),
+        isSecret: false,
+      },
+      update: { value: JSON.stringify(freeShippingMinimumDeliveryTypes), isSecret: false },
+    });
+  }
+
+  let updated: { key: string; name: string; enabled: boolean };
+  try {
+    updated = await prisma.shippingCarrier.update({
+      where: { key },
+      data: {
+        ...(typeof enabled === "boolean" ? { enabled } : {}),
+        ...(typeof visibleToMerchant === "boolean" ? { visibleToMerchant } : {}),
+        ...(found.custom && typeof name === "string" && name.trim() ? { name: name.trim().slice(0, 80) } : {}),
+      },
+      select: { key: true, name: true, enabled: true },
+    });
+  } catch (error) {
+    if (!isMissingVisibleToMerchantError(error) || typeof visibleToMerchant !== "boolean") throw error;
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Falta aplicar la migración de visibilidad de paquetería para guardar este cambio.",
+      },
+      { status: 409 },
+    );
+  }
+
+  if (
+    found.custom &&
+    (typeof description === "string" ||
+      typeof flatRate === "number" ||
+      Array.isArray(pickupPoints) ||
+      pricingMode === "fixed" ||
+      pricingMode === "agreement" ||
+      pricingMode === "free")
+  ) {
+    await setCustomShippingCarrierSettings(key, {
+      description: typeof description === "string" ? description : found.description,
+      flatRate: typeof flatRate === "number" ? flatRate : found.flatRate,
+      pricingMode: pricingMode === "fixed" || pricingMode === "agreement" || pricingMode === "free" ? pricingMode : found.pricingMode,
+      pickupPoints: Array.isArray(pickupPoints) ? pickupPoints : found.pickupPoints,
+    });
+  }
+
+  const refreshedCarriers = await getShippingCarriers();
+  const refreshed = refreshedCarriers.find((carrier) => carrier.key === key);
 
   return NextResponse.json({
     ok: true,
-    carrier: { key: updated.key, name: updated.name, enabled: updated.enabled },
+    carrier: refreshed || {
+      key: updated.key,
+      name: updated.name,
+      enabled: updated.enabled,
+      visibleToMerchant: found.visibleToMerchant,
+      custom: found.custom,
+      description: found.description,
+      flatRate: found.flatRate,
+      pricingMode: found.pricingMode,
+      pickupPoints: found.pickupPoints,
+      shippingSurcharge: found.shippingSurcharge,
+      freeShippingMinimumSubtotal: found.freeShippingMinimumSubtotal,
+      freeShippingMinimumDeliveryTypes: found.freeShippingMinimumDeliveryTypes,
+    },
   });
 }

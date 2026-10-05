@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import { addToCart } from "@/lib/cart";
+import { trackMetaAddToCart } from "@/lib/metaPixelEvents";
+import { trackGA4AddToCart } from "@/lib/ga4";
+import { lineItemKey } from "@/lib/productVariants";
 
 type Props = {
   product: {
@@ -26,14 +29,29 @@ export default function AddToCartButton({ product }: Props) {
         addToCart(
           {
             productId: product.id,
+            productVariantId: null,
+            lineKey: lineItemKey(product.id, null),
             slug: product.slug,
             name: product.name,
+            variantLabel: null,
             price: product.price,
             stock: product.stock,
             imageUrl: product.imageUrl,
           },
           1
         );
+        trackMetaAddToCart({
+          id: product.id,
+          name: product.name,
+          price: product.price,
+          quantity: 1,
+        });
+        trackGA4AddToCart({
+          item_id: product.id,
+          item_name: product.name,
+          price: product.price,
+          quantity: 1,
+        });
         window.dispatchEvent(new Event("cart:open"));
         setAdded(true);
         setTimeout(() => setAdded(false), 1200);

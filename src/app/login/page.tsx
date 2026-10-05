@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { getSession, signIn } from "next-auth/react";
+import { Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
   return (
@@ -17,9 +18,11 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/checkout";
+  const isCheckoutRedirect = next === "/checkout";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,7 +31,9 @@ function LoginForm() {
       <div className="mx-auto max-w-md px-4 py-12">
         <h1 className="text-2xl font-semibold">Iniciar sesión</h1>
         <p className="mt-2 text-sm text-zinc-400">
-          Para pagar necesitás tener una cuenta.
+          {isCheckoutRedirect
+            ? "Si ya tenés cuenta, podés iniciar sesión. Si no, también podés comprar como invitado desde el checkout."
+            : "Ingresá con tu cuenta para continuar."}
         </p>
 
         <form
@@ -53,7 +58,7 @@ function LoginForm() {
 
             const session = await getSession();
             const role = (session?.user as { role?: string } | undefined)?.role;
-            const destination = role === "admin" || role === "merchant" ? "/admin" : "/";
+            const destination = role === "admin" || role === "merchant" ? "/admin" : next;
             router.push(destination);
           }}
         >
@@ -71,14 +76,30 @@ function LoginForm() {
 
           <div>
             <label className="text-sm text-zinc-300">Contraseña</label>
-            <input
-              type="password"
-              className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-            />
+            <div className="relative mt-2">
+              <input
+                type={showPassword ? "text" : "password"}
+                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 pr-11"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((value) => !value)}
+                aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-zinc-400 hover:text-zinc-100"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+              </button>
+            </div>
+          </div>
+
+          <div className="-mt-1 text-right">
+            <Link href="/forgot-password" className="text-sm text-zinc-400 hover:text-zinc-200">
+              Olvidé mi contraseña
+            </Link>
           </div>
 
           {error && (

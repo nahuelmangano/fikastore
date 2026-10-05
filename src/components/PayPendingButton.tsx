@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-export default function PayPendingButton({ orderId }: { orderId: string }) {
+export default function PayPendingButton({ orderId, accessEmail }: { orderId: string; accessEmail?: string | null }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,7 +24,7 @@ export default function PayPendingButton({ orderId }: { orderId: string }) {
           const res = await fetch("/api/payments/mercadopago/create-preference", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ orderId }),
+            body: JSON.stringify({ orderId, email: accessEmail || undefined }),
           });
 
           const data = await res.json().catch(() => ({}));

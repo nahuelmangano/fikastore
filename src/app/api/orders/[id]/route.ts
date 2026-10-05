@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { getOrderContactEmail, normalizeOrderEmail } from "@/lib/orderAccess";
+import { isStaffRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
 
-export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await auth();
-  const userId = (session?.user as any)?.id as string | undefined;
-  if (!userId) {
-    return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
-  }
+  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  const accessEmail = normalizeOrderEmail(new URL(req.url).searchParams.get("email"));
 
   const orderId = id;
   if (!orderId) {
@@ -18,14 +19,19 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   }
 
   const order = await prisma.order.findFirst({
-    where: { id: orderId, userId },
+    where: { id: orderId },
     include: {
+      user: { select: { email: true } },
       items: true,
       payments: { orderBy: { createdAt: "desc" } },
     },
   });
 
-  if (!order) {
+  const canAccess = order
+    ? isStaffRole(role) || (userId && order.userId === userId) || (accessEmail && getOrderContactEmail(order) === accessEmail)
+    : false;
+
+  if (!order || !canAccess) {
     return NextResponse.json({ ok: false, error: "Orden no encontrada." }, { status: 404 });
   }
 
@@ -35,11 +41,16 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     ok: true,
     order: {
       id: order.id,
+      orderNumber: order.orderNumber,
       status: order.status,
       total: Number(order.total),
+      shippingAmount: Number(order.shippingAmount),
       createdAt: order.createdAt,
       items: order.items.map((it) => ({
+        productId: it.productId,
+        productVariantId: it.productVariantId,
         name: it.nameSnapshot,
+        variant: it.variantSnapshot,
         quantity: it.quantity,
         unitPrice: Number(it.unitPrice),
         subtotal: Number(it.subtotal),

@@ -3,6 +3,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { publicBaseUrl } from "@/lib/publicUrl";
 import { getResolvedMercadoPagoAccessToken } from "@/lib/storeSettings";
+import { getOrderContactEmail, normalizeOrderEmail } from "@/lib/orderAccess";
+import { isStaffRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
 
@@ -20,16 +22,10 @@ function canUseAutoReturn(site: string) {
 
 export async function POST(req: Request) {
   const session = await auth();
-  const userId = (session?.user as any)?.id as string | undefined;
-
-  if (!userId) {
-    return NextResponse.json(
-      { ok: false, error: "No autorizado." },
-      { status: 401 }
-    );
-  }
-
-  const { orderId } = await req.json().catch(() => ({}));
+  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  const { orderId, email } = await req.json().catch(() => ({}));
+  const accessEmail = normalizeOrderEmail(email);
 
   if (!orderId || typeof orderId !== "string") {
     return NextResponse.json(
@@ -39,17 +35,30 @@ export async function POST(req: Request) {
   }
 
   const order = await prisma.order.findFirst({
-    where: { id: orderId, userId },
+    where: { id: orderId },
     include: {
+      user: { select: { email: true } },
       items: true,
       payments: { orderBy: { createdAt: "desc" } },
     },
   });
 
-  if (!order) {
+  const canAccess = order
+    ? isStaffRole(role) || (userId && order.userId === userId) || (accessEmail && getOrderContactEmail(order) === accessEmail)
+    : false;
+
+  if (!order || !canAccess) {
     return NextResponse.json(
       { ok: false, error: "Orden no encontrada." },
       { status: 404 }
+    );
+  }
+
+  const latestPayment = order.payments[0];
+  if (latestPayment?.provider && latestPayment.provider !== "mercadopago") {
+    return NextResponse.json(
+      { ok: false, error: "Este pedido fue creado con otro medio de pago." },
+      { status: 409 },
     );
   }
 
@@ -63,6 +72,7 @@ export async function POST(req: Request) {
   }
 
   const site = baseUrl(req);
+  const shippingAmount = Number(order.shippingAmount || 0);
 
   const items = order.items.map((it) => ({
     title: it.nameSnapshot,
@@ -70,6 +80,15 @@ export async function POST(req: Request) {
     unit_price: Number(it.unitPrice),
     currency_id: "ARS",
   }));
+
+  if (shippingAmount > 0) {
+    items.push({
+      title: "Envio",
+      quantity: 1,
+      unit_price: shippingAmount,
+      currency_id: "ARS",
+    });
+  }
 
   const body: {
     items: typeof items;
@@ -86,9 +105,9 @@ export async function POST(req: Request) {
     external_reference: order.id,
     notification_url: `${site}/api/webhooks/mercadopago`,
     back_urls: {
-      success: `${site}/pay/success?orderId=${order.id}`,
-      failure: `${site}/pay/failure?orderId=${order.id}`,
-      pending: `${site}/pay/pending?orderId=${order.id}`,
+      success: `${site}/pay/success?orderId=${order.id}${accessEmail ? `&email=${encodeURIComponent(accessEmail)}` : ""}`,
+      failure: `${site}/pay/failure?orderId=${order.id}${accessEmail ? `&email=${encodeURIComponent(accessEmail)}` : ""}`,
+      pending: `${site}/pay/pending?orderId=${order.id}${accessEmail ? `&email=${encodeURIComponent(accessEmail)}` : ""}`,
     },
   };
 

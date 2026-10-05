@@ -2,7 +2,15 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isStaffRole } from "@/lib/roles";
-import { normalizePromoCode, type PromotionType } from "@/lib/promotions";
+import {
+  normalizePromoCode,
+  parsePromotionPaymentMethods,
+  parsePromotionFreeShippingDeliveryTypes,
+  parsePromotionFreeShippingCarrierKeys,
+  type PromotionFreeShippingDeliveryType,
+  type PromotionPaymentMethod,
+  type PromotionType,
+} from "@/lib/promotions";
 
 export const runtime = "nodejs";
 
@@ -11,15 +19,60 @@ type CreateBody = {
   type?: PromotionType;
   percent?: number;
   code?: string;
+  freeShipping?: boolean;
+  freeShippingDeliveryTypes?: string[];
+  freeShippingCarrierKeys?: string[];
+  paymentMethods?: string[];
   productIds?: string[];
   startsAt?: string | null;
   endsAt?: string | null;
 };
 
+const allowedPaymentMethods = new Set<PromotionPaymentMethod>(["mercadopago", "agreement", "cash", "transfer"]);
+const allowedFreeShippingDeliveryTypes = new Set<PromotionFreeShippingDeliveryType>(["D", "S"]);
+
 function parseDate(v: string | null | undefined) {
   if (!v) return null;
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function normalizePaymentMethods(value: unknown) {
+  if (!Array.isArray(value)) return null;
+  const methods = [
+    ...new Set(
+      value
+        .map((method) => String(method || "").trim())
+        .filter((method): method is PromotionPaymentMethod => allowedPaymentMethods.has(method as PromotionPaymentMethod))
+    ),
+  ];
+  return methods.length > 0 ? methods : null;
+}
+
+function normalizeFreeShippingDeliveryTypes(value: unknown) {
+  if (!Array.isArray(value)) return null;
+  const types = [
+    ...new Set(
+      value
+        .map((type) => String(type || "").trim().toUpperCase())
+        .filter((type): type is PromotionFreeShippingDeliveryType =>
+          allowedFreeShippingDeliveryTypes.has(type as PromotionFreeShippingDeliveryType)
+        )
+    ),
+  ];
+  return types.length > 0 ? types : null;
+}
+
+function normalizeFreeShippingCarrierKeys(value: unknown) {
+  if (!Array.isArray(value)) return null;
+  const keys = [
+    ...new Set(
+      value
+        .map((key) => String(key || "").trim())
+        .filter((key) => key.length > 0 && key.length <= 80)
+    ),
+  ];
+  return keys.length > 0 ? keys : null;
 }
 
 export async function GET() {
@@ -48,6 +101,10 @@ export async function GET() {
       type: p.type,
       percent: p.percent,
       code: p.code,
+      freeShipping: p.freeShipping,
+      freeShippingDeliveryTypes: parsePromotionFreeShippingDeliveryTypes(p.freeShippingDeliveryTypes),
+      freeShippingCarrierKeys: parsePromotionFreeShippingCarrierKeys(p.freeShippingCarrierKeys),
+      paymentMethods: parsePromotionPaymentMethods(p.paymentMethods),
       isActive: p.isActive,
       startsAt: p.startsAt,
       endsAt: p.endsAt,
@@ -67,8 +124,12 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as CreateBody | null;
   const name = String(body?.name || "").trim();
   const type = String(body?.type || "").trim().toLowerCase() as PromotionType;
-  const percent = Math.floor(Number(body?.percent));
+  const freeShipping = body?.freeShipping === true;
+  const percent = freeShipping ? 0 : Math.floor(Number(body?.percent));
   const code = normalizePromoCode(body?.code ?? null);
+  const freeShippingDeliveryTypes = normalizeFreeShippingDeliveryTypes(body?.freeShippingDeliveryTypes);
+  const freeShippingCarrierKeys = normalizeFreeShippingCarrierKeys(body?.freeShippingCarrierKeys);
+  const paymentMethods = normalizePaymentMethods(body?.paymentMethods);
   const startsAt = parseDate(body?.startsAt);
   const endsAt = parseDate(body?.endsAt);
   const rawIds = Array.isArray(body?.productIds) ? body?.productIds : [];
@@ -78,8 +139,11 @@ export async function POST(req: Request) {
   if (!["global", "product", "code"].includes(type)) {
     return NextResponse.json({ ok: false, error: "Tipo inválido." }, { status: 400 });
   }
-  if (!Number.isFinite(percent) || percent <= 0 || percent >= 100) {
-    return NextResponse.json({ ok: false, error: "Porcentaje inválido (1-99)." }, { status: 400 });
+  if (!Number.isFinite(percent) || percent < 0 || percent >= 100 || (!freeShipping && percent <= 0)) {
+    return NextResponse.json(
+      { ok: false, error: freeShipping ? "Porcentaje inválido (0-99)." : "Porcentaje inválido (1-99)." },
+      { status: 400 }
+    );
   }
   if (type === "code" && !code) {
     return NextResponse.json({ ok: false, error: "Código requerido para promo code." }, { status: 400 });
@@ -107,6 +171,10 @@ export async function POST(req: Request) {
       type,
       percent,
       code: code || null,
+      freeShipping,
+      freeShippingDeliveryTypes: freeShipping && freeShippingDeliveryTypes ? JSON.stringify(freeShippingDeliveryTypes) : null,
+      freeShippingCarrierKeys: freeShipping && freeShippingCarrierKeys ? JSON.stringify(freeShippingCarrierKeys) : null,
+      paymentMethods: paymentMethods ? JSON.stringify(paymentMethods) : null,
       startsAt,
       endsAt,
       products:
@@ -131,6 +199,10 @@ export async function POST(req: Request) {
       type: promotion.type,
       percent: promotion.percent,
       code: promotion.code,
+      freeShipping: promotion.freeShipping,
+      freeShippingDeliveryTypes: parsePromotionFreeShippingDeliveryTypes(promotion.freeShippingDeliveryTypes),
+      freeShippingCarrierKeys: parsePromotionFreeShippingCarrierKeys(promotion.freeShippingCarrierKeys),
+      paymentMethods: parsePromotionPaymentMethods(promotion.paymentMethods),
       isActive: promotion.isActive,
       startsAt: promotion.startsAt,
       endsAt: promotion.endsAt,

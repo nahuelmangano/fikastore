@@ -55,6 +55,7 @@ export async function GET(req: NextRequest) {
     await setMercadoPagoOAuthSettings({
       accessToken: String(data.access_token || ""),
       refreshToken: String(data.refresh_token || ""),
+      publicKey: String(data.public_key || ""),
       expiresIn: Number(data.expires_in || 0),
       connectedUserId: data.user_id ? String(data.user_id) : undefined,
       tokenType: data.token_type ? String(data.token_type) : undefined,

@@ -1,11 +1,39 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { buildMetaPurchaseEventId } from "@/lib/meta/purchase";
+import { trackMetaPurchase } from "@/lib/metaPixelEvents";
+import { trackGA4Purchase } from "@/lib/ga4";
 
 type OrderResp =
-  | { ok: true; order: any }
+  | { ok: true; order: OrderDetails }
   | { ok: false; error: string };
+
+type OrderDetails = {
+  id?: string;
+  orderNumber?: number | null;
+  status?: string | null;
+  total: number | string;
+  shippingAmount?: number | string;
+  items: Array<{
+    productId?: string;
+    productVariantId?: string | null;
+    name: string;
+    variant?: string | null;
+    quantity: number;
+    unitPrice: number | string;
+    subtotal: number | string;
+  }>;
+  payment?: {
+    provider: string;
+    status: string;
+    paymentId?: string | null;
+  } | null;
+};
+
+const PURCHASE_SUCCESS_ORDER_STATUSES = new Set(["paid", "shipped", "delivered"]);
+const PURCHASE_SUCCESS_PAYMENT_STATUSES = new Set(["approved"]);
 
 function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
@@ -13,34 +41,52 @@ function money(n: number) {
 
 function badge(status: string) {
   const s = (status || "").toLowerCase();
-  if (s === "paid" || s === "approved") return "border-emerald-900/40 bg-emerald-900/20 text-emerald-200";
+  if (s === "paid" || s === "approved" || s === "shipped" || s === "delivered") return "border-emerald-900/40 bg-emerald-900/20 text-emerald-200";
   if (s === "pending_payment" || s === "pending" || s === "in_process") return "border-amber-900/40 bg-amber-900/20 text-amber-200";
   if (s === "cancelled" || s === "rejected" || s === "failure") return "border-red-900/40 bg-red-900/20 text-red-200";
   return "border-zinc-800 bg-zinc-900/30 text-zinc-200";
+}
+
+function canTrackApprovedPurchase(order: OrderDetails) {
+  const orderStatus = String(order.status || "").toLowerCase();
+  const paymentStatus = String(order.payment?.status || "").toLowerCase();
+  return PURCHASE_SUCCESS_ORDER_STATUSES.has(orderStatus) || PURCHASE_SUCCESS_PAYMENT_STATUSES.has(paymentStatus);
 }
 
 export default function PayResultClient({
   title,
   subtitle,
   orderId,
+  accessEmail,
   hint,
+  backToStoreLabel = "Volver a la tienda",
+  viewOrderLabel,
+  trackPurchase = false,
 }: {
   title: string;
   subtitle: string;
   orderId: string;
+  accessEmail?: string;
   hint?: string;
+  backToStoreLabel?: string;
+  viewOrderLabel?: string;
+  trackPurchase?: boolean;
 }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<OrderResp | null>(null);
+  const purchaseTrackedRef = useRef(false);
+  const ga4PurchaseTrackedRef = useRef(false);
 
-  const ok = data && (data as any).ok;
+  const ok = data?.ok === true;
 
   useEffect(() => {
     let alive = true;
 
     async function load() {
       setLoading(true);
-      const res = await fetch(`/api/orders/${orderId}`, { cache: "no-store" });
+      const params = new URLSearchParams();
+      if (accessEmail) params.set("email", accessEmail);
+      const res = await fetch(`/api/orders/${orderId}${params.size ? `?${params.toString()}` : ""}`, { cache: "no-store" });
       const json = (await res.json().catch(() => null)) as OrderResp | null;
       if (!alive) return;
       setData(json ?? { ok: false, error: "Respuesta inválida." });
@@ -60,15 +106,117 @@ export default function PayResultClient({
       clearTimeout(t2);
       clearTimeout(t3);
     };
-  }, [orderId]);
+  }, [accessEmail, orderId]);
 
-  const order = ok ? (data as any).order : null;
+  const order = ok ? data.order : null;
+  const displayOrderLabel = order?.orderNumber ? `#${order.orderNumber}` : orderId;
 
   const effectiveStatus = useMemo(() => {
     if (!order) return "unknown";
     // preferimos order.status, pero mostramos payment.status también
     return order.status || order.payment?.status || "unknown";
   }, [order]);
+
+  useEffect(() => {
+    if (!trackPurchase || !order || purchaseTrackedRef.current || !canTrackApprovedPurchase(order)) return;
+
+    const storageKey = `fikastore_meta_purchase_tracked_${orderId}`;
+    const eventId = buildMetaPurchaseEventId(order.id || orderId);
+    if (typeof window === "undefined") return;
+
+    const alreadyTracked = window.localStorage.getItem(storageKey);
+    if (alreadyTracked === eventId || alreadyTracked === "1") {
+      console.info(`[Meta Pixel] Purchase skipped: already sent order=${order.id || orderId}`);
+      purchaseTrackedRef.current = true;
+      return;
+    }
+
+    const purchasePayload = {
+      id: order.id || orderId,
+      total: Number(order.total),
+      items: order.items.map((item) => ({
+        id: item.productVariantId || item.productId,
+        name: item.name,
+        quantity: item.quantity,
+        unitPrice: Number(item.unitPrice),
+      })),
+    };
+
+    const tryTrack = () => {
+      console.info(
+        `[Meta Pixel] Purchase preparing order=${purchasePayload.id} status=${String(order.status || "").toLowerCase()} payment=${String(order.payment?.status || "").toLowerCase()} eventID=${eventId}`
+      );
+      const result = trackMetaPurchase(purchasePayload);
+      if (result !== "sent") return false;
+
+      purchaseTrackedRef.current = true;
+      window.localStorage.setItem(storageKey, eventId);
+      return true;
+    };
+
+    if (tryTrack()) return;
+
+    const intervalId = window.setInterval(() => {
+      if (tryTrack()) window.clearInterval(intervalId);
+    }, 500);
+
+    const timeoutId = window.setTimeout(() => {
+      window.clearInterval(intervalId);
+    }, 30000);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [order, orderId, trackPurchase]);
+
+  useEffect(() => {
+    if (!trackPurchase || !order || ga4PurchaseTrackedRef.current || !canTrackApprovedPurchase(order)) return;
+    if (typeof window === "undefined") return;
+
+    const transactionId = order.id || orderId;
+    const storageKey = `fikastore_ga4_purchase_tracked_${transactionId}`;
+    if (window.localStorage.getItem(storageKey) === "1") {
+      ga4PurchaseTrackedRef.current = true;
+      return;
+    }
+
+    const payload = {
+      transactionId,
+      value: Number(order.total),
+      shipping: Number(order.shippingAmount ?? 0),
+      items: order.items.map((item) => ({
+        item_id: item.productVariantId || item.productId || item.name,
+        item_name: item.name,
+        item_variant: item.variant || undefined,
+        price: Number(item.unitPrice),
+        quantity: item.quantity,
+      })),
+    };
+
+    const tryTrack = () => {
+      const sent = trackGA4Purchase(payload);
+      if (!sent) return false;
+      ga4PurchaseTrackedRef.current = true;
+      window.localStorage.setItem(storageKey, "1");
+      return true;
+    };
+
+    if (tryTrack()) return;
+
+    const intervalId = window.setInterval(() => {
+      if (tryTrack()) window.clearInterval(intervalId);
+    }, 500);
+
+    const timeoutId = window.setTimeout(() => {
+      window.clearInterval(intervalId);
+    }, 30000);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [order, orderId, trackPurchase]);
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -80,7 +228,7 @@ export default function PayResultClient({
           <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm text-zinc-400">
-                Orden: <span className="font-mono text-zinc-200">{orderId}</span>
+                Orden: <span className="font-mono text-zinc-200">{displayOrderLabel}</span>
               </div>
 
               <span className={["rounded-full border px-3 py-1 text-xs", badge(effectiveStatus)].join(" ")}>
@@ -96,9 +244,9 @@ export default function PayResultClient({
               <div className="mt-4 text-sm text-zinc-300">Cargando estado…</div>
             )}
 
-            {!loading && data && !(data as any).ok && (
+            {!loading && data && !data.ok && (
               <div className="mt-4 rounded-xl border border-red-900/40 bg-red-900/20 p-3 text-sm text-red-200">
-                {(data as any).error || "No se pudo cargar la orden."}
+                {data.error || "No se pudo cargar la orden."}
               </div>
             )}
 
@@ -110,7 +258,7 @@ export default function PayResultClient({
                 </div>
 
                 <div className="mt-4 space-y-2">
-                  {order.items.map((it: any, idx: number) => (
+                  {order.items.map((it, idx) => (
                     <div key={idx} className="flex items-start justify-between gap-4 text-sm">
                       <div className="min-w-0">
                         <div className="truncate font-medium">{it.name}</div>
@@ -146,14 +294,14 @@ export default function PayResultClient({
               href="/"
               className="rounded-xl bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
             >
-              Volver a la tienda
+              {backToStoreLabel}
             </Link>
 
             <Link
-              href="/account/orders"
+              href={accessEmail ? `/pedido?orderId=${encodeURIComponent(orderId)}&email=${encodeURIComponent(accessEmail)}` : "/account/orders"}
               className="rounded-xl border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900/60"
             >
-              Ver mis pedidos
+              {viewOrderLabel || (accessEmail ? "Ver pedido" : "Ver mis pedidos")}
             </Link>
           </div>
         </div>

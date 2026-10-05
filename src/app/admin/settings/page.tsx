@@ -3,13 +3,21 @@ import { flattenCategories } from "@/lib/categories";
 import { auth } from "@/auth";
 import {
   getAnnouncementText,
+  getWhatsappMessageTemplate,
+  getAnalyticsSettings,
   getFaviconUrl,
+  getHomeBannerSettings,
   getHomeCategoryTiles,
+  getManualPaymentSettings,
+  getMetricsSettings,
   getMercadoPagoSettings,
+  getPaymentFinancingDisplaySettings,
   getSiteTitle,
+  getSocialLinksSettings,
   getStoreLogoUrl,
   getTemporaryShutdownSettings,
 } from "@/lib/storeSettings";
+import { getCustomDomainSettings } from "@/lib/customDomain";
 import { getInformationSections } from "@/lib/informationSections";
 import AdminSettingsPage from "./ui";
 
@@ -18,22 +26,38 @@ export default async function SettingsPage() {
   const currentUserRole = (session?.user as { role?: string } | undefined)?.role || "";
   const [
     announcementText,
+    whatsappMessageTemplate,
     logoUrl,
+    homeBannerSettings,
     homeCategoryTiles,
     siteTitle,
     faviconUrl,
     temporaryShutdown,
     mercadoPagoSettings,
+    manualPaymentMethods,
+    paymentFinancingDisplaySettings,
+    analyticsSettings,
+    metricsSettings,
+    socialLinksSettings,
+    customDomainSettings,
     informationSections,
     categories,
   ] = await Promise.all([
     getAnnouncementText(),
+    getWhatsappMessageTemplate(),
     getStoreLogoUrl(),
+    getHomeBannerSettings(),
     getHomeCategoryTiles(),
     getSiteTitle(),
     getFaviconUrl(),
     getTemporaryShutdownSettings(),
     getMercadoPagoSettings(),
+    getManualPaymentSettings(),
+    getPaymentFinancingDisplaySettings(),
+    getAnalyticsSettings(),
+    getMetricsSettings(),
+    getSocialLinksSettings(),
+    getCustomDomainSettings(),
     getInformationSections(),
     prisma.category.findMany({
       orderBy: { name: "asc" },
@@ -44,12 +68,20 @@ export default async function SettingsPage() {
   return (
     <AdminSettingsPage
       announcementText={announcementText}
+      whatsappMessageTemplate={whatsappMessageTemplate}
       logoUrl={logoUrl}
+      homeBannerSettings={homeBannerSettings}
       homeCategoryTiles={homeCategoryTiles}
       siteTitle={siteTitle}
       faviconUrl={faviconUrl}
       temporaryShutdown={temporaryShutdown}
       mercadoPagoSettings={mercadoPagoSettings}
+      manualPaymentMethods={manualPaymentMethods}
+      paymentFinancingDisplaySettings={paymentFinancingDisplaySettings}
+      analyticsSettings={analyticsSettings}
+      metricsSettings={metricsSettings}
+      socialLinksSettings={socialLinksSettings}
+      customDomainSettings={customDomainSettings}
       currentUserRole={currentUserRole}
       informationSections={informationSections}
       categories={flattenCategories(categories)}

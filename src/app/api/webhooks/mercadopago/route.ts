@@ -1,9 +1,18 @@
+import { getShippingCarriers } from "@/lib/shippingCarriers";
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { sendMail } from "@/lib/mailer";
-import { orderPaidTemplate } from "@/lib/email-templates";
 import { getMailingSettings, getResolvedMercadoPagoAccessToken } from "@/lib/storeSettings";
 import { notifyBackInStock } from "@/lib/stockNotifications";
+import { publicBaseUrl } from "@/lib/publicUrl";
+import { cancelScheduledEmailJobs, queueAndSendEmailNotification, renderEmailTemplate } from "@/lib/emailNotificationService";
+import { orderPaidTemplate } from "@/lib/email-templates";
+import { sendMail } from "@/lib/mailer";
+import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows";
+import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName } from "@/lib/orderAccess";
+import { sendMerchantOrderNotification } from "@/lib/merchantOrderNotifications";
+import { syncMetaPurchaseForOrder } from "@/lib/meta/conversionsApi";
+import { markOrderPaidIfPending } from "@/lib/orderPaymentTransition";
 
 type MpWebhookBody = any;
 
@@ -48,8 +57,111 @@ function normalizeStatus(mpStatus: string | undefined): string {
   return "unknown";
 }
 
+function absoluteUrl(baseUrl: string, value?: string | null) {
+  if (!value) return undefined;
+  if (/^https?:\/\//i.test(value)) return value;
+  return `${baseUrl}${value.startsWith("/") ? value : `/${value}`}`;
+}
+
+async function sendDetailedPaidEmail(input: {
+  orderId: string;
+  paymentRowId?: string;
+  payment: any;
+  req?: Request;
+}) {
+  const order = await prisma.order.findUnique({
+    where: { id: input.orderId },
+    include: {
+      user: { select: { email: true, name: true } },
+      items: {
+        include: {
+          product: {
+            include: {
+              images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }], take: 1 },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const orderEmail = order ? getOrderContactEmail(order) : "";
+  if (!order || !orderEmail) return;
+
+  const baseUrl = publicBaseUrl(input.req);
+  const publicOrderUrl = buildPublicOrderUrl(baseUrl, order);
+  const subtotal = order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
+  const shippingAmount = Number(order.shippingAmount);
+  const carriers = await getShippingCarriers();
+  const shippingCarrier = carriers.find((carrier) => carrier.key === order.shippingMethod);
+  const paymentAmount = Number(input.payment.transaction_amount || order.total);
+  const paymentMethod = input.payment.payment_method_id ? String(input.payment.payment_method_id) : "";
+  const subjectPayload = {
+    customerName: getOrderCustomerName(order),
+    orderNumber: order.orderNumber ? `#${order.orderNumber}` : order.id,
+    orderUrl: publicOrderUrl,
+    storeName: "FikaStore",
+    storeUrl: baseUrl,
+  };
+  const [mailing, renderedTemplate] = await Promise.all([
+    getMailingSettings(),
+    renderEmailTemplate("payment-approved", subjectPayload),
+  ]);
+
+  if (!renderedTemplate.template.enabled) return;
+
+  await sendMail({
+    to: orderEmail,
+    subject: renderedTemplate.subject,
+    html: orderPaidTemplate({
+      customerName: getOrderCustomerName(order),
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      orderDate: order.createdAt,
+      payment: {
+        provider: "Mercado Pago",
+        status: "approved",
+        method: paymentMethod || undefined,
+        paymentId: String(input.payment.id || input.paymentRowId || ""),
+        installments: Number(input.payment.installments || 0) || undefined,
+        amount: paymentAmount,
+      },
+      shipping: {
+        pricingMode: shippingCarrier?.pricingMode,
+        method: order.shippingMethod,
+        deliveryType: order.shippingDeliveryType,
+        branchName: order.shippingBranchName,
+        addressLine: order.shippingAddressLine,
+        city: order.shippingCity,
+        province: order.shippingProvince,
+        zip: order.shippingZip,
+        amount: shippingAmount,
+      },
+      billingAddress: {
+        name: order.shippingName,
+        addressLine: order.shippingAddressLine,
+        city: order.shippingCity,
+        province: order.shippingProvince,
+        zip: order.shippingZip,
+      },
+      subtotal,
+      discount: 0,
+      total: Number(order.total),
+      items: order.items.map((item) => ({
+        name: item.nameSnapshot,
+        qty: item.quantity,
+        unit: Number(item.unitPrice),
+        subtotal: Number(item.subtotal),
+        imageUrl: absoluteUrl(baseUrl, item.product.images[0]?.url),
+      })),
+      message: mailing.purchaseMessage,
+    }),
+  });
+}
+
 async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
   const mpStatus = normalizeStatus(payment.status);
+  const isCardPaymentBrick = String(payment.metadata?.payment_flow || "").toLowerCase() === "card_payment_brick";
   const paymentId = String(payment.id);
   const orderId =
     payment.metadata?.order_id ||
@@ -71,13 +183,14 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
     return;
   }
 
-  // Datos para enviar mail (solo si pasa a paid)
+  // Datos para notificar fuera de la transacción.
   let shouldSendPaidEmail = false;
-  let emailTo: string | null = null;
+  let shouldSendRejectedEmail = false;
+      let emailTo: string | null = null;
   let emailName = "";
   let orderTotal = 0;
   let orderNumber: number | undefined;
-  let orderItems: { name: string; qty: number; unit: number; subtotal: number }[] = [];
+  let paymentRowId: string | undefined;
   const restoredProductIds = new Set<string>();
 
   await prisma.$transaction(async (tx) => {
@@ -86,15 +199,16 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
     });
 
     if (existing) {
-      await tx.payment.update({
+      const updatedPayment = await tx.payment.update({
         where: { id: existing.id },
         data: {
           status: mpStatus,
           rawJson: JSON.stringify(payment).slice(0, 4000),
         },
       });
+      paymentRowId = updatedPayment.id;
     } else {
-      await tx.payment.create({
+      const createdPayment = await tx.payment.create({
         data: {
           orderId,
           provider: "mercadopago",
@@ -102,53 +216,58 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
           paymentId,
           preferenceId: payment.preference_id ? String(payment.preference_id) : undefined,
           rawJson: JSON.stringify(payment).slice(0, 4000),
+          pendingAt: mpStatus === "pending" ? new Date() : undefined,
         },
       });
+      paymentRowId = createdPayment.id;
     }
 
     const order = await tx.order.findUnique({
       where: { id: orderId },
-      include: { items: true },
+      include: { items: true, user: { select: { email: true, name: true } } },
     });
     if (!order) return;
 
     if (mpStatus === "approved") {
       // Solo si cambia de estado, enviamos mail (idempotente)
-      if (order.status !== "paid") {
-        await tx.order.update({
-          where: { id: order.id },
-          data: { status: "paid" },
-        });
+      const paidTransition = await markOrderPaidIfPending(tx, order.id);
+      if (paidTransition.changed) {
 
-        const user = await tx.user.findUnique({
-          where: { id: order.userId },
-          select: { email: true, name: true },
-        });
-
-        if (user?.email) {
+        const orderEmail = getOrderContactEmail(order);
+        if (orderEmail) {
           shouldSendPaidEmail = true;
-          emailTo = user.email;
-          emailName = user.name ?? "";
+          emailTo = orderEmail;
+          emailName = order.user?.name ?? order.shippingName ?? order.contactEmail ?? "";
           orderTotal = Number(order.total);
           orderNumber = order.orderNumber ?? undefined;
-          orderItems = order.items.map((it: any) => ({
-            name: it.nameSnapshot,
-            qty: it.quantity,
-            unit: Number(it.unitPrice),
-            subtotal: Number(it.subtotal),
-          }));
         }
       }
       return;
     }
 
     if (mpStatus === "rejected" || mpStatus === "cancelled" || mpStatus === "refunded") {
-      if (order.status === "pending_payment") {
+      const orderEmail = getOrderContactEmail(order);
+      if (mpStatus === "rejected" && orderEmail && !isCardPaymentBrick) {
+        shouldSendRejectedEmail = true;
+        emailTo = orderEmail;
+        emailName = order.user?.name ?? order.shippingName ?? order.contactEmail ?? "";
+        orderTotal = Number(order.total);
+        orderNumber = order.orderNumber ?? undefined;
+      }
+
+      if (order.status === "pending_payment" && !isCardPaymentBrick) {
         for (const it of order.items) {
           const product = await tx.product.findUnique({
             where: { id: it.productId },
             select: { stock: true },
           });
+
+          if (it.productVariantId) {
+            await tx.productVariant.update({
+              where: { id: it.productVariantId },
+              data: { stock: { increment: it.quantity } },
+            });
+          }
 
           const updatedProduct = await tx.product.update({
             where: { id: it.productId },
@@ -168,27 +287,65 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
     }
   });
 
-  // ✅ Enviar email fuera de la transacción (mejor práctica)
+  if (paymentRowId && mpStatus !== "pending" && mpStatus !== "unknown") {
+    await cancelScheduledEmailJobs({ paymentId: paymentRowId, type: "payment-pending-initial" }).catch(() => {});
+    await cancelScheduledEmailJobs({ orderId, type: "payment-pending-initial" }).catch(() => {});
+    await cancelScheduledEmailJobs({ paymentId: paymentRowId, type: "payment-reminder" }).catch(() => {});
+    await cancelScheduledEmailJobs({ orderId, type: "payment-reminder" }).catch(() => {});
+  }
+
+  // Notificaciones fuera de la transacción.
   if (shouldSendPaidEmail && emailTo) {
-    const mailing = await getMailingSettings();
-    if (!mailing.purchaseEnabled) {
-      await Promise.all(Array.from(restoredProductIds).map((productId) => notifyBackInStock(productId, req)));
-      return;
-    }
-
-    const html = orderPaidTemplate({
-      customerName: emailName,
-      orderNumber,
+    await sendDetailedPaidEmail({ orderId, paymentRowId, payment, req }).catch(() => {});
+    await sendMerchantOrderNotification({
       orderId,
-      total: orderTotal,
-      items: orderItems,
-      message: mailing.purchaseMessage,
-    });
+      trigger: "paid",
+      paymentLabel: "Mercado Pago",
+      req,
+    }).catch(() => {});
+  }
 
-    await sendMail({
+  if (mpStatus === "approved") {
+    await syncMetaPurchaseForOrder(orderId, { req });
+  }
+
+  if (shouldSendRejectedEmail && emailTo) {
+    const baseUrl = publicBaseUrl(req);
+    const rejectedOrder = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            product: {
+              include: {
+                images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }], take: 1 },
+              },
+            },
+          },
+        },
+      },
+    });
+    const rejectedItemsSubtotal = rejectedOrder?.items.reduce((acc, item) => acc + Number(item.subtotal), 0) ?? 0;
+    await queueAndSendEmailNotification({
+      templateKey: "payment-rejected",
       to: emailTo,
-      subject: mailing.purchaseSubject,
-      html,
+      orderId,
+      paymentId: paymentRowId,
+      idempotencyKey: `payment-rejected:${paymentId}`,
+      payload: {
+        customerName: emailName || emailTo,
+        orderNumber: orderNumber ? `#${orderNumber}` : orderId,
+        productsHtml: rejectedOrder ? emailOrderItemsHtml(rejectedOrder.items, baseUrl, { subtotal: rejectedItemsSubtotal, shipping: rejectedOrder.shippingAmount, total: rejectedOrder.total }) : "",
+        productsText: rejectedOrder ? emailOrderItemsText(rejectedOrder.items, { subtotal: rejectedItemsSubtotal, shipping: rejectedOrder.shippingAmount, total: rejectedOrder.total }) : "",
+        paymentAmount: `$${orderTotal.toLocaleString("es-AR")}`,
+        paymentMethod: payment.payment_method_id ? String(payment.payment_method_id) : "Mercado Pago",
+        paymentStatus: mpStatus,
+        rejectionReason: payment.status_detail ? String(payment.status_detail) : "No informado",
+        retryPaymentUrl: `${baseUrl}/pay/pending?orderId=${orderId}`,
+        supportEmail: process.env.SUPPORT_EMAIL || process.env.SMTP_FROM || "soporte@fikastore",
+        storeName: "FikaStore",
+        storeUrl: baseUrl,
+      },
     }).catch(() => {});
   }
 

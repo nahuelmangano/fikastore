@@ -16,9 +16,9 @@ type Body = {
 export async function POST(req: Request) {
   const session = await auth();
   const userId = (session?.user as any)?.id as string | undefined;
-  if (!userId) {
-    return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
-  }
+  const cookieHeader = req.headers.get("cookie") || "";
+  const anonymousCookie = cookieHeader.match(/(?:^|;\s*)fikastore_anon_cart=([^;]+)/)?.[1];
+  const anonymousId = userId ? null : anonymousCookie || crypto.randomUUID();
 
   const body = (await req.json().catch(() => null)) as Body | null;
   const items = Array.isArray(body?.items) ? body!.items : [];
@@ -41,26 +41,31 @@ export async function POST(req: Request) {
     );
 
   if (normalized.length === 0) {
-    await prisma.cartSnapshot.deleteMany({ where: { userId } });
-    return NextResponse.json({ ok: true, cleared: true });
+    if (userId) await prisma.cartSnapshot.deleteMany({ where: { userId } });
+    else if (anonymousId) await prisma.anonymousCartSnapshot.deleteMany({ where: { anonymousId } });
+    const response = NextResponse.json({ ok: true, cleared: true });
+    if (!userId && !anonymousCookie) response.cookies.set("fikastore_anon_cart", anonymousId!, { httpOnly: true, sameSite: "lax", maxAge: 60 * 60 * 24 * 90, path: "/" });
+    return response;
   }
 
   const itemCount = normalized.reduce((acc, it) => acc + it.quantity, 0);
   const itemsJson = JSON.stringify(normalized);
 
-  await prisma.cartSnapshot.upsert({
-    where: { userId },
-    create: {
-      userId,
-      itemsJson,
-      itemCount,
-    },
-    update: {
-      itemsJson,
-      itemCount,
-      reminderSentAt: null,
-    },
-  });
+  if (userId) {
+    await prisma.cartSnapshot.upsert({
+      where: { userId },
+      create: { userId, itemsJson, itemCount },
+      update: { itemsJson, itemCount, reminderSentAt: null },
+    });
+  } else {
+    await prisma.anonymousCartSnapshot.upsert({
+      where: { anonymousId: anonymousId! },
+      create: { anonymousId: anonymousId!, itemsJson, itemCount },
+      update: { itemsJson, itemCount },
+    });
+  }
 
-  return NextResponse.json({ ok: true });
+  const response = NextResponse.json({ ok: true, anonymous: !userId });
+  if (!userId && !anonymousCookie) response.cookies.set("fikastore_anon_cart", anonymousId!, { httpOnly: true, sameSite: "lax", maxAge: 60 * 60 * 24 * 90, path: "/" });
+  return response;
 }

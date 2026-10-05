@@ -2,15 +2,11 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { sendMail } from "@/lib/mailer";
-import { orderShippedTemplate } from "@/lib/email-templates";
 import { isStaffRole } from "@/lib/roles";
-
-
-export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
+  const role = (session?.user as { role?: string } | undefined)?.role;
 
   if (!isStaffRole(role)) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
@@ -39,20 +35,9 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       shippedAt: new Date(),
     },
   });
-  // Enviar mail al cliente
-  const user = await prisma.user.findUnique({ where: { id: updated.userId } });
 
-  if (user?.email) {
-    await sendMail({
-      to: user.email,
-      subject: "FikaStore · Tu pedido fue enviado 📦",
-      html: orderShippedTemplate({
-        customerName: user.name ?? "",
-        orderNumber: updated.orderNumber ?? undefined,
-        orderId: updated.id,
-      }),
-    }).catch(() => {});
-  }
-
-  return NextResponse.json({ ok: true, order: updated });
+  return NextResponse.json({
+    ok: true,
+    order: updated,
+  });
 }

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { notFound, redirect } from "next/navigation";
 import PayPendingButton from "@/components/PayPendingButton";
 import CancelOrderButton from "@/components/CancelOrderButton";
+import { orderStatusLabel, paymentStatusLabel } from "@/lib/orderLabels";
 
 function formatMoney(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
@@ -19,7 +20,7 @@ export default async function OrderDetailPage({
   const id = resolvedParams?.id?.trim();
 
   const session = await getServerSession(authOptions);
-  const userId = (session?.user as any)?.id;
+  const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) redirect(`/login?next=/account/orders/${id ?? ""}`);
 
   if (!id) return notFound();
@@ -52,11 +53,11 @@ export default async function OrderDetailPage({
             </div>
 
             <div className="text-right">
-              <Badge label={`Orden: ${order.status}`} />
+              <Badge label={`Orden: ${orderStatusLabel(order.status)}`} />
               <div className="mt-2 text-sm text-zinc-300">
                 Total: <span className="font-semibold">{formatMoney(Number(order.total))}</span>
               </div>
-              <div className="mt-1 text-xs text-zinc-400">Pago: {lastPayment?.status ?? "—"}</div>
+              <div className="mt-1 text-xs text-zinc-400">Pago: {paymentStatusLabel(lastPayment?.status)}</div>
             </div>
           </div>
 

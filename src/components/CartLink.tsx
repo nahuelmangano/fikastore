@@ -92,6 +92,13 @@ export default function CartLink({
               {session?.user?.email || "No logueado"}
             </div>
             <Link
+              href="/account/profile"
+              className={menuItemClass}
+              onClick={() => setOpen(false)}
+            >
+              Mi perfil
+            </Link>
+            <Link
               href="/account/orders"
               className={menuItemClass}
               onClick={() => setOpen(false)}

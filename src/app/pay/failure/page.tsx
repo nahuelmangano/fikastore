@@ -1,11 +1,17 @@
 import PayResultClient from "../ui";
+import { getScreenTextSettings } from "@/lib/storeSettings";
 
-export default function PayFailurePage({
+type SearchParams = { orderId?: string; email?: string } | Promise<{ orderId?: string; email?: string }>;
+
+export default async function PayFailurePage({
   searchParams,
 }: {
-  searchParams: { orderId?: string };
+  searchParams: SearchParams;
 }) {
-  const orderId = searchParams.orderId;
+  const resolvedSearchParams = await Promise.resolve(searchParams);
+  const orderId = String(resolvedSearchParams.orderId || "").trim();
+  const email = String(resolvedSearchParams.email || "").trim().toLowerCase();
+  const screenTextSettings = await getScreenTextSettings();
   if (!orderId) {
     return (
       <main className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -21,10 +27,13 @@ export default function PayFailurePage({
 
   return (
     <PayResultClient
-      title="Pago rechazado ❌"
-      subtitle="No se pudo completar el pago. Podés intentar nuevamente desde el checkout."
+      title={screenTextSettings.paymentFailureTitle}
+      subtitle={screenTextSettings.paymentFailureSubtitle}
       orderId={orderId}
-      hint="Si el pedido estaba pendiente, el stock queda reservado. Podés reintentar el pago."
+      accessEmail={email || undefined}
+      hint={screenTextSettings.paymentFailureHint}
+      backToStoreLabel={screenTextSettings.paymentFailureBackToStoreButton}
+      viewOrderLabel={screenTextSettings.paymentFailureViewOrderButton}
     />
   );
 }

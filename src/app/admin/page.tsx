@@ -17,7 +17,7 @@ import {
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isAdminRole } from "@/lib/roles";
-import { getMailingSettings } from "@/lib/storeSettings";
+import { getMailingSettings, getMetricsSettings, getSiteTitle } from "@/lib/storeSettings";
 
 type ActivityItem = {
   id: string;
@@ -40,6 +40,11 @@ function endOfToday() {
   return new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
 }
 
+function formatMetricsStartAt(value: string | null) {
+  if (!value) return null;
+  return new Intl.DateTimeFormat("es-AR", { dateStyle: "long", timeStyle: "short" }).format(new Date(value));
+}
+
 function relativeTime(date: Date) {
   const diff = Date.now() - date.getTime();
   const minutes = Math.max(0, Math.floor(diff / 60000));
@@ -57,6 +62,7 @@ function statusLabel(status: string) {
     pending_payment: "Pendiente",
     paid: "Pagado",
     shipped: "Enviado",
+    delivered: "Entregado",
     cancelled: "Cancelado",
     refunded: "Reintegrado",
   };
@@ -67,9 +73,12 @@ export default async function AdminDashboardPage() {
   const session = await auth();
   const user = session?.user as { name?: string | null; email?: string | null; role?: string | null } | undefined;
   const isAdmin = isAdminRole(user?.role);
-  const displayName = user?.name?.trim() || "";
   const todayStart = startOfToday();
   const todayEnd = endOfToday();
+  const metricsSettings = await getMetricsSettings();
+  const metricsStartAt = metricsSettings.startAt ? new Date(metricsSettings.startAt) : null;
+  const metricsCreatedAtFilter = metricsStartAt ? { gte: metricsStartAt } : undefined;
+  const salesTodayStart = metricsStartAt && metricsStartAt > todayStart ? metricsStartAt : todayStart;
 
   const [
     todaySales,
@@ -86,16 +95,17 @@ export default async function AdminDashboardPage() {
     latestProducts,
     latestPromotions,
     mailing,
+    storeTitle,
   ] = await Promise.all([
     prisma.order.aggregate({
       where: {
-        status: { in: ["paid", "shipped"] },
-        createdAt: { gte: todayStart, lt: todayEnd },
+        status: { in: ["paid", "shipped", "delivered"] },
+        createdAt: { gte: salesTodayStart, lt: todayEnd },
       },
       _sum: { total: true },
     }),
-    prisma.order.count(),
-    prisma.order.count({ where: { status: { in: ["pending_payment", "paid"] } } }),
+    prisma.order.count({ where: metricsCreatedAtFilter ? { createdAt: metricsCreatedAtFilter } : {} }),
+    prisma.order.count({ where: { status: { in: ["pending_payment", "paid"] }, ...(metricsCreatedAtFilter ? { createdAt: metricsCreatedAtFilter } : {}) } }),
     prisma.user.count({ where: { role: "customer" } }),
     prisma.product.count({ where: { isActive: true } }),
     prisma.product.count({ where: { stock: { lte: 0 } } }),
@@ -108,6 +118,7 @@ export default async function AdminDashboardPage() {
       },
     }),
     prisma.order.findMany({
+      where: metricsCreatedAtFilter ? { createdAt: metricsCreatedAtFilter } : undefined,
       orderBy: { createdAt: "desc" },
       take: 5,
       include: {
@@ -133,9 +144,11 @@ export default async function AdminDashboardPage() {
       select: { id: true, name: true, updatedAt: true, isActive: true },
     }),
     getMailingSettings(),
+    getSiteTitle(),
   ]);
 
   const salesToday = Number(todaySales._sum.total ?? 0);
+  const metricsStartLabel = formatMetricsStartAt(metricsSettings.startAt);
   const conversionLabel = totalOrders > 0 && customerCount > 0
     ? `${Math.round((totalOrders / customerCount) * 100)}%`
     : "Próximamente";
@@ -183,9 +196,10 @@ export default async function AdminDashboardPage() {
           <div>
             <p className="text-sm font-medium text-[#A37A55]">Dashboard</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#5F3B18]">
-              {displayName ? `Hola, ${displayName} 👋` : "Hola 👋"}
+              Hola, {storeTitle} 👋
             </h1>
             <p className="mt-2 text-base text-[#8F6A49]">Así está funcionando tu tienda hoy.</p>
+            {metricsStartLabel ? <p className="mt-2 text-sm text-[#A37A55]">Métricas calculadas desde {metricsStartLabel}.</p> : null}
           </div>
           <div className="rounded-2xl border border-[#E5D7C8] bg-white/70 px-4 py-3 xl:py-2.5 text-sm text-[#8B5A2B] shadow-sm">
             <div className="text-xs font-semibold uppercase tracking-wider text-[#B18B68]">Última actualización</div>
@@ -195,8 +209,8 @@ export default async function AdminDashboardPage() {
 
         <section className="mt-8 xl:mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard icon={BarChart3} title="Ventas hoy" value={money(salesToday)} subtitle="Total vendido hoy" featured />
-          <KpiCard icon={Package} title="Pedidos" value={String(totalOrders)} subtitle={`${pendingOrders} pendiente${pendingOrders === 1 ? "" : "s"}`} />
-          <KpiCard icon={Users} title="Clientes" value={String(customerCount)} subtitle="Clientes registrados" />
+          <KpiCard href="/admin/orders" icon={Package} title="Pedidos" value={String(totalOrders)} subtitle={`${pendingOrders} pendiente${pendingOrders === 1 ? "" : "s"}`} />
+          <KpiCard href="/admin/users" icon={Users} title="Clientes" value={String(customerCount)} subtitle="Clientes registrados" />
           <KpiCard icon={BarChart3} title="Conversión" value={conversionLabel} subtitle="Ventas sobre clientes" />
         </section>
 
@@ -324,14 +338,16 @@ function KpiCard({
   value,
   subtitle,
   featured = false,
+  href,
 }: {
   icon: LucideIcon;
   title: string;
   value: string;
   subtitle: string;
   featured?: boolean;
+  href?: string;
 }) {
-  return (
+  const card = (
     <div
       className={[
         "rounded-3xl border p-5 xl:p-4 shadow-[0_16px_40px_rgba(80,52,28,0.06)]",
@@ -352,6 +368,15 @@ function KpiCard({
       </div>
     </div>
   );
+
+  return href ? (
+    <Link
+      href={href}
+      className="block rounded-3xl transition hover:-translate-y-0.5 hover:shadow-[0_18px_44px_rgba(80,52,28,0.1)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8B5A2B]"
+    >
+      {card}
+    </Link>
+  ) : card;
 }
 
 function Panel({
