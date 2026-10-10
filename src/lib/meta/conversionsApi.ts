@@ -2,10 +2,10 @@ import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
 import { buildPublicOrderUrl, getOrderContactEmail } from "@/lib/orderAccess";
-import { ORDER_PAID_STATUSES } from "@/lib/orderPaymentTransition";
 import { prisma } from "@/lib/prisma";
 import { publicBaseUrl } from "@/lib/publicUrl";
 import { buildMetaPurchaseEventId, buildMetaPurchasePayload } from "@/lib/meta/purchase";
+import { isOrderEligibleForPurchaseEvent } from "@/lib/purchaseEligibility";
 
 const META_GRAPH_API_VERSION = "v25.0";
 const META_LOCK_TTL_MS = 5 * 60 * 1000;
@@ -202,10 +202,12 @@ export async function syncMetaPurchaseForOrder(orderId: string, options: SyncMet
       status: true,
       metaPurchaseSentAt: true,
       metaPurchaseLockedAt: true,
+      payments: { select: { provider: true, status: true, paymentId: true } },
+      refunds: { select: { status: true } },
     },
   });
 
-  if (!current || !ORDER_PAID_STATUSES.has(current.status)) {
+  if (!current || !isOrderEligibleForPurchaseEvent(current)) {
     return { ok: false, skipped: "not_paid" as const };
   }
 
@@ -255,6 +257,8 @@ export async function syncMetaPurchaseForOrder(orderId: string, options: SyncMet
         metaFbp: true,
         metaFbc: true,
         user: { select: { email: true, name: true } },
+        payments: { select: { provider: true, status: true, paymentId: true } },
+        refunds: { select: { status: true } },
         items: {
           select: {
             productId: true,
@@ -266,7 +270,7 @@ export async function syncMetaPurchaseForOrder(orderId: string, options: SyncMet
       },
     });
 
-    if (!order || !ORDER_PAID_STATUSES.has(order.status)) {
+    if (!order || !isOrderEligibleForPurchaseEvent(order)) {
       throw new Error("Order unavailable for Meta sync");
     }
 

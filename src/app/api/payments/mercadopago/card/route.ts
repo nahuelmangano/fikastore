@@ -1,11 +1,23 @@
-import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getMercadoPagoOAuthPaymentContext } from "@/lib/storeSettings";
 import { buildPublicOrderUrl, getOrderContactEmail, normalizeOrderEmail } from "@/lib/orderAccess";
 import { isStaffRole } from "@/lib/roles";
 import { publicBaseUrl } from "@/lib/publicUrl";
+import {
+  reconcileMercadoPagoFinancialConfirmation,
+} from "@/lib/mercadoPagoPaymentConfirmation";
+import { syncMetaPurchaseForOrder } from "@/lib/meta/conversionsApi";
+import {
+  assertMercadoPagoAttemptPayloadMatches,
+  createMercadoPagoIdempotencyKey,
+  hashMercadoPagoOrderPayload,
+  isBlockingMercadoPagoAttempt,
+  MP_ORDER_REQUEST_STATUSES,
+  shouldTreatMercadoPagoOrderErrorAsUnknown,
+} from "@/lib/mercadoPagoOrderAttempt";
 
 export const runtime = "nodejs";
 
@@ -18,6 +30,7 @@ type CardPaymentBody = {
   installments?: number;
   transaction_amount?: number | string;
   device_id?: string;
+  payment_attempt_id?: string;
   payer?: {
     email?: string;
     identification?: {
@@ -29,24 +42,6 @@ type CardPaymentBody = {
 
 function bad(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status });
-}
-
-function normalizeStatus(mpStatus: string | undefined): string {
-  if (!mpStatus) return "unknown";
-  const s = mpStatus.toLowerCase();
-  if (s === "approved" || s === "processed" || s === "accredited") return "approved";
-  if (s === "rejected" || s === "failed") return "rejected";
-  if (s === "cancelled") return "cancelled";
-  if (s === "refunded" || s === "charged_back") return "refunded";
-  if (s === "pending" || s === "in_process" || s === "processing" || s === "authorized" || s === "action_required") return "pending";
-  return "unknown";
-}
-
-function sanitizeMercadoPagoPayment(payment: Record<string, unknown>) {
-  const copy = { ...payment };
-  delete copy.card;
-  delete copy.point_of_interaction;
-  return JSON.stringify(copy).slice(0, 4000);
 }
 
 function paymentMessage(status: string, statusDetail?: string) {
@@ -105,6 +100,18 @@ async function fetchMercadoPagoUserDiagnostics(accessToken: string) {
   }
 }
 
+async function fetchMercadoPagoOrder(accessToken: string, mpOrderId: string) {
+  const response = await fetch(`https://api.mercadopago.com/v1/orders/${encodeURIComponent(mpOrderId)}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(10000),
+  });
+  const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    throw new Error(`MP get order failed status=${response.status}`);
+  }
+  return data;
+}
+
 export async function POST(req: Request) {
   const session = await auth();
   const userId = (session?.user as { id?: string } | undefined)?.id;
@@ -118,6 +125,7 @@ export async function POST(req: Request) {
   const paymentType = paymentTypeId(rawPaymentType);
   const installments = Math.max(1, Math.floor(Number(body?.installments || 1)));
   const deviceId = String(body?.device_id || "").trim();
+  const paymentAttemptId = String(body?.payment_attempt_id || "").trim();
   const payerEmail = normalizeOrderEmail(body?.payer?.email);
   const identificationType = String(body?.payer?.identification?.type || "DNI").trim() || "DNI";
   const identificationNumber = String(body?.payer?.identification?.number || "").replace(/\D/g, "");
@@ -126,6 +134,7 @@ export async function POST(req: Request) {
   if (!token) return bad("Token de tarjeta inválido.");
   if (!paymentMethodId) return bad("Medio de pago inválido.");
   if (!paymentType) return bad("Tipo de tarjeta inválido.");
+  if (!paymentAttemptId || paymentAttemptId.length > 120) return bad("Intento de pago inválido.");
   if (!payerEmail) return bad("Email inválido.");
 
   const order = await prisma.order.findFirst({
@@ -154,10 +163,20 @@ export async function POST(req: Request) {
     return bad("La cuenta de Mercado Pago del vendedor no está conectada por OAuth.", 503);
   }
   const { accessToken, connectedUserId, scope, tokenType } = oauthContext;
+  if (connectedUserId) {
+    const userDiagnostics = await fetchMercadoPagoUserDiagnostics(accessToken);
+    const responseUserId = "userId" in userDiagnostics ? userDiagnostics.userId : undefined;
+    if (responseUserId && responseUserId !== connectedUserId) {
+      console.error("Mercado Pago OAuth seller mismatch", {
+        oauthUserId: connectedUserId,
+        responseUserId,
+      });
+      return bad("La cuenta de Mercado Pago conectada no coincide con el vendedor configurado.", 503);
+    }
+  }
 
   const site = publicBaseUrl(req);
   const transactionAmount = Number(order.total);
-  const idempotencyKey = randomUUID();
 
   const orderBody = {
     type: "online",
@@ -207,6 +226,94 @@ export async function POST(req: Request) {
       category_id: "fashion",
     })),
   };
+  const requestHash = hashMercadoPagoOrderPayload(orderBody);
+
+  type PreparedAttempt = {
+    paymentRowId: string;
+    idempotencyKey: string;
+    mpOrderId: string | null;
+  };
+
+  let preparedAttempt: PreparedAttempt;
+  try {
+    preparedAttempt = await prisma.$transaction(async (tx) => {
+      const payments = await tx.payment.findMany({
+        where: { orderId: order.id, provider: "mercadopago" },
+        orderBy: { createdAt: "desc" },
+      });
+
+      const sameAttempt = payments.find((payment) => payment.paymentAttemptId === paymentAttemptId) ?? null;
+      if (sameAttempt) {
+        assertMercadoPagoAttemptPayloadMatches(sameAttempt, requestHash);
+      }
+
+      const blockingOtherAttempt = payments.find(
+        (payment) => payment.paymentAttemptId !== paymentAttemptId && isBlockingMercadoPagoAttempt(payment),
+      );
+      if (blockingOtherAttempt) {
+        throw new Error("mercadopago_active_attempt");
+      }
+
+      const reusableInitialPayment = payments.find(
+        (payment) =>
+          !payment.paymentAttemptId &&
+          !payment.mpIdempotencyKey &&
+          payment.status === "pending",
+      ) ?? null;
+      const targetPayment = sameAttempt ?? reusableInitialPayment;
+
+      if (targetPayment) {
+        const idempotencyKey = targetPayment.mpIdempotencyKey || createMercadoPagoIdempotencyKey();
+        const updated = await tx.payment.update({
+          where: { id: targetPayment.id },
+          data: {
+            paymentAttemptId,
+            mpIdempotencyKey: idempotencyKey,
+            mpRequestHash: requestHash,
+            mpRequestStatus: targetPayment.mpOrderId
+              ? targetPayment.mpRequestStatus
+              : MP_ORDER_REQUEST_STATUSES.processing,
+            mpRequestStartedAt: targetPayment.mpRequestStartedAt ?? new Date(),
+            mpLastError: null,
+          },
+        });
+        return {
+          paymentRowId: updated.id,
+          idempotencyKey,
+          mpOrderId: updated.mpOrderId,
+        };
+      }
+
+      const created = await tx.payment.create({
+        data: {
+          orderId: order.id,
+          provider: "mercadopago",
+          status: "pending",
+          paymentAttemptId,
+          mpIdempotencyKey: createMercadoPagoIdempotencyKey(),
+          mpRequestHash: requestHash,
+          mpRequestStatus: MP_ORDER_REQUEST_STATUSES.processing,
+          mpRequestStartedAt: new Date(),
+          pendingAt: new Date(),
+        },
+      });
+
+      return {
+        paymentRowId: created.id,
+        idempotencyKey: created.mpIdempotencyKey!,
+        mpOrderId: created.mpOrderId,
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message === "mercadopago_attempt_payload_mismatch") {
+      return bad("Este intento de pago ya fue enviado con otros datos. Esperá la confirmación o iniciá un nuevo pago.", 409);
+    }
+    if (message === "mercadopago_active_attempt") {
+      return bad("Ya hay un intento de pago en curso para esta orden. Esperá la confirmación de Mercado Pago antes de reintentar.", 409);
+    }
+    throw error;
+  }
 
   const debugEnabled = process.env.MERCADOPAGO_DEBUG === "true";
   if (debugEnabled) {
@@ -227,12 +334,12 @@ export async function POST(req: Request) {
       amount: transactionAmount.toFixed(2),
       brickAmount: body?.transaction_amount ?? null,
       payerEmailPresent: Boolean(payerEmail),
-      idempotencyKey,
+      idempotencyKey: preparedAttempt.idempotencyKey,
       endpoint: "/v1/orders",
       headers: {
         authorization: "Bearer [redacted OAuth token]",
         contentType: "application/json",
-        idempotencyKeyPresent: Boolean(idempotencyKey),
+        idempotencyKeyPresent: Boolean(preparedAttempt.idempotencyKey),
         deviceIdPresent: Boolean(deviceId),
       },
       payload: sanitizeForLog(orderBody),
@@ -249,18 +356,44 @@ export async function POST(req: Request) {
     });
   }
 
-  const mpRes = await fetch("https://api.mercadopago.com/v1/orders", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      "X-Idempotency-Key": idempotencyKey,
-      ...(deviceId ? { "X-meli-session-id": deviceId } : {}),
-    },
-    body: JSON.stringify(orderBody),
-  });
+  let mpRes: Response | null = null;
+  let mpData: Record<string, unknown>;
+  try {
+    if (preparedAttempt.mpOrderId) {
+      mpData = await fetchMercadoPagoOrder(accessToken, preparedAttempt.mpOrderId);
+    } else {
+      mpRes = await fetch("https://api.mercadopago.com/v1/orders", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "X-Idempotency-Key": preparedAttempt.idempotencyKey,
+          ...(deviceId ? { "X-meli-session-id": deviceId } : {}),
+        },
+        body: JSON.stringify(orderBody),
+        signal: AbortSignal.timeout(20000),
+      });
+      mpData = (await mpRes.json().catch(() => ({}))) as Record<string, unknown>;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "request failed";
+    await prisma.payment.update({
+      where: { id: preparedAttempt.paymentRowId },
+      data: {
+        status: "unknown",
+        mpRequestStatus: MP_ORDER_REQUEST_STATUSES.unknown,
+        mpLastError: message.slice(0, 1000),
+      },
+    });
+    return NextResponse.json({
+      ok: true,
+      status: "unknown",
+      paymentId: null,
+      message: "No pudimos confirmar el resultado del pago. No vuelvas a enviar los datos de tarjeta; vamos a recuperar el estado con Mercado Pago.",
+      orderUrl: buildPublicOrderUrl(site, order),
+    }, { status: 202 });
+  }
 
-  const mpData = (await mpRes.json().catch(() => ({}))) as Record<string, unknown>;
   const mpPayments =
     mpData.transactions &&
     typeof mpData.transactions === "object" &&
@@ -268,13 +401,6 @@ export async function POST(req: Request) {
       ? (mpData.transactions as { payments: Record<string, unknown>[] }).payments
       : [];
   const mpPayment = mpPayments[0] || {};
-  const rawStatus =
-    typeof mpPayment.status === "string"
-      ? mpPayment.status
-      : typeof mpData.status === "string"
-        ? mpData.status
-        : undefined;
-  const status = normalizeStatus(rawStatus);
   const statusDetail =
     typeof mpPayment.status_detail === "string"
       ? mpPayment.status_detail
@@ -287,9 +413,38 @@ export async function POST(req: Request) {
       ? String(mpData.id)
       : null;
 
-  if (!mpRes.ok) {
+  if (mpRes && !mpRes.ok) {
     const safeDetail = mercadoPagoErrorMessage(mpData);
     const mpRequestId = mpRes.headers.get("x-request-id") || mpRes.headers.get("x-correlation-id") || undefined;
+    const code = typeof mpData.code === "string" ? mpData.code : undefined;
+    const requestStatus = shouldTreatMercadoPagoOrderErrorAsUnknown(mpRes.status, code)
+      ? MP_ORDER_REQUEST_STATUSES.unknown
+      : MP_ORDER_REQUEST_STATUSES.failed;
+    await prisma.payment.update({
+      where: { id: preparedAttempt.paymentRowId },
+      data: {
+        status: requestStatus === MP_ORDER_REQUEST_STATUSES.unknown ? "unknown" : "rejected",
+        mpRequestStatus: requestStatus,
+        mpRequestFinishedAt: requestStatus === MP_ORDER_REQUEST_STATUSES.failed ? new Date() : undefined,
+        mpLastError: JSON.stringify({
+          status: mpRes.status,
+          code,
+          message: typeof mpData.message === "string" ? mpData.message : undefined,
+          error: typeof mpData.error === "string" ? mpData.error : undefined,
+        }).slice(0, 1000),
+      },
+    });
+
+    if (requestStatus === MP_ORDER_REQUEST_STATUSES.unknown) {
+      return NextResponse.json({
+        ok: true,
+        status: "unknown",
+        paymentId: null,
+        message: "Mercado Pago no devolvió un resultado definitivo. No se enviará otro cobro automáticamente.",
+        orderUrl: buildPublicOrderUrl(site, order),
+      }, { status: 202 });
+    }
+
     if (mpRes.status === 403 && mpData.code === "PA_UNAUTHORIZED_RESULT_FROM_POLICIES") {
       const userDiagnostics = await fetchMercadoPagoUserDiagnostics(accessToken);
       console.error("Mercado Pago Orders policy diagnostics", {
@@ -321,30 +476,51 @@ export async function POST(req: Request) {
     );
   }
 
-  await prisma.payment.upsert({
-    where: { id: latestPayment?.id || "__missing__" },
-    create: {
+  const confirmation = await prisma.$transaction((tx) =>
+    tx.payment.update({
+      where: { id: preparedAttempt.paymentRowId },
+      data: {
+        mpOrderId: typeof mpData.id === "string" ? mpData.id : undefined,
+        mpRequestStatus: MP_ORDER_REQUEST_STATUSES.completed,
+        mpRequestFinishedAt: new Date(),
+        mpLastError: null,
+      },
+    }).then(() =>
+      reconcileMercadoPagoFinancialConfirmation(
+        tx,
+        {
+          flow: "checkout_api_order",
+          order: mpData,
+          expectedConnectedUserId: connectedUserId,
+        },
+        {
+          fallbackOrderId: order.id,
+          fallbackPaymentRowId: preparedAttempt.paymentRowId,
+        },
+      )
+    )
+  );
+
+  if (!confirmation.ok) {
+    console.error("Mercado Pago Orders evidence rejected", {
       orderId: order.id,
-      provider: "mercadopago",
-      status,
-      paymentId,
-      rawJson: sanitizeMercadoPagoPayment(mpData),
-      pendingAt: status === "pending" ? new Date() : undefined,
-    },
-    update: {
-      status,
-      paymentId,
-      rawJson: sanitizeMercadoPagoPayment(mpData),
-      pendingAt: status === "pending" ? latestPayment?.pendingAt || new Date() : latestPayment?.pendingAt,
-    },
-  });
+      reason: confirmation.reason,
+      status: confirmation.status,
+      paymentId: confirmation.paymentId,
+    });
+    return bad("Mercado Pago respondió, pero la evidencia financiera no coincide con el pedido.", 502);
+  }
+
+  if (confirmation.status === "approved") {
+    await syncMetaPurchaseForOrder(order.id, { req });
+  }
 
   return NextResponse.json({
     ok: true,
-    status,
+    status: confirmation.status,
     statusDetail,
-    paymentId,
-    message: paymentMessage(status, statusDetail || undefined),
+    paymentId: confirmation.paymentId || paymentId,
+    message: paymentMessage(confirmation.status, statusDetail || undefined),
     orderUrl: buildPublicOrderUrl(site, order),
   });
 }

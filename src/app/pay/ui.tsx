@@ -30,10 +30,8 @@ type OrderDetails = {
     status: string;
     paymentId?: string | null;
   } | null;
+  purchaseEligible?: boolean;
 };
-
-const PURCHASE_SUCCESS_ORDER_STATUSES = new Set(["paid", "shipped", "delivered"]);
-const PURCHASE_SUCCESS_PAYMENT_STATUSES = new Set(["approved"]);
 
 function money(n: number) {
   return `$${n.toLocaleString("es-AR")}`;
@@ -48,9 +46,7 @@ function badge(status: string) {
 }
 
 function canTrackApprovedPurchase(order: OrderDetails) {
-  const orderStatus = String(order.status || "").toLowerCase();
-  const paymentStatus = String(order.payment?.status || "").toLowerCase();
-  return PURCHASE_SUCCESS_ORDER_STATUSES.has(orderStatus) || PURCHASE_SUCCESS_PAYMENT_STATUSES.has(paymentStatus);
+  return order.purchaseEligible === true;
 }
 
 export default function PayResultClient({

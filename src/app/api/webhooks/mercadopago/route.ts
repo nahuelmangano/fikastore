@@ -2,7 +2,7 @@ import { getShippingCarriers } from "@/lib/shippingCarriers";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getMailingSettings, getResolvedMercadoPagoAccessToken } from "@/lib/storeSettings";
+import { getMailingSettings, getMercadoPagoOAuthPaymentContext, getResolvedMercadoPagoAccessToken } from "@/lib/storeSettings";
 import { notifyBackInStock } from "@/lib/stockNotifications";
 import { publicBaseUrl } from "@/lib/publicUrl";
 import { cancelScheduledEmailJobs, queueAndSendEmailNotification, renderEmailTemplate } from "@/lib/emailNotificationService";
@@ -12,7 +12,10 @@ import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows
 import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName } from "@/lib/orderAccess";
 import { sendMerchantOrderNotification } from "@/lib/merchantOrderNotifications";
 import { syncMetaPurchaseForOrder } from "@/lib/meta/conversionsApi";
-import { markOrderPaidIfPending } from "@/lib/orderPaymentTransition";
+import {
+  normalizeMercadoPagoStatus,
+  reconcileMercadoPagoFinancialConfirmation,
+} from "@/lib/mercadoPagoPaymentConfirmation";
 
 type MpWebhookBody = any;
 
@@ -46,15 +49,24 @@ async function fetchMerchantOrder(orderId: string) {
   return data;
 }
 
-function normalizeStatus(mpStatus: string | undefined): string {
-  if (!mpStatus) return "unknown";
-  const s = mpStatus.toLowerCase();
-  if (s === "approved") return "approved";
-  if (s === "rejected") return "rejected";
-  if (s === "cancelled") return "cancelled";
-  if (s === "refunded" || s === "charged_back") return "refunded";
-  if (s === "pending" || s === "in_process" || s === "authorized") return "pending";
-  return "unknown";
+async function fetchCheckoutApiOrder(orderId: string) {
+  const token = await getResolvedMercadoPagoAccessToken();
+  if (!token) throw new Error("MP_ACCESS_TOKEN missing");
+
+  const r = await fetch(`https://api.mercadopago.com/v1/orders/${orderId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new Error(`MP get order failed: ${JSON.stringify(data)}`);
+  }
+  return data;
+}
+
+async function expectedConnectedUserId() {
+  const context = await getMercadoPagoOAuthPaymentContext().catch(() => null);
+  return context?.connectedUserId || null;
 }
 
 function absoluteUrl(baseUrl: string, value?: string | null) {
@@ -160,67 +172,48 @@ async function sendDetailedPaidEmail(input: {
 }
 
 async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
-  const mpStatus = normalizeStatus(payment.status);
+  const mpStatus = normalizeMercadoPagoStatus(payment.status, payment.status_detail);
   const isCardPaymentBrick = String(payment.metadata?.payment_flow || "").toLowerCase() === "card_payment_brick";
   const paymentId = String(payment.id);
-  const orderId =
-    payment.metadata?.order_id ||
-    payment.external_reference ||
-    payment.additional_info?.items?.[0]?.id;
+  const orderId = typeof payment.external_reference === "string" ? payment.external_reference : "";
 
-  if (!orderId || typeof orderId !== "string") {
-    await prisma.payment
-      .create({
-        data: {
-          orderId: "unknown",
-          provider: "mercadopago",
-          status: mpStatus,
-          paymentId,
-          rawJson: JSON.stringify(payment).slice(0, 4000),
-        },
-      })
-      .catch(() => {});
-    return;
+  if (!orderId) {
+    throw new Error(`MP payment missing external_reference paymentId=${paymentId}`);
   }
 
   // Datos para notificar fuera de la transacción.
   let shouldSendPaidEmail = false;
   let shouldSendRejectedEmail = false;
-      let emailTo: string | null = null;
+  let emailTo: string | null = null;
   let emailName = "";
   let orderTotal = 0;
   let orderNumber: number | undefined;
   let paymentRowId: string | undefined;
   const restoredProductIds = new Set<string>();
+  let confirmationOk = false;
+  const connectedUserId = await expectedConnectedUserId();
 
   await prisma.$transaction(async (tx) => {
-    const existing = await tx.payment.findFirst({
-      where: { provider: "mercadopago", paymentId },
-    });
+    const confirmation = await reconcileMercadoPagoFinancialConfirmation(
+      tx,
+      {
+        flow: "checkout_pro_payment",
+        payment,
+        expectedConnectedUserId: connectedUserId,
+      },
+      { fallbackOrderId: orderId },
+    );
 
-    if (existing) {
-      const updatedPayment = await tx.payment.update({
-        where: { id: existing.id },
-        data: {
-          status: mpStatus,
-          rawJson: JSON.stringify(payment).slice(0, 4000),
-        },
-      });
-      paymentRowId = updatedPayment.id;
-    } else {
-      const createdPayment = await tx.payment.create({
-        data: {
-          orderId,
-          provider: "mercadopago",
-          status: mpStatus,
-          paymentId,
-          preferenceId: payment.preference_id ? String(payment.preference_id) : undefined,
-          rawJson: JSON.stringify(payment).slice(0, 4000),
-          pendingAt: mpStatus === "pending" ? new Date() : undefined,
-        },
-      });
-      paymentRowId = createdPayment.id;
+    if (!confirmation.ok) {
+      throw new Error(`MP payment evidence rejected paymentId=${paymentId} orderId=${orderId} reason=${confirmation.reason} status=${confirmation.status}`);
     }
+
+    confirmationOk = true;
+    const currentPayment = await tx.payment.findFirst({
+      where: { provider: "mercadopago", paymentId },
+      select: { id: true },
+    });
+    paymentRowId = currentPayment?.id;
 
     const order = await tx.order.findUnique({
       where: { id: orderId },
@@ -230,8 +223,7 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
 
     if (mpStatus === "approved") {
       // Solo si cambia de estado, enviamos mail (idempotente)
-      const paidTransition = await markOrderPaidIfPending(tx, order.id);
-      if (paidTransition.changed) {
+      if (confirmation.orderPaidChanged) {
 
         const orderEmail = getOrderContactEmail(order);
         if (orderEmail) {
@@ -286,6 +278,8 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
       }
     }
   });
+
+  if (!confirmationOk) return;
 
   if (paymentRowId && mpStatus !== "pending" && mpStatus !== "unknown") {
     await cancelScheduledEmailJobs({ paymentId: paymentRowId, type: "payment-pending-initial" }).catch(() => {});
@@ -352,6 +346,30 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
   await Promise.all(Array.from(restoredProductIds).map((productId) => notifyBackInStock(productId, req)));
 }
 
+async function upsertOrderApiAndUpdateOrder(orderData: any, req?: Request) {
+  const orderId = typeof orderData?.external_reference === "string" ? orderData.external_reference : "";
+  const connectedUserId = await expectedConnectedUserId();
+  const result = await prisma.$transaction((tx) =>
+    reconcileMercadoPagoFinancialConfirmation(
+      tx,
+      {
+        flow: "checkout_api_order",
+        order: orderData,
+        expectedConnectedUserId: connectedUserId,
+      },
+      { fallbackOrderId: orderId },
+    )
+  );
+
+  if (!result.ok) {
+    throw new Error(`MP order evidence rejected mpOrderId=${String(orderData?.id || "")} orderId=${orderId} reason=${result.reason} status=${result.status}`);
+  }
+
+  if (result.status === "approved" && result.orderId) {
+    await syncMetaPurchaseForOrder(result.orderId, { req });
+  }
+}
+
 export async function POST(req: Request) {
   let body: MpWebhookBody = {};
   try {
@@ -369,12 +387,13 @@ export async function POST(req: Request) {
 
   const dataId =
     url.searchParams.get("id") ||
+    url.searchParams.get("data.id") ||
     body?.data?.id ||
     body?.id ||
     body?.resource?.split?.("/")?.pop?.();
 
-  // Nos interesa "payment" y "merchant_order"
-  if ((topic && topic !== "payment" && topic !== "merchant_order") || !dataId) {
+  // Nos interesa "payment", "merchant_order" de Checkout Pro y "order" de Orders API.
+  if ((topic && topic !== "payment" && topic !== "merchant_order" && topic !== "order") || !dataId) {
     return NextResponse.json({ ok: true });
   }
 
@@ -382,23 +401,19 @@ export async function POST(req: Request) {
     if (topic === "merchant_order") {
       const merchantOrder = await fetchMerchantOrder(String(dataId));
       const payments = Array.isArray(merchantOrder?.payments) ? merchantOrder.payments : [];
-      const externalReference = merchantOrder?.external_reference;
 
       for (const p of payments) {
         if (!p?.id) continue;
 
-        const payment =
-          p?.status
-            ? {
-                id: p.id,
-                status: p.status,
-                external_reference: externalReference,
-                preference_id: p.preference_id,
-              }
-            : await fetchPayment(String(p.id));
-
+        const payment = await fetchPayment(String(p.id));
         await upsertPaymentAndUpdateOrder(payment, req);
       }
+    } else if (topic === "order") {
+      const bodyOrder = body?.data && typeof body.data === "object" && body.data.external_reference
+        ? body.data
+        : null;
+      const orderData = bodyOrder || await fetchCheckoutApiOrder(String(dataId));
+      await upsertOrderApiAndUpdateOrder(orderData, req);
     } else {
       const payment = await fetchPayment(String(dataId));
       await upsertPaymentAndUpdateOrder(payment, req);
@@ -407,6 +422,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("MP webhook error", e);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: false }, { status: 500 });
   }
 }

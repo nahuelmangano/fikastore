@@ -423,6 +423,14 @@ model Payment {
   preferenceId          String?
   initPoint             String? // 👈 NUEVO
   paymentId             String? // ✅ evita duplicados cuando llega webhook más de una vez
+  paymentAttemptId      String?   @db.NVarChar(120)
+  mpIdempotencyKey      String?   @db.NVarChar(120)
+  mpRequestHash         String?   @db.NVarChar(64)
+  mpRequestStatus       String?   @db.NVarChar(20)
+  mpRequestStartedAt    DateTime?
+  mpRequestFinishedAt   DateTime?
+  mpOrderId             String?   @db.NVarChar(120)
+  mpLastError           String?   @db.NVarChar(max)
   rawJson               String?   @db.NVarChar(max) // ✅ SQL Server: permite guardar JSON grande sin truncar
   pendingAt             DateTime?
   pendingReminderSentAt DateTime?
@@ -439,6 +447,9 @@ model Payment {
   @@index([provider])
   @@index([status])
   @@index([paymentId])
+  @@index([paymentAttemptId])
+  @@index([mpIdempotencyKey])
+  @@index([mpOrderId])
 }
 
 model EmailTemplate {

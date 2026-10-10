@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getOrderContactEmail, normalizeOrderEmail } from "@/lib/orderAccess";
 import { isStaffRole } from "@/lib/roles";
+import { isOrderEligibleForPurchaseEvent } from "@/lib/purchaseEligibility";
 
 export const runtime = "nodejs";
 
@@ -24,6 +25,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       user: { select: { email: true } },
       items: true,
       payments: { orderBy: { createdAt: "desc" } },
+      refunds: { select: { status: true } },
     },
   });
 
@@ -63,6 +65,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
             paymentId: lastPayment.paymentId,
           }
         : null,
+      purchaseEligible: isOrderEligibleForPurchaseEvent(order),
     },
   });
 }

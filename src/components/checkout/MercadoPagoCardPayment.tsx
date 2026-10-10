@@ -115,6 +115,7 @@ export default function MercadoPagoCardPayment({
   const createdOrderRef = useRef<{ orderId: string; orderNumber: number | null } | null>(null);
   const mountedRef = useRef(false);
   const processingRef = useRef(false);
+  const paymentAttemptIdRef = useRef<string | null>(null);
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState<"loading" | "ready" | "processing" | "approved" | "pending" | "rejected" | "error">("loading");
   const [message, setMessage] = useState<string | null>(null);
@@ -207,11 +208,15 @@ export default function MercadoPagoCardPayment({
               }
 
               try {
+                if (!paymentAttemptIdRef.current) {
+                  paymentAttemptIdRef.current = crypto.randomUUID();
+                }
                 const res = await fetch("/api/payments/mercadopago/card", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
                     orderId: paymentOrderId,
+                    payment_attempt_id: paymentAttemptIdRef.current,
                     ...formData,
                     payment_type_id: additionalData?.paymentTypeId || formData.payment_type_id,
                     device_id: deviceId,
@@ -222,6 +227,7 @@ export default function MercadoPagoCardPayment({
                 if (!res.ok || !data.ok) {
                   setStatus("error");
                   setMessage(data.error || "No se pudo procesar el pago.");
+                  if (res.status !== 409) paymentAttemptIdRef.current = null;
                   processingRef.current = false;
                   return Promise.reject();
                 }
@@ -229,6 +235,7 @@ export default function MercadoPagoCardPayment({
                 if (data.status === "approved") {
                   setStatus("approved");
                   setMessage("Pago aprobado. Te llevamos al comprobante...");
+                  paymentAttemptIdRef.current = null;
                   onPaymentComplete?.();
                   window.location.href = `/pay/success?orderId=${encodeURIComponent(paymentOrderId)}${accessEmail ? `&email=${encodeURIComponent(accessEmail)}` : ""}`;
                   return Promise.resolve();
@@ -237,6 +244,15 @@ export default function MercadoPagoCardPayment({
                 if (data.status === "pending") {
                   setStatus("pending");
                   setMessage("Estamos procesando tu pago.");
+                  paymentAttemptIdRef.current = null;
+                  onPaymentComplete?.();
+                  window.location.href = `/pay/pending?orderId=${encodeURIComponent(paymentOrderId)}${accessEmail ? `&email=${encodeURIComponent(accessEmail)}` : ""}`;
+                  return Promise.resolve();
+                }
+
+                if (data.status === "unknown") {
+                  setStatus("pending");
+                  setMessage(data.message || "No pudimos confirmar el resultado. Te llevamos al estado del pedido.");
                   onPaymentComplete?.();
                   window.location.href = `/pay/pending?orderId=${encodeURIComponent(paymentOrderId)}${accessEmail ? `&email=${encodeURIComponent(accessEmail)}` : ""}`;
                   return Promise.resolve();
@@ -244,6 +260,7 @@ export default function MercadoPagoCardPayment({
 
                 setStatus("rejected");
                 setMessage(rejectedMessage(data.statusDetail));
+                paymentAttemptIdRef.current = null;
                 processingRef.current = false;
                 return Promise.reject();
               } catch {
