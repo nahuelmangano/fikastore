@@ -18,6 +18,10 @@ import {
   MP_ORDER_REQUEST_STATUSES,
   shouldTreatMercadoPagoOrderErrorAsUnknown,
 } from "@/lib/mercadoPagoOrderAttempt";
+import {
+  buildMercadoPagoErrorDiagnostic,
+  stringifyMercadoPagoErrorDiagnostic,
+} from "@/lib/mercadoPagoErrorDiagnostics";
 
 export const runtime = "nodejs";
 
@@ -417,6 +421,11 @@ export async function POST(req: Request) {
     const safeDetail = mercadoPagoErrorMessage(mpData);
     const mpRequestId = mpRes.headers.get("x-request-id") || mpRes.headers.get("x-correlation-id") || undefined;
     const code = typeof mpData.code === "string" ? mpData.code : undefined;
+    const mpErrorDiagnostic = buildMercadoPagoErrorDiagnostic({
+      status: mpRes.status,
+      requestId: mpRequestId,
+      body: mpData,
+    });
     const requestStatus = shouldTreatMercadoPagoOrderErrorAsUnknown(mpRes.status, code)
       ? MP_ORDER_REQUEST_STATUSES.unknown
       : MP_ORDER_REQUEST_STATUSES.failed;
@@ -426,12 +435,7 @@ export async function POST(req: Request) {
         status: requestStatus === MP_ORDER_REQUEST_STATUSES.unknown ? "unknown" : "rejected",
         mpRequestStatus: requestStatus,
         mpRequestFinishedAt: requestStatus === MP_ORDER_REQUEST_STATUSES.failed ? new Date() : undefined,
-        mpLastError: JSON.stringify({
-          status: mpRes.status,
-          code,
-          message: typeof mpData.message === "string" ? mpData.message : undefined,
-          error: typeof mpData.error === "string" ? mpData.error : undefined,
-        }).slice(0, 1000),
+        mpLastError: stringifyMercadoPagoErrorDiagnostic(mpErrorDiagnostic),
       },
     });
 
@@ -458,16 +462,7 @@ export async function POST(req: Request) {
         oauthTokenType: tokenType || null,
       });
     }
-    console.error("Mercado Pago Orders ERROR", {
-      status: mpRes.status,
-      requestId: mpRequestId,
-      code: typeof mpData.code === "string" ? mpData.code : undefined,
-      message: typeof mpData.message === "string" ? mpData.message : undefined,
-      error: typeof mpData.error === "string" ? mpData.error : undefined,
-      errors: Array.isArray(mpData.errors) ? mpData.errors : undefined,
-      cause: Array.isArray(mpData.cause) ? mpData.cause : undefined,
-      responseBody: sanitizeForLog(mpData),
-    });
+    console.error("Mercado Pago Orders ERROR", stringifyMercadoPagoErrorDiagnostic(mpErrorDiagnostic));
     return bad(
       safeDetail
         ? `Mercado Pago rechazó la solicitud: ${safeDetail}`
