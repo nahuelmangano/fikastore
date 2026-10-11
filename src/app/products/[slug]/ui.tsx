@@ -247,6 +247,7 @@ export default function ProductDetailClient({
   );
   const [selectedId, setSelectedId] = useState<string>(product.id);
   const selected = variants.find((variant) => variant.id === selectedId) ?? product;
+  const selectedProduct = isModernVariantProduct ? product : selected;
   const initialModernVariant =
     modernVariants.find((variant) => variant.id === initialModernVariantId) ??
     modernVariants.find((variant) => variant.stock > 0) ??
@@ -549,9 +550,9 @@ export default function ProductDetailClient({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             items: [{
-              productId: product.id,
+              productId: selectedProduct.id,
               productVariantId: isModernVariantProduct ? selectedModernVariant?.id ?? null : null,
-              lineKey: lineItemKey(product.id, isModernVariantProduct ? selectedModernVariant?.id ?? null : null),
+              lineKey: lineItemKey(selectedProduct.id, isModernVariantProduct ? selectedModernVariant?.id ?? null : null),
               quantity: qty,
             }],
             promoCode: null,
@@ -582,7 +583,7 @@ export default function ProductDetailClient({
     setStockAlertMessage(null);
 
     try {
-      const res = await fetch(`/api/products/${product.id}/stock-notifications`, {
+      const res = await fetch(`/api/products/${selectedProduct.id}/stock-notifications`, {
         method: "POST",
       });
       const data = await res.json().catch(() => ({}));
@@ -894,11 +895,11 @@ export default function ProductDetailClient({
                     const selectedVariantLabel = isModernVariantProduct ? selectedModernVariant?.label ?? null : null;
                     addToCart(
                       {
-                        productId: product.id,
+                        productId: selectedProduct.id,
                         productVariantId: selectedVariantId,
-                        lineKey: lineItemKey(product.id, selectedVariantId),
-                        slug: product.slug,
-                        name: product.name,
+                        lineKey: lineItemKey(selectedProduct.id, selectedVariantId),
+                        slug: selectedProduct.slug,
+                        name: selectedProduct.name,
                         variantLabel: selectedVariantLabel,
                         price,
                         stock,
@@ -907,14 +908,14 @@ export default function ProductDetailClient({
                       qty
                     );
                     trackMetaAddToCart({
-                      id: selectedVariantId || product.id,
-                      name: selectedVariantLabel ? `${product.name} · ${selectedVariantLabel}` : product.name,
+                      id: selectedVariantId || selectedProduct.id,
+                      name: selectedVariantLabel ? `${selectedProduct.name} · ${selectedVariantLabel}` : selectedProduct.name,
                       price: finalPrice,
                       quantity: qty,
                     });
                     trackGA4AddToCart({
-                      item_id: selectedVariantId || product.id,
-                      item_name: selectedVariantLabel ? `${product.name} · ${selectedVariantLabel}` : product.name,
+                      item_id: selectedVariantId || selectedProduct.id,
+                      item_name: selectedVariantLabel ? `${selectedProduct.name} · ${selectedVariantLabel}` : selectedProduct.name,
                       item_variant: selectedVariantLabel || undefined,
                       price: finalPrice,
                       quantity: qty,
