@@ -22,6 +22,7 @@ import {
   buildMercadoPagoErrorDiagnostic,
   stringifyMercadoPagoErrorDiagnostic,
 } from "@/lib/mercadoPagoErrorDiagnostics";
+import { buildMercadoPagoOrderShipment } from "@/lib/mercadoPagoOrderPayload";
 
 export const runtime = "nodejs";
 
@@ -213,14 +214,7 @@ export async function POST(req: Request) {
           }
         : undefined,
     },
-    shipment: {
-      address: {
-        zip_code: order.shippingZip,
-        state: order.shippingProvince,
-        city: order.shippingCity,
-        street_name: order.shippingAddressLine,
-      },
-    },
+    ...buildMercadoPagoOrderShipment(order),
     items: order.items.map((item) => ({
       title: item.nameSnapshot,
       unit_price: Number(item.unitPrice).toFixed(2),
