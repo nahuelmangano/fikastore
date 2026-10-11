@@ -410,6 +410,7 @@ export async function POST(req: Request) {
           payload: {
             paymentId: payment.id,
             orderId: createdOrder.id,
+            notificationVersion: 2,
           },
         }).catch((error) => console.error("initial mercadopago pending email scheduling failed", error instanceof Error ? error.message : error));
       }
@@ -430,6 +431,7 @@ export async function POST(req: Request) {
                   paymentId: payment.id,
                   orderId: createdOrder.id,
                   reminderNumber: index + 1,
+                  notificationVersion: 2,
                 },
               })
             )

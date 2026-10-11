@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isPaidOrderEmailEligible, orderEmailIdempotencyKey } from "@/lib/orderEmailNotificationPolicy";
+import { isCurrentPaymentEmailJob, isPaidOrderEmailEligible, orderEmailIdempotencyKey, shouldRetryEmailNotification } from "@/lib/orderEmailNotificationPolicy";
 import { transferInstructionsWithBankDetails } from "@/lib/manualPaymentInstructions";
 import { sanitizeEmailError } from "@/lib/emailNotificationService";
 
@@ -10,6 +10,18 @@ test("order email keys are stable by order, event, and logical recipient", () =>
   assert.notEqual(buyer, orderEmailIdempotencyKey("order-1", "payment-approved", "merchant"));
   assert.notEqual(buyer, orderEmailIdempotencyKey("order-1", "created-pending", "buyer"));
   assert.notEqual(buyer, orderEmailIdempotencyKey("order-2", "payment-approved", "buyer"));
+});
+
+test("automatic retries ignore legacy purchase notifications but accept new persisted ones", () => {
+  assert.equal(shouldRetryEmailNotification({ orderId: "old-order", templateKey: "payment-pending", idempotencyKey: "payment-pending:old-payment" }), false);
+  assert.equal(shouldRetryEmailNotification({ orderId: "new-order", templateKey: "payment-pending", idempotencyKey: "order-email:new-order:created-pending:buyer" }), true);
+  assert.equal(shouldRetryEmailNotification({ orderId: "old-order", templateKey: "return-confirmation", idempotencyKey: "return:old" }), true);
+  assert.equal(shouldRetryEmailNotification({ orderId: null, templateKey: "payment-approved", idempotencyKey: "test-email" }), true);
+});
+
+test("scheduled payment emails require the new payload version", () => {
+  assert.equal(isCurrentPaymentEmailJob({ paymentId: "payment-1", notificationVersion: 2 }), true);
+  assert.equal(isCurrentPaymentEmailJob({ paymentId: "payment-old" }), false);
 });
 
 test("paid emails require a paid order and an approved corresponding payment", () => {

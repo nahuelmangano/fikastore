@@ -340,6 +340,13 @@ export async function processPendingEmailNotifications(limit = 25) {
       status: { in: ["pending", "failed", "processing"] },
       attemptCount: { lt: 3 },
       OR: [{ lockedAt: null }, { lockedAt: { lt: new Date(Date.now() - 10 * 60 * 1000) } }],
+      AND: [{
+        OR: [
+          { orderId: null },
+          { templateKey: { notIn: ["payment-approved", "payment-pending", "payment-pending-reminder", "merchant-payment-approved", "merchant-order-created"] } },
+          { idempotencyKey: { startsWith: "order-email:" } },
+        ],
+      }],
     },
     orderBy: { createdAt: "asc" },
     take: limit,
@@ -353,6 +360,13 @@ export async function processPendingEmailNotifications(limit = 25) {
         status: { in: ["pending", "failed", "processing"] },
         attemptCount: { lt: 3 },
         OR: [{ lockedAt: null }, { lockedAt: { lt: new Date(Date.now() - 10 * 60 * 1000) } }],
+        AND: [{
+          OR: [
+            { orderId: null },
+            { templateKey: { notIn: ["payment-approved", "payment-pending", "payment-pending-reminder", "merchant-payment-approved", "merchant-order-created"] } },
+            { idempotencyKey: { startsWith: "order-email:" } },
+          ],
+        }],
       },
       data: { status: "processing", lockedAt: new Date(), lockedBy: lock },
     });

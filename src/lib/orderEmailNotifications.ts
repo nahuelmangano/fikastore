@@ -83,6 +83,25 @@ export async function enqueuePaidOrderEmailsInTransaction(
   });
   if (!order || !isPaidOrderEmailEligible(order)) return [];
 
+  await tx.emailNotification.updateMany({
+    where: {
+      orderId: order.id,
+      idempotencyKey: {
+        in: [
+          orderEmailIdempotencyKey(order.id, "created-pending", "buyer"),
+          orderEmailIdempotencyKey(order.id, "created-pending", "merchant"),
+        ],
+      },
+      status: { in: ["pending", "failed"] },
+    },
+    data: {
+      status: "cancelled",
+      lockedAt: null,
+      lockedBy: null,
+      errorMessage: "Superseded by payment approval",
+    },
+  });
+
   const mailing = await getMailingSettings();
   const baseUrl = publicBaseUrl(input.req);
   const buyerEmail = getOrderContactEmail(order);

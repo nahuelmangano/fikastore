@@ -12,6 +12,7 @@ import { publicBaseUrl } from "@/lib/publicUrl";
 import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows";
 import { getShippingCarriers } from "@/lib/shippingCarriers";
 import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName } from "@/lib/orderAccess";
+import { isCurrentPaymentEmailJob } from "@/lib/orderEmailNotificationPolicy";
 
 function workerId() {
   return `${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
@@ -60,6 +61,7 @@ function emailShippingLabel(method: string, carrierName?: string | null, deliver
 }
 
 async function processInitialMercadoPagoPending(payload: Record<string, unknown>, req: Request) {
+  if (!isCurrentPaymentEmailJob(payload)) return { skipped: true, reason: "legacy_job" };
   const paymentId = String(payload.paymentId || "");
   const orderId = String(payload.orderId || "");
   if (!paymentId || !orderId) return { skipped: true };
@@ -174,6 +176,7 @@ function makeBirthdayCouponCode(name: string | null | undefined) {
 }
 
 async function processPaymentReminder(payload: Record<string, unknown>, req: Request) {
+  if (!isCurrentPaymentEmailJob(payload)) return { skipped: true, reason: "legacy_job" };
   const paymentId = String(payload.paymentId || "");
   const reminderNumber = Number(payload.reminderNumber || 1);
   if (!paymentId) return { skipped: true };
