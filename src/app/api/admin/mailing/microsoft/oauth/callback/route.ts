@@ -66,7 +66,10 @@ export async function GET(req: Request) {
     const refreshToken = String(tokenData.refresh_token || "");
 
     if (!tokenRes.ok || !refreshToken) {
-      console.error("microsoft smtp oauth token error", tokenRes.status, tokenData);
+      const errorCode = typeof tokenData.error === "string"
+        ? tokenData.error.replace(/[^a-z0-9_.-]/gi, "").slice(0, 80)
+        : "unknown";
+      console.error("microsoft smtp oauth token error", { status: tokenRes.status, code: errorCode });
       return redirectTo(req, "token_error");
     }
 
@@ -86,7 +89,9 @@ export async function GET(req: Request) {
     res.cookies.delete(STATE_COOKIE);
     return res;
   } catch (err) {
-    console.error("microsoft smtp oauth callback error", err);
+    console.error("microsoft smtp oauth callback error", {
+      errorName: err instanceof Error ? err.name : "UnknownError",
+    });
     return redirectTo(req, "token_error");
   }
 }

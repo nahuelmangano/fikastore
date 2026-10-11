@@ -1,11 +1,5 @@
-import { prisma } from "@/lib/prisma";
-import { sendMail } from "@/lib/mailer";
-import { getCustomDomainOrigin } from "@/lib/customDomain";
-import { isPrivateOrLocalHost, publicBaseUrl } from "@/lib/publicUrl";
-import { DEFAULT_SITE_TITLE, getMailingSettings } from "@/lib/storeSettings";
-import { getOrderContactEmail } from "@/lib/orderAccess";
-import { resolveNotificationEmail } from "@/lib/notificationEmail";
-import { absoluteImageUrl, emailProductRowsHtml } from "@/lib/emailProductRows";
+import { DEFAULT_SITE_TITLE } from "@/lib/storeSettings";
+import { emailProductRowsHtml } from "@/lib/emailProductRows";
 
 function escapeHtml(value: string) {
   return String(value || "")
@@ -15,7 +9,6 @@ function escapeHtml(value: string) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
-
 function money(value: number) {
   return `$${value.toLocaleString("es-AR")}`;
 }
@@ -269,105 +262,4 @@ export function merchantOrderNotificationEmail(input: {
       ...(input.adminOrderUrl ? [`Admin: ${input.adminOrderUrl}`] : []),
     ].join("\n"),
   };
-}
-
-async function resolveMerchantBaseUrl(req?: Request) {
-  const customDomainOrigin = await getCustomDomainOrigin();
-  if (customDomainOrigin) return customDomainOrigin;
-
-  const fallbackBaseUrl = publicBaseUrl(req);
-
-  try {
-    const parsed = new URL(fallbackBaseUrl);
-    if (!isPrivateOrLocalHost(parsed.hostname)) {
-      return parsed.origin.replace(/\/$/, "");
-    }
-  } catch {}
-
-  return null;
-}
-
-export async function sendMerchantOrderNotification(input: {
-  orderId: string;
-  trigger: "created" | "paid";
-  paymentLabel: string;
-  req?: Request;
-}) {
-  const [order, mailing] = await Promise.all([
-    prisma.order.findUnique({
-      where: { id: input.orderId },
-      include: {
-        user: { select: { email: true, name: true } },
-        payments: { orderBy: { createdAt: "desc" }, take: 1 },
-        items: {
-          include: {
-            product: {
-              select: {
-                images: {
-                  where: { visible: true },
-                  orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-                  take: 1,
-                  select: { url: true },
-                },
-              },
-            },
-          },
-        },
-      },
-    }),
-    getMailingSettings(),
-  ]);
-
-  if (!order) return;
-
-  const to = resolveNotificationEmail(mailing);
-  if (!to) return;
-
-  const baseUrl = await resolveMerchantBaseUrl(input.req);
-  const imageBaseUrl = baseUrl || publicBaseUrl(input.req);
-  const adminOrderUrl = baseUrl ? `${baseUrl}/admin/orders/${order.id}` : null;
-  const customerEmail = getOrderContactEmail(order) || "Sin email";
-  const payment = order.payments[0];
-  const subtotal = order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
-  const email = merchantOrderNotificationEmail({
-    storeName: DEFAULT_SITE_TITLE,
-    trigger: input.trigger,
-    orderNumber: order.orderNumber ?? order.id,
-    orderDate: order.createdAt,
-    customerName: order.shippingName || order.user?.name || "Cliente",
-    customerDni: order.dni,
-    customerEmail,
-    customerPhone: order.shippingPhone || "-",
-    paymentLabel: input.paymentLabel,
-    paymentStatus: payment?.status,
-    paymentId: payment?.paymentId,
-    subtotal,
-    shippingAmount: Number(order.shippingAmount),
-    total: Number(order.total),
-    items: order.items.map((item) => ({
-      name: item.nameSnapshot,
-      variantSnapshot: item.variantSnapshot,
-      quantity: item.quantity,
-      unitPrice: Number(item.unitPrice),
-      subtotal: Number(item.subtotal),
-      imageUrl: absoluteImageUrl(imageBaseUrl, item.product.images[0]?.url),
-    })),
-    shippingMethod: order.shippingMethod,
-    shippingDeliveryType: order.shippingDeliveryType,
-    shippingBranchName: order.shippingBranchName,
-    shippingAddressLine: order.shippingAddressLine,
-    shippingFloor: order.shippingFloor,
-    shippingApartment: order.shippingApartment,
-    shippingCity: order.shippingCity,
-    shippingProvince: order.shippingProvince,
-    shippingZip: order.shippingZip,
-    adminOrderUrl,
-  });
-
-  await sendMail({
-    to,
-    subject: email.subject,
-    html: email.html,
-    text: email.text,
-  });
 }

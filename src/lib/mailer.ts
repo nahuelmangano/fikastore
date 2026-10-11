@@ -1,8 +1,23 @@
 import nodemailer from "nodemailer";
-import { getResolvedSmtpConfig, type ResolvedSmtpConfig } from "@/lib/storeSettings";
+import { createHash } from "node:crypto";
+import {
+  getResolvedSmtpConfig,
+  persistRotatedMicrosoftRefreshToken,
+  type ResolvedSmtpConfig,
+} from "@/lib/storeSettings";
 
-async function getMicrosoftSmtpAccessToken(config: Extract<ResolvedSmtpConfig, { authType: "microsoft_oauth2" }>) {
-  const res = await fetch(`https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/token`, {
+const microsoftRefreshes = new Map<string, Promise<string>>();
+
+async function requestMicrosoftSmtpAccessToken(
+  config: Extract<ResolvedSmtpConfig, { authType: "microsoft_oauth2" }>,
+  dependencies: {
+    request?: typeof fetch;
+    persistRefreshToken?: typeof persistRotatedMicrosoftRefreshToken;
+  } = {},
+) {
+  const request = dependencies.request || fetch;
+  const persistRefreshToken = dependencies.persistRefreshToken || persistRotatedMicrosoftRefreshToken;
+  const res = await request(`https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -17,10 +32,41 @@ async function getMicrosoftSmtpAccessToken(config: Extract<ResolvedSmtpConfig, {
   const accessToken = String(data.access_token || "");
 
   if (!res.ok || !accessToken) {
-    throw new Error(`Microsoft OAuth2 token refresh failed: ${res.status} ${JSON.stringify(data)}`);
+    const code = typeof data.error === "string" ? data.error.replace(/[^a-z0-9_.-]/gi, "").slice(0, 80) : "unknown";
+    throw new Error(`Microsoft OAuth2 token refresh failed: status=${res.status} code=${code}`);
+  }
+
+  const nextRefreshToken = typeof data.refresh_token === "string" ? data.refresh_token : "";
+  if (nextRefreshToken && nextRefreshToken !== config.refreshToken) {
+    try {
+      await persistRefreshToken(config.refreshToken, nextRefreshToken);
+    } catch (error) {
+      console.error("microsoft smtp oauth refresh token persistence failed", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
   }
 
   return accessToken;
+}
+
+export function getMicrosoftSmtpAccessToken(
+  config: Extract<ResolvedSmtpConfig, { authType: "microsoft_oauth2" }>,
+  dependencies: {
+    request?: typeof fetch;
+    persistRefreshToken?: typeof persistRotatedMicrosoftRefreshToken;
+  } = {},
+) {
+  const key = createHash("sha256").update(config.refreshToken).digest("hex");
+  const pending = microsoftRefreshes.get(key);
+  if (pending) return pending;
+
+  const refresh = requestMicrosoftSmtpAccessToken(config, dependencies);
+  microsoftRefreshes.set(key, refresh);
+  void refresh.finally(() => {
+    if (microsoftRefreshes.get(key) === refresh) microsoftRefreshes.delete(key);
+  }).catch(() => {});
+  return refresh;
 }
 
 export async function getTransport(config?: ResolvedSmtpConfig) {

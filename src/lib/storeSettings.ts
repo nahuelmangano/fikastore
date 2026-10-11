@@ -291,13 +291,13 @@ const DEFAULT_MANUAL_PAYMENT_METHODS: ManualPaymentMethodSettings[] = [
     label: "Transferencia",
     enabled: true,
     bankDetails: {
-      accountNumber: "5025-566703/8",
-      cbu: "0140033503502556670388",
-      alias: "FIKAPIJAMAS",
-      holder: "CINTIA YANINA,NIZ",
-      taxId: "27-37175129-2",
-      accountType: "Caja de Ahorro",
-      bank: "Banco de la Provincia de Buenos Aires",
+      accountNumber: "",
+      cbu: "",
+      alias: "",
+      holder: "",
+      taxId: "",
+      accountType: "",
+      bank: "",
     },
     instructions: [
       "Recordá enviar el comprobante por mail, indicando el número de pedido, para poder confirmar tu compra.",
@@ -1253,6 +1253,40 @@ export async function getResolvedSmtpConfig(): Promise<ResolvedSmtpConfig> {
     from: env.from || env.user,
     source: "env",
   };
+}
+
+export async function persistRotatedMicrosoftRefreshToken(expectedRefreshToken: string, nextRefreshToken: string) {
+  const row = await prisma.shippingProviderSetting.findUnique({
+    where: { provider_key: { provider: STOREFRONT_SETTINGS_PROVIDER, key: MAILING_SMTP_SETTINGS_KEY } },
+    select: { value: true },
+  });
+  if (!row?.value) return false;
+
+  let stored: StoredMailingSmtpSettings;
+  try {
+    stored = normalizeSmtpSettings(JSON.parse(row.value) as Partial<StoredMailingSmtpSettings>);
+  } catch {
+    return false;
+  }
+  if (
+    stored.smtpAuthType !== "microsoft_oauth2" ||
+    !stored.encryptedMicrosoftRefreshToken ||
+    decryptSecret(stored.encryptedMicrosoftRefreshToken) !== expectedRefreshToken
+  ) return false;
+
+  const updated = normalizeSmtpSettings({
+    ...stored,
+    encryptedMicrosoftRefreshToken: encryptSecret(nextRefreshToken),
+  });
+  const result = await prisma.shippingProviderSetting.updateMany({
+    where: {
+      provider: STOREFRONT_SETTINGS_PROVIDER,
+      key: MAILING_SMTP_SETTINGS_KEY,
+      value: row.value,
+    },
+    data: { value: JSON.stringify(updated), isSecret: true },
+  });
+  return result.count === 1;
 }
 
 export async function setMailingSmtpSettings(settings: {

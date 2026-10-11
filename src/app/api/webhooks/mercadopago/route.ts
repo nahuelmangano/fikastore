@@ -1,16 +1,13 @@
-import { getShippingCarriers } from "@/lib/shippingCarriers";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getMailingSettings, getMercadoPagoOAuthPaymentContext, getResolvedMercadoPagoAccessToken } from "@/lib/storeSettings";
+import { getMercadoPagoOAuthPaymentContext, getResolvedMercadoPagoAccessToken } from "@/lib/storeSettings";
 import { notifyBackInStock } from "@/lib/stockNotifications";
 import { publicBaseUrl } from "@/lib/publicUrl";
-import { cancelScheduledEmailJobs, queueAndSendEmailNotification, renderEmailTemplate } from "@/lib/emailNotificationService";
-import { orderPaidTemplate } from "@/lib/email-templates";
-import { sendMail } from "@/lib/mailer";
+import { cancelOrderPaymentEmailJobs, queueAndSendEmailNotification } from "@/lib/emailNotificationService";
 import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows";
-import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName } from "@/lib/orderAccess";
-import { sendMerchantOrderNotification } from "@/lib/merchantOrderNotifications";
+import { getOrderContactEmail } from "@/lib/orderAccess";
+import { dispatchOrderEmailNotifications, enqueuePaidOrderEmailsInTransaction } from "@/lib/orderEmailNotifications";
 import { syncMetaPurchaseForOrder } from "@/lib/meta/conversionsApi";
 import {
   normalizeMercadoPagoStatus,
@@ -69,108 +66,6 @@ async function expectedConnectedUserId() {
   return context?.connectedUserId || null;
 }
 
-function absoluteUrl(baseUrl: string, value?: string | null) {
-  if (!value) return undefined;
-  if (/^https?:\/\//i.test(value)) return value;
-  return `${baseUrl}${value.startsWith("/") ? value : `/${value}`}`;
-}
-
-async function sendDetailedPaidEmail(input: {
-  orderId: string;
-  paymentRowId?: string;
-  payment: any;
-  req?: Request;
-}) {
-  const order = await prisma.order.findUnique({
-    where: { id: input.orderId },
-    include: {
-      user: { select: { email: true, name: true } },
-      items: {
-        include: {
-          product: {
-            include: {
-              images: { where: { visible: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }], take: 1 },
-            },
-          },
-        },
-      },
-    },
-  });
-
-  const orderEmail = order ? getOrderContactEmail(order) : "";
-  if (!order || !orderEmail) return;
-
-  const baseUrl = publicBaseUrl(input.req);
-  const publicOrderUrl = buildPublicOrderUrl(baseUrl, order);
-  const subtotal = order.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
-  const shippingAmount = Number(order.shippingAmount);
-  const carriers = await getShippingCarriers();
-  const shippingCarrier = carriers.find((carrier) => carrier.key === order.shippingMethod);
-  const paymentAmount = Number(input.payment.transaction_amount || order.total);
-  const paymentMethod = input.payment.payment_method_id ? String(input.payment.payment_method_id) : "";
-  const subjectPayload = {
-    customerName: getOrderCustomerName(order),
-    orderNumber: order.orderNumber ? `#${order.orderNumber}` : order.id,
-    orderUrl: publicOrderUrl,
-    storeName: "FikaStore",
-    storeUrl: baseUrl,
-  };
-  const [mailing, renderedTemplate] = await Promise.all([
-    getMailingSettings(),
-    renderEmailTemplate("payment-approved", subjectPayload),
-  ]);
-
-  if (!renderedTemplate.template.enabled) return;
-
-  await sendMail({
-    to: orderEmail,
-    subject: renderedTemplate.subject,
-    html: orderPaidTemplate({
-      customerName: getOrderCustomerName(order),
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      orderDate: order.createdAt,
-      payment: {
-        provider: "Mercado Pago",
-        status: "approved",
-        method: paymentMethod || undefined,
-        paymentId: String(input.payment.id || input.paymentRowId || ""),
-        installments: Number(input.payment.installments || 0) || undefined,
-        amount: paymentAmount,
-      },
-      shipping: {
-        pricingMode: shippingCarrier?.pricingMode,
-        method: order.shippingMethod,
-        deliveryType: order.shippingDeliveryType,
-        branchName: order.shippingBranchName,
-        addressLine: order.shippingAddressLine,
-        city: order.shippingCity,
-        province: order.shippingProvince,
-        zip: order.shippingZip,
-        amount: shippingAmount,
-      },
-      billingAddress: {
-        name: order.shippingName,
-        addressLine: order.shippingAddressLine,
-        city: order.shippingCity,
-        province: order.shippingProvince,
-        zip: order.shippingZip,
-      },
-      subtotal,
-      discount: 0,
-      total: Number(order.total),
-      items: order.items.map((item) => ({
-        name: item.nameSnapshot,
-        qty: item.quantity,
-        unit: Number(item.unitPrice),
-        subtotal: Number(item.subtotal),
-        imageUrl: absoluteUrl(baseUrl, item.product.images[0]?.url),
-      })),
-      message: mailing.purchaseMessage,
-    }),
-  });
-}
-
 async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
   const mpStatus = normalizeMercadoPagoStatus(payment.status, payment.status_detail);
   const isCardPaymentBrick = String(payment.metadata?.payment_flow || "").toLowerCase() === "card_payment_brick";
@@ -182,7 +77,6 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
   }
 
   // Datos para notificar fuera de la transacción.
-  let shouldSendPaidEmail = false;
   let shouldSendRejectedEmail = false;
   let emailTo: string | null = null;
   let emailName = "";
@@ -191,6 +85,7 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
   let paymentRowId: string | undefined;
   const restoredProductIds = new Set<string>();
   let confirmationOk = false;
+  let emailNotificationIds: string[] = [];
   const connectedUserId = await expectedConnectedUserId();
 
   await prisma.$transaction(async (tx) => {
@@ -222,17 +117,13 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
     if (!order) return;
 
     if (mpStatus === "approved") {
-      // Solo si cambia de estado, enviamos mail (idempotente)
-      if (confirmation.orderPaidChanged) {
-
-        const orderEmail = getOrderContactEmail(order);
-        if (orderEmail) {
-          shouldSendPaidEmail = true;
-          emailTo = orderEmail;
-          emailName = order.user?.name ?? order.shippingName ?? order.contactEmail ?? "";
-          orderTotal = Number(order.total);
-          orderNumber = order.orderNumber ?? undefined;
-        }
+      if (confirmation.status === "approved" && confirmation.orderPaidChanged) {
+        emailNotificationIds = await enqueuePaidOrderEmailsInTransaction(tx, {
+          orderId,
+          paymentId: paymentRowId,
+          payment,
+          req,
+        });
       }
       return;
     }
@@ -282,22 +173,11 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
   if (!confirmationOk) return;
 
   if (paymentRowId && mpStatus !== "pending" && mpStatus !== "unknown") {
-    await cancelScheduledEmailJobs({ paymentId: paymentRowId, type: "payment-pending-initial" }).catch(() => {});
-    await cancelScheduledEmailJobs({ orderId, type: "payment-pending-initial" }).catch(() => {});
-    await cancelScheduledEmailJobs({ paymentId: paymentRowId, type: "payment-reminder" }).catch(() => {});
-    await cancelScheduledEmailJobs({ orderId, type: "payment-reminder" }).catch(() => {});
+    await cancelOrderPaymentEmailJobs(orderId, paymentRowId).catch(() => {});
   }
 
   // Notificaciones fuera de la transacción.
-  if (shouldSendPaidEmail && emailTo) {
-    await sendDetailedPaidEmail({ orderId, paymentRowId, payment, req }).catch(() => {});
-    await sendMerchantOrderNotification({
-      orderId,
-      trigger: "paid",
-      paymentLabel: "Mercado Pago",
-      req,
-    }).catch(() => {});
-  }
+  await dispatchOrderEmailNotifications(emailNotificationIds);
 
   if (mpStatus === "approved") {
     await syncMetaPurchaseForOrder(orderId, { req });
@@ -349,8 +229,9 @@ async function upsertPaymentAndUpdateOrder(payment: any, req?: Request) {
 async function upsertOrderApiAndUpdateOrder(orderData: any, req?: Request) {
   const orderId = typeof orderData?.external_reference === "string" ? orderData.external_reference : "";
   const connectedUserId = await expectedConnectedUserId();
-  const result = await prisma.$transaction((tx) =>
-    reconcileMercadoPagoFinancialConfirmation(
+  let emailNotificationIds: string[] = [];
+  const result = await prisma.$transaction(async (tx) => {
+    const confirmation = await reconcileMercadoPagoFinancialConfirmation(
       tx,
       {
         flow: "checkout_api_order",
@@ -358,15 +239,29 @@ async function upsertOrderApiAndUpdateOrder(orderData: any, req?: Request) {
         expectedConnectedUserId: connectedUserId,
       },
       { fallbackOrderId: orderId },
-    )
-  );
+    );
+    if (confirmation.ok && confirmation.status === "approved" && confirmation.orderId && confirmation.orderPaidChanged) {
+      const payments = (orderData?.transactions?.payments || []) as Record<string, unknown>[];
+      emailNotificationIds = await enqueuePaidOrderEmailsInTransaction(tx, {
+        orderId: confirmation.orderId,
+        paymentId: confirmation.paymentId,
+        payment: payments[0] || { provider: "Mercado Pago" },
+        req,
+      });
+    }
+    return confirmation;
+  });
 
   if (!result.ok) {
     throw new Error(`MP order evidence rejected mpOrderId=${String(orderData?.id || "")} orderId=${orderId} reason=${result.reason} status=${result.status}`);
   }
 
   if (result.status === "approved" && result.orderId) {
+    await cancelOrderPaymentEmailJobs(result.orderId).catch(() => {});
+    await dispatchOrderEmailNotifications(emailNotificationIds);
     await syncMetaPurchaseForOrder(result.orderId, { req });
+  } else if (result.ok && result.orderId && ["rejected", "cancelled", "refunded"].includes(result.status)) {
+    await cancelOrderPaymentEmailJobs(result.orderId).catch(() => {});
   }
 }
 

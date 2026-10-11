@@ -28,6 +28,16 @@ type ScheduleInput = {
   paymentId?: string | null;
 };
 
+type RenderedEmail = { subject: string; html: string; text?: string };
+
+export function sanitizeEmailError(error: unknown) {
+  const message = error instanceof Error ? error.message : "Unknown email error";
+  return message
+    .replace(/\b(access_token|refresh_token|client_secret|password|authorization)\b\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
+    .replace(/Bearer\s+[^\s,;]+/gi, "Bearer [redacted]")
+    .slice(0, 1000);
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -149,12 +159,35 @@ export async function renderEmailTemplate(key: EmailTemplateKey, payload: Record
 
 export async function queueEmailNotification(input: QueueInput) {
   await ensureDefaultEmailTemplates();
-  const template = await prisma.emailTemplate.findUnique({ where: { key: input.templateKey } });
+  return prisma.$transaction((tx) => persistEmailNotificationInTransaction(tx, input));
+}
+
+export async function persistEmailNotificationInTransaction(
+  tx: Prisma.TransactionClient,
+  input: QueueInput,
+) {
+  let template = await tx.emailTemplate.findUnique({ where: { key: input.templateKey } });
+  if (!template) {
+    const fallback = getDefaultTemplate(input.templateKey);
+    if (!fallback) throw new Error(`Email template not found: ${input.templateKey}`);
+    template = await tx.emailTemplate.create({
+      data: {
+        key: fallback.key,
+        name: fallback.name,
+        category: fallback.category,
+        subject: fallback.subject,
+        html: fallback.html,
+        text: fallback.text,
+        variablesJson: JSON.stringify(fallback.variables),
+        enabled: fallback.enabled,
+      },
+    });
+  }
   if (!template) throw new Error(`Email template not found: ${input.templateKey}`);
   const isTest = input.isTest === true;
 
   if (!template.enabled && !isTest) {
-    return prisma.emailNotification.upsert({
+    return tx.emailNotification.upsert({
       where: { idempotencyKey: input.idempotencyKey },
       create: {
         templateKey: input.templateKey,
@@ -175,29 +208,24 @@ export async function queueEmailNotification(input: QueueInput) {
     });
   }
 
-  try {
-    return await prisma.emailNotification.create({
-      data: {
-        templateKey: input.templateKey,
-        recipientEmail: input.to,
-        recipientUserId: input.recipientUserId || null,
-        orderId: input.orderId || null,
-        paymentId: input.paymentId || null,
-        productId: input.productId || null,
-        returnRequestId: input.returnRequestId || null,
-        refundId: input.refundId || null,
-        idempotencyKey: input.idempotencyKey,
-        status: "pending",
-        payloadJson: JSON.stringify(input.payload),
-        isTest,
-      },
-    });
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      return prisma.emailNotification.findUniqueOrThrow({ where: { idempotencyKey: input.idempotencyKey } });
-    }
-    throw error;
-  }
+  return tx.emailNotification.upsert({
+    where: { idempotencyKey: input.idempotencyKey },
+    create: {
+      templateKey: input.templateKey,
+      recipientEmail: input.to,
+      recipientUserId: input.recipientUserId || null,
+      orderId: input.orderId || null,
+      paymentId: input.paymentId || null,
+      productId: input.productId || null,
+      returnRequestId: input.returnRequestId || null,
+      refundId: input.refundId || null,
+      idempotencyKey: input.idempotencyKey,
+      status: "pending",
+      payloadJson: JSON.stringify(input.payload),
+      isTest,
+    },
+    update: {},
+  });
 }
 
 export async function sendQueuedEmailNotification(notificationId: string) {
@@ -208,7 +236,8 @@ export async function sendQueuedEmailNotification(notificationId: string) {
   const payload = JSON.parse(notification.payloadJson || "{}") as Record<string, unknown>;
 
   try {
-    const rendered = await renderEmailTemplate(notification.templateKey as EmailTemplateKey, payload);
+    const storedRendered = payload.__renderedEmail as RenderedEmail | undefined;
+    const rendered = storedRendered || await renderEmailTemplate(notification.templateKey as EmailTemplateKey, payload);
     await sendMail({
       to: notification.recipientEmail,
       subject: rendered.subject,
@@ -248,7 +277,7 @@ export async function sendQueuedEmailNotification(notificationId: string) {
     });
     return updated;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown email error";
+    const message = sanitizeEmailError(error);
     const updated = await prisma.emailNotification.update({
       where: { id: notification.id },
       data: {
@@ -284,17 +313,31 @@ export async function sendQueuedEmailNotification(notificationId: string) {
 
 export async function queueAndSendEmailNotification(input: QueueInput) {
   const notification = await queueEmailNotification(input);
-  if (notification.status === "pending" || notification.status === "failed") {
-    return sendQueuedEmailNotification(notification.id);
+  return dispatchQueuedEmailNotification(notification.id);
+}
+
+export async function dispatchQueuedEmailNotification(notificationId: string) {
+  const lock = workerId();
+  const reserved = await prisma.emailNotification.updateMany({
+    where: {
+      id: notificationId,
+      status: { in: ["pending", "failed", "processing"] },
+      attemptCount: { lt: 3 },
+      OR: [{ lockedAt: null }, { lockedAt: { lt: new Date(Date.now() - 10 * 60 * 1000) } }],
+    },
+    data: { status: "processing", lockedAt: new Date(), lockedBy: lock },
+  });
+  if (reserved.count !== 1) {
+    return prisma.emailNotification.findUniqueOrThrow({ where: { id: notificationId } });
   }
-  return notification;
+  return sendQueuedEmailNotification(notificationId);
 }
 
 export async function processPendingEmailNotifications(limit = 25) {
   const lock = workerId();
   const candidates = await prisma.emailNotification.findMany({
     where: {
-      status: { in: ["pending", "failed"] },
+      status: { in: ["pending", "failed", "processing"] },
       attemptCount: { lt: 3 },
       OR: [{ lockedAt: null }, { lockedAt: { lt: new Date(Date.now() - 10 * 60 * 1000) } }],
     },
@@ -307,12 +350,12 @@ export async function processPendingEmailNotifications(limit = 25) {
     const reserved = await prisma.emailNotification.updateMany({
       where: {
         id: candidate.id,
-        status: { in: ["pending", "failed"] },
+        status: { in: ["pending", "failed", "processing"] },
+        attemptCount: { lt: 3 },
         OR: [{ lockedAt: null }, { lockedAt: { lt: new Date(Date.now() - 10 * 60 * 1000) } }],
       },
       data: { status: "processing", lockedAt: new Date(), lockedBy: lock },
     });
-
     if (reserved.count !== 1) continue;
     await sendQueuedEmailNotification(candidate.id);
     processed += 1;
@@ -351,6 +394,12 @@ export async function cancelScheduledEmailJobs(where: { orderId?: string; paymen
     },
     data: { status: "cancelled" },
   });
+}
+
+export async function cancelOrderPaymentEmailJobs(orderId: string, paymentId?: string | null) {
+  const types = ["payment-pending-initial", "payment-reminder"];
+  const scopes = [{ orderId }, ...(paymentId ? [{ paymentId }] : [])];
+  return Promise.all(scopes.flatMap((scope) => types.map((type) => cancelScheduledEmailJobs({ ...scope, type }))));
 }
 
 export function hashToken(token: string) {

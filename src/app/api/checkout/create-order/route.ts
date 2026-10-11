@@ -5,14 +5,12 @@ import { Prisma } from "@prisma/client";
 import { getFreeShippingForCart, normalizePromoCode, priceCartItems } from "@/lib/promotions";
 import { getCheckoutPaymentSettings, getEmailJobSettings, getTemporaryShutdownSettings } from "@/lib/storeSettings";
 import { validateArgentinaPostalCodeProvince } from "@/lib/argentinaPostalCode";
-import { publicBaseUrl } from "@/lib/publicUrl";
-import { queueAndSendEmailNotification, scheduleEmailJob } from "@/lib/emailNotificationService";
-import { emailOrderItemsHtml, emailOrderItemsText } from "@/lib/emailProductRows";
+import { scheduleEmailJob } from "@/lib/emailNotificationService";
 import { getShippingCarriers } from "@/lib/shippingCarriers";
 import { transferInstructionsWithBankDetails } from "@/lib/manualPaymentInstructions";
 import { getMetaTrackingContext } from "@/lib/meta/context";
-import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName, normalizeOrderEmail } from "@/lib/orderAccess";
-import { sendMerchantOrderNotification } from "@/lib/merchantOrderNotifications";
+import { normalizeOrderEmail } from "@/lib/orderAccess";
+import { dispatchOrderEmailNotifications, enqueueManualOrderCreatedEmailsInTransaction } from "@/lib/orderEmailNotifications";
 
 export const runtime = "nodejs";
 
@@ -80,14 +78,6 @@ function emailInfoBox(title: string, lines: string[]) {
       </div>
     </div>
   `;
-}
-
-function emailShippingLabel(method: string, carrierName?: string | null, deliveryType?: string | null) {
-  if (method === "epick") return "E-pick";
-  if (method === "andreani") return "Andreani";
-  if (method === "correo") return deliveryType === "S" ? "Correo Argentino - Sucursal" : "Correo Argentino - Domicilio";
-  if (method === "pickup") return "Punto de Retiro";
-  return carrierName || "Punto de Retiro";
 }
 
 export async function POST(req: Request) {
@@ -210,6 +200,19 @@ export async function POST(req: Request) {
     return bad("Seleccioná un medio de pago válido.");
   }
 
+  const paymentLabel = paymentMethod === "mercadopago" ? "Mercado Pago" : manualPaymentMethod?.label || "Pago manual";
+  const basePaymentInstructions = paymentMethod === "mercadopago"
+    ? "Podés completar el pago desde el enlace de tu pedido."
+    : manualPaymentMethod?.instructions || "La tienda te contactará para coordinar el pago.";
+  const paymentInstructions = paymentMethod === "transfer"
+    ? transferInstructionsWithBankDetails(basePaymentInstructions, manualPaymentMethod?.bankDetails)
+    : basePaymentInstructions;
+  const paymentDetailsHtml = paymentMethod === "transfer"
+    ? emailInfoBox("Datos para transferencia", textLines(paymentInstructions))
+    : paymentMethod === "mercadopago"
+      ? ""
+      : emailInfoBox(paymentLabel, textLines(paymentInstructions));
+
   const normalized = items
     .map((it) => ({
       productId: String(it.productId || "").trim(),
@@ -238,6 +241,7 @@ export async function POST(req: Request) {
   const shippingAmount = freeShipping.applies ? 0 : quotedShippingAmount;
 
   try {
+    let emailNotificationIds: string[] = [];
     const result = await prisma.$transaction(async (tx) => {
       const products = await tx.product.findMany({
         where: { id: { in: merged.map((x) => x.productId) } },
@@ -362,8 +366,20 @@ export async function POST(req: Request) {
         });
       }
 
+      if (paymentMethod !== "mercadopago") {
+        emailNotificationIds = await enqueueManualOrderCreatedEmailsInTransaction(tx, {
+          orderId: order.id,
+          paymentLabel,
+          paymentInstructions,
+          paymentDetailsHtml,
+          req,
+        });
+      }
+
       return { orderId: order.id, orderNumber: order.orderNumber };
     });
+
+    await dispatchOrderEmailNotifications(emailNotificationIds);
 
     const createdOrder = await prisma.order.findUnique({
       where: { id: result.orderId },
@@ -382,44 +398,8 @@ export async function POST(req: Request) {
       },
     });
 
-    const orderEmail = createdOrder ? getOrderContactEmail(createdOrder) : "";
-    if (createdOrder && orderEmail) {
+    if (createdOrder) {
       const payment = createdOrder.payments[0];
-      const baseUrl = publicBaseUrl(req);
-      const publicOrderUrl = buildPublicOrderUrl(baseUrl, createdOrder);
-      const itemsSubtotal = createdOrder.items.reduce((acc, item) => acc + Number(item.subtotal), 0);
-      const paymentLabel = paymentMethod === "mercadopago" ? "Mercado Pago" : manualPaymentMethod?.label || "Pago manual";
-      const basePaymentInstructions =
-        paymentMethod === "mercadopago"
-          ? "Podés completar el pago desde el enlace de tu pedido."
-          : manualPaymentMethod?.instructions || "La tienda te contactará para coordinar el pago.";
-      const paymentInstructions = paymentMethod === "transfer"
-        ? transferInstructionsWithBankDetails(basePaymentInstructions, manualPaymentMethod?.bankDetails)
-        : basePaymentInstructions;
-      const shippingLabel = emailShippingLabel(shippingMethod, selectedCarrier.name, createdOrder.shippingDeliveryType);
-      const shippingAddressLines =
-        createdOrder.shippingMethod === "pickup"
-          ? ["Punto de Retiro.", "Te vamos a contactar cuando el pedido esté listo para retirar."]
-          : createdOrder.shippingMethod === "correo" && createdOrder.shippingDeliveryType === "S"
-            ? [
-                createdOrder.shippingBranchName ? `Sucursal: ${createdOrder.shippingBranchName}` : "Retiro en sucursal de Correo Argentino.",
-                createdOrder.shippingAddressLine,
-                [createdOrder.shippingCity, createdOrder.shippingProvince].filter(Boolean).join(", "),
-                createdOrder.shippingZip ? `CP ${createdOrder.shippingZip}` : "",
-              ]
-            : [
-                `Destinatario: ${createdOrder.shippingName}`,
-                createdOrder.shippingPhone ? `Teléfono: ${createdOrder.shippingPhone}` : "",
-                createdOrder.shippingAddressLine,
-                [createdOrder.shippingCity, createdOrder.shippingProvince].filter(Boolean).join(", "),
-                createdOrder.shippingZip ? `CP ${createdOrder.shippingZip}` : "",
-              ];
-      const shippingInstructions = [
-        `Método de envío: ${shippingLabel}`,
-        ...(selectedCarrier.description ? textLines(selectedCarrier.description) : []),
-        ...shippingAddressLines,
-      ];
-
       if (paymentMethod === "mercadopago" && payment?.id) {
         scheduleEmailJob({
           type: "payment-pending-initial",
@@ -432,35 +412,6 @@ export async function POST(req: Request) {
             orderId: createdOrder.id,
           },
         }).catch((error) => console.error("initial mercadopago pending email scheduling failed", error instanceof Error ? error.message : error));
-      } else {
-        queueAndSendEmailNotification({
-          templateKey: "payment-pending",
-          to: orderEmail,
-          recipientUserId: createdOrder.user?.id,
-          orderId: createdOrder.id,
-          paymentId: payment?.id,
-          idempotencyKey: `payment-pending:${payment?.id || createdOrder.id}`,
-          payload: {
-            customerName: getOrderCustomerName(createdOrder),
-            orderNumber: `#${createdOrder.orderNumber}`,
-            productsHtml: emailOrderItemsHtml(createdOrder.items, baseUrl, { subtotal: itemsSubtotal, shipping: createdOrder.shippingAmount, shippingPricingMode: selectedCarrier.pricingMode, total: createdOrder.total }),
-            productsText: emailOrderItemsText(createdOrder.items, { subtotal: itemsSubtotal, shipping: createdOrder.shippingAmount, shippingPricingMode: selectedCarrier.pricingMode, total: createdOrder.total }),
-            paymentAmount: `$${Number(createdOrder.total).toLocaleString("es-AR")}`,
-            paymentMethod: paymentLabel,
-            paymentInstructions,
-            paymentDetailsHtml:
-              paymentMethod === "mercadopago"
-                ? ""
-                : emailInfoBox(paymentMethod === "transfer" ? "Datos para transferencia" : paymentLabel, textLines(paymentInstructions)),
-            shippingMethod: shippingLabel,
-            shippingInstructions: shippingInstructions.join(". "),
-            shippingDetailsHtml: emailInfoBox("Envío", shippingInstructions),
-            paymentDueDate: "No informada",
-            paymentUrl: publicOrderUrl,
-            storeName: "FikaStore",
-            storeUrl: baseUrl,
-          },
-        }).catch((error) => console.error("payment pending email queue failed", error instanceof Error ? error.message : error));
       }
 
       getEmailJobSettings()
@@ -486,16 +437,6 @@ export async function POST(req: Request) {
         })
         .catch((error) => console.error("payment reminder scheduling failed", error instanceof Error ? error.message : error));
 
-      if (paymentMethod !== "mercadopago") {
-        sendMerchantOrderNotification({
-          orderId: createdOrder.id,
-          trigger: "created",
-          paymentLabel,
-          req,
-        }).catch((error) =>
-          console.error("merchant order created email failed", error instanceof Error ? error.message : error)
-        );
-      }
     }
 
     return NextResponse.json({ ok: true, orderId: result.orderId, orderNumber: result.orderNumber });

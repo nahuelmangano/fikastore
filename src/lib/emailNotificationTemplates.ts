@@ -1,5 +1,7 @@
 ﻿export type EmailTemplateKey =
   | "payment-approved"
+  | "merchant-payment-approved"
+  | "merchant-order-created"
   | "payment-rejected"
   | "payment-pending"
   | "payment-pending-reminder"
@@ -52,6 +54,26 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefault[] = [
        <p style="margin:18px 0 0;"><a href="{{orderUrl}}" style="display:inline-block;background:#111;color:#fff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:700;">Ver pedido</a></p>`
     ),
     text: "Hola {{customerName}}, recibimos el pago de tu pedido {{orderNumber}}. Ver pedido: {{orderUrl}}",
+  },
+  {
+    key: "merchant-payment-approved",
+    name: "Venta confirmada al comerciante",
+    category: "Pagos",
+    subject: "{{storeName}} · Pago confirmado {{orderNumber}}",
+    enabled: true,
+    variables: ["orderNumber", "storeName"],
+    html: layout("Pago confirmado", "<p>Se confirmó el pago del pedido {{orderNumber}}.</p>"),
+    text: "Se confirmó el pago del pedido {{orderNumber}}.",
+  },
+  {
+    key: "merchant-order-created",
+    name: "Nuevo pedido pendiente al comerciante",
+    category: "Pedidos",
+    subject: "{{storeName}} · Nuevo pedido {{orderNumber}}",
+    enabled: true,
+    variables: ["orderNumber", "storeName"],
+    html: layout("Nuevo pedido", "<p>Se creó el pedido {{orderNumber}} y el pago está pendiente.</p>"),
+    text: "Se creó el pedido {{orderNumber}} y el pago está pendiente.",
   },
   {
     key: "payment-rejected",

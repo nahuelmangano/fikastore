@@ -10,6 +10,8 @@ import {
   reconcileMercadoPagoFinancialConfirmation,
 } from "@/lib/mercadoPagoPaymentConfirmation";
 import { syncMetaPurchaseForOrder } from "@/lib/meta/conversionsApi";
+import { dispatchOrderEmailNotifications, enqueuePaidOrderEmailsInTransaction } from "@/lib/orderEmailNotifications";
+import { cancelOrderPaymentEmailJobs } from "@/lib/emailNotificationService";
 import {
   assertMercadoPagoAttemptPayloadMatches,
   createMercadoPagoIdempotencyKey,
@@ -465,8 +467,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const confirmation = await prisma.$transaction((tx) =>
-    tx.payment.update({
+  let emailNotificationIds: string[] = [];
+  const confirmation = await prisma.$transaction(async (tx) => {
+    await tx.payment.update({
       where: { id: preparedAttempt.paymentRowId },
       data: {
         mpOrderId: typeof mpData.id === "string" ? mpData.id : undefined,
@@ -474,21 +477,29 @@ export async function POST(req: Request) {
         mpRequestFinishedAt: new Date(),
         mpLastError: null,
       },
-    }).then(() =>
-      reconcileMercadoPagoFinancialConfirmation(
-        tx,
-        {
-          flow: "checkout_api_order",
-          order: mpData,
-          expectedConnectedUserId: connectedUserId,
-        },
-        {
-          fallbackOrderId: order.id,
-          fallbackPaymentRowId: preparedAttempt.paymentRowId,
-        },
-      )
-    )
-  );
+    });
+    const result = await reconcileMercadoPagoFinancialConfirmation(
+      tx,
+      {
+        flow: "checkout_api_order",
+        order: mpData,
+        expectedConnectedUserId: connectedUserId,
+      },
+      {
+        fallbackOrderId: order.id,
+        fallbackPaymentRowId: preparedAttempt.paymentRowId,
+      },
+    );
+    if (result.ok && result.status === "approved" && result.orderId && result.orderPaidChanged) {
+      emailNotificationIds = await enqueuePaidOrderEmailsInTransaction(tx, {
+        orderId: result.orderId,
+        paymentId: preparedAttempt.paymentRowId,
+        payment: mpPayment,
+        req,
+      });
+    }
+    return result;
+  });
 
   if (!confirmation.ok) {
     console.error("Mercado Pago Orders evidence rejected", {
@@ -501,7 +512,11 @@ export async function POST(req: Request) {
   }
 
   if (confirmation.status === "approved") {
+    await cancelOrderPaymentEmailJobs(order.id, preparedAttempt.paymentRowId).catch(() => {});
+    await dispatchOrderEmailNotifications(emailNotificationIds);
     await syncMetaPurchaseForOrder(order.id, { req });
+  } else if (["rejected", "cancelled", "refunded"].includes(confirmation.status)) {
+    await cancelOrderPaymentEmailJobs(order.id, preparedAttempt.paymentRowId).catch(() => {});
   }
 
   return NextResponse.json({

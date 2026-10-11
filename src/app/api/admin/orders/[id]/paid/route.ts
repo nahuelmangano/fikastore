@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
-import { queueAndSendEmailNotification } from "@/lib/emailNotificationService";
+import { cancelOrderPaymentEmailJobs } from "@/lib/emailNotificationService";
+import { dispatchOrderEmailNotifications, enqueuePaidOrderEmailsInTransaction } from "@/lib/orderEmailNotifications";
 import { syncMetaPurchaseForOrder } from "@/lib/meta/conversionsApi";
-import { buildPublicOrderUrl, getOrderContactEmail, getOrderCustomerName } from "@/lib/orderAccess";
 import { markOrderPaidIfPending } from "@/lib/orderPaymentTransition";
 import { prisma } from "@/lib/prisma";
-import { publicBaseUrl } from "@/lib/publicUrl";
 import { isStaffRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
@@ -40,8 +39,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   const paymentId = order.payments[0]?.id;
+  let emailNotificationIds: string[] = [];
   const updated = await prisma.$transaction(async (tx) => {
-    await markOrderPaidIfPending(tx, order.id);
+    const transition = await markOrderPaidIfPending(tx, order.id);
 
     const updatedOrder = await tx.order.findUniqueOrThrow({
       where: { id: order.id },
@@ -70,30 +70,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       orderBy: { createdAt: "desc" },
     });
 
+    if (transition.changed) {
+      emailNotificationIds = await enqueuePaidOrderEmailsInTransaction(tx, {
+        orderId: order.id,
+        paymentId: payment?.id,
+        payment: { id: payment?.paymentId || payment?.id, provider: payment?.provider || "manual" },
+        req,
+      });
+    }
+
     return { order: updatedOrder, payment };
   });
 
-  const orderEmail = getOrderContactEmail(order);
-  if (orderEmail) {
-    const baseUrl = publicBaseUrl(req);
-    await queueAndSendEmailNotification({
-      templateKey: "payment-approved",
-      to: orderEmail,
-      recipientUserId: order.user?.id,
-      orderId: order.id,
-      paymentId: updated.payment?.id || paymentId || undefined,
-      idempotencyKey: `manual-payment-approved:${order.id}`,
-      payload: {
-        customerName: getOrderCustomerName(order),
-        orderNumber: `#${order.orderNumber}`,
-        orderUrl: buildPublicOrderUrl(baseUrl, order),
-        storeName: "FikaStore",
-        storeUrl: baseUrl,
-      },
-    }).catch((error) => {
-      console.error("manual payment-approved email failed", error instanceof Error ? error.message : error);
-    });
-  }
+  await cancelOrderPaymentEmailJobs(order.id, updated.payment?.id).catch(() => {});
+  await dispatchOrderEmailNotifications(emailNotificationIds);
 
   await syncMetaPurchaseForOrder(order.id, { req });
 
