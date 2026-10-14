@@ -1,0 +1,300 @@
+name: fika-staging
+
+services:
+  staging-preflight:
+    image: alpine:3.20
+    environment:
+      STAGING_MSSQL_DATABASE: ${STAGING_MSSQL_DATABASE:-fikastore_staging_candidate}
+      STAGING_MSSQL_SA_PASSWORD: ${STAGING_MSSQL_SA_PASSWORD:?Set STAGING_MSSQL_SA_PASSWORD in docker.env.staging}
+      STAGING_DATABASE_URL: ${STAGING_DATABASE_URL:?Set STAGING_DATABASE_URL in docker.env.staging}
+      STAGING_NEXTAUTH_URL: ${STAGING_NEXTAUTH_URL:?Set STAGING_NEXTAUTH_URL in docker.env.staging}
+      STAGING_SITE_URL: ${STAGING_SITE_URL:?Set STAGING_SITE_URL in docker.env.staging}
+      STAGING_NEXTAUTH_SECRET: ${STAGING_NEXTAUTH_SECRET:?Set STAGING_NEXTAUTH_SECRET in docker.env.staging}
+      STAGING_APP_SECRET_ENCRYPTION_KEY: ${STAGING_APP_SECRET_ENCRYPTION_KEY:?Set STAGING_APP_SECRET_ENCRYPTION_KEY in docker.env.staging}
+      STAGING_CRON_SECRET: ${STAGING_CRON_SECRET:?Set STAGING_CRON_SECRET in docker.env.staging}
+      STAGING_INTERNAL_CRON_SECRET: ${STAGING_INTERNAL_CRON_SECRET:?Set STAGING_INTERNAL_CRON_SECRET in docker.env.staging}
+      STAGING_ALLOW_MERCADOPAGO_SANDBOX: ${STAGING_ALLOW_MERCADOPAGO_SANDBOX:-false}
+      STAGING_MP_ACCESS_TOKEN: ${STAGING_MP_ACCESS_TOKEN:-}
+      STAGING_NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY: ${STAGING_NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY:-}
+      STAGING_MP_OAUTH_CLIENT_ID: ${STAGING_MP_OAUTH_CLIENT_ID:-}
+      STAGING_MP_OAUTH_CLIENT_SECRET: ${STAGING_MP_OAUTH_CLIENT_SECRET:-}
+      STAGING_ALLOW_TRACKING: ${STAGING_ALLOW_TRACKING:-false}
+      STAGING_META_PIXEL_ID: ${STAGING_META_PIXEL_ID:-}
+      STAGING_META_CAPI_ACCESS_TOKEN: ${STAGING_META_CAPI_ACCESS_TOKEN:-}
+      STAGING_NEXT_PUBLIC_GA_MEASUREMENT_ID: ${STAGING_NEXT_PUBLIC_GA_MEASUREMENT_ID:-}
+      STAGING_ALLOW_SMTP: ${STAGING_ALLOW_SMTP:-false}
+      STAGING_SMTP_HOST: ${STAGING_SMTP_HOST:-}
+      STAGING_SMTP_USER: ${STAGING_SMTP_USER:-}
+      STAGING_SMTP_PASS: ${STAGING_SMTP_PASS:-}
+      STAGING_ALLOW_SHIPPING_INTEGRATIONS: ${STAGING_ALLOW_SHIPPING_INTEGRATIONS:-false}
+      STAGING_EPICK_PHONE: ${STAGING_EPICK_PHONE:-}
+      STAGING_EPICK_PASSWORD: ${STAGING_EPICK_PASSWORD:-}
+      STAGING_CORREO_ARG_USER: ${STAGING_CORREO_ARG_USER:-}
+      STAGING_CORREO_ARG_PASS: ${STAGING_CORREO_ARG_PASS:-}
+    command:
+      - /bin/sh
+      - -eu
+      - -c
+      - |
+        reject_placeholder() {
+          name="$$1"
+          value="$$2"
+          if [ -z "$$value" ]; then
+            echo "$$name is required" >&2
+            exit 1
+          fi
+          case "$$value" in
+            *"<"*|*">"*|*production*|*prod*|*change-this*|*example.com*)
+              echo "$$name contains a placeholder or production-looking value" >&2
+              exit 1
+              ;;
+          esac
+        }
+
+        reject_optional_placeholder() {
+          name="$$1"
+          value="$$2"
+          if [ -z "$$value" ]; then
+            return 0
+          fi
+          case "$$value" in
+            *"<"*|*">"*|*production*|*prod*|*change-this*)
+              echo "$$name contains a placeholder or production-looking value" >&2
+              exit 1
+              ;;
+          esac
+        }
+
+        reject_placeholder STAGING_MSSQL_SA_PASSWORD "$$STAGING_MSSQL_SA_PASSWORD"
+        reject_placeholder STAGING_NEXTAUTH_SECRET "$$STAGING_NEXTAUTH_SECRET"
+        reject_placeholder STAGING_APP_SECRET_ENCRYPTION_KEY "$$STAGING_APP_SECRET_ENCRYPTION_KEY"
+        reject_placeholder STAGING_CRON_SECRET "$$STAGING_CRON_SECRET"
+        reject_placeholder STAGING_INTERNAL_CRON_SECRET "$$STAGING_INTERNAL_CRON_SECRET"
+
+        if [ "$$STAGING_MSSQL_DATABASE" != "fikastore_staging_candidate" ]; then
+          echo "STAGING_MSSQL_DATABASE must be fikastore_staging_candidate" >&2
+          exit 1
+        fi
+
+        case "$$STAGING_DATABASE_URL" in
+          sqlserver://staging-db:1433\;database=fikastore_staging_candidate\;*)
+            ;;
+          *)
+            echo "STAGING_DATABASE_URL must point to staging-db and fikastore_staging_candidate" >&2
+            exit 1
+            ;;
+        esac
+        reject_optional_placeholder STAGING_DATABASE_URL "$$STAGING_DATABASE_URL"
+
+        mp_values="$$STAGING_MP_ACCESS_TOKEN$$STAGING_NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY$$STAGING_MP_OAUTH_CLIENT_ID$$STAGING_MP_OAUTH_CLIENT_SECRET"
+        if [ -n "$$mp_values" ] && [ "$$STAGING_ALLOW_MERCADOPAGO_SANDBOX" != "true" ]; then
+          echo "Mercado Pago variables require STAGING_ALLOW_MERCADOPAGO_SANDBOX=true" >&2
+          exit 1
+        fi
+        reject_optional_placeholder STAGING_MP_ACCESS_TOKEN "$$STAGING_MP_ACCESS_TOKEN"
+        reject_optional_placeholder STAGING_NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY "$$STAGING_NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY"
+        reject_optional_placeholder STAGING_MP_OAUTH_CLIENT_ID "$$STAGING_MP_OAUTH_CLIENT_ID"
+        reject_optional_placeholder STAGING_MP_OAUTH_CLIENT_SECRET "$$STAGING_MP_OAUTH_CLIENT_SECRET"
+
+        tracking_values="$$STAGING_META_PIXEL_ID$$STAGING_META_CAPI_ACCESS_TOKEN$$STAGING_NEXT_PUBLIC_GA_MEASUREMENT_ID"
+        if [ -n "$$tracking_values" ] && [ "$$STAGING_ALLOW_TRACKING" != "true" ]; then
+          echo "Tracking variables require STAGING_ALLOW_TRACKING=true" >&2
+          exit 1
+        fi
+
+        smtp_values="$$STAGING_SMTP_HOST$$STAGING_SMTP_USER$$STAGING_SMTP_PASS"
+        if [ -n "$$smtp_values" ] && [ "$$STAGING_ALLOW_SMTP" != "true" ]; then
+          echo "SMTP variables require STAGING_ALLOW_SMTP=true" >&2
+          exit 1
+        fi
+
+        shipping_values="$$STAGING_EPICK_PHONE$$STAGING_EPICK_PASSWORD$$STAGING_CORREO_ARG_USER$$STAGING_CORREO_ARG_PASS"
+        if [ -n "$$shipping_values" ] && [ "$$STAGING_ALLOW_SHIPPING_INTEGRATIONS" != "true" ]; then
+          echo "Shipping integration variables require STAGING_ALLOW_SHIPPING_INTEGRATIONS=true" >&2
+          exit 1
+        fi
+    networks:
+      - staging
+    restart: "no"
+
+  staging-db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    depends_on:
+      staging-preflight:
+        condition: service_completed_successfully
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${STAGING_MSSQL_SA_PASSWORD:?Set STAGING_MSSQL_SA_PASSWORD in docker.env.staging}
+    volumes:
+      - staging-mssql-data:/var/opt/mssql
+    networks:
+      - staging
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/127.0.0.1/1433'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  staging-db-init:
+    image: mcr.microsoft.com/mssql-tools:latest
+    depends_on:
+      staging-db:
+        condition: service_healthy
+    environment:
+      STAGING_MSSQL_SA_PASSWORD: ${STAGING_MSSQL_SA_PASSWORD:?Set STAGING_MSSQL_SA_PASSWORD in docker.env.staging}
+      STAGING_MSSQL_DATABASE: ${STAGING_MSSQL_DATABASE:-fikastore_staging_candidate}
+    networks:
+      - staging
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - |
+        SQLCMD=/opt/mssql-tools18/bin/sqlcmd
+        SQLCMD_EXTRA=-C
+        if [ ! -x "$$SQLCMD" ]; then
+          SQLCMD=/opt/mssql-tools/bin/sqlcmd
+          SQLCMD_EXTRA=
+        fi
+        "$$SQLCMD" \
+          -S staging-db \
+          -U sa \
+          -P "$$STAGING_MSSQL_SA_PASSWORD" \
+          $$SQLCMD_EXTRA \
+          -Q "IF DB_ID(N'$$STAGING_MSSQL_DATABASE') IS NULL CREATE DATABASE [$$STAGING_MSSQL_DATABASE];"
+    restart: "no"
+
+  staging-migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["tools"]
+    depends_on:
+      staging-db-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: ${STAGING_DATABASE_URL:?Set STAGING_DATABASE_URL in docker.env.staging}
+    networks:
+      - staging
+    command:
+      - /bin/sh
+      - -eu
+      - -c
+      - |
+        case "$$DATABASE_URL" in
+          sqlserver://staging-db:1433\;database=fikastore_staging_candidate\;*) ;;
+          *)
+            echo "Refusing to migrate a non-staging database" >&2
+            exit 1
+            ;;
+        esac
+        npx prisma migrate deploy
+    restart: "no"
+
+  staging-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      staging-db-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: ${STAGING_DATABASE_URL:?Set STAGING_DATABASE_URL in docker.env.staging}
+      NEXTAUTH_URL: ${STAGING_NEXTAUTH_URL:?Set STAGING_NEXTAUTH_URL in docker.env.staging}
+      SITE_URL: ${STAGING_SITE_URL:?Set STAGING_SITE_URL in docker.env.staging}
+      NEXT_PUBLIC_SITE_URL: ${STAGING_SITE_URL:?Set STAGING_SITE_URL in docker.env.staging}
+      NEXTAUTH_SECRET: ${STAGING_NEXTAUTH_SECRET:?Set STAGING_NEXTAUTH_SECRET in docker.env.staging}
+      APP_SECRET_ENCRYPTION_KEY: ${STAGING_APP_SECRET_ENCRYPTION_KEY:?Set STAGING_APP_SECRET_ENCRYPTION_KEY in docker.env.staging}
+      MAILING_ENCRYPTION_KEY: ${STAGING_MAILING_ENCRYPTION_KEY:-}
+
+      MP_ACCESS_TOKEN: ${STAGING_MP_ACCESS_TOKEN:-}
+      NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY: ${STAGING_NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY:-}
+      MP_OAUTH_CLIENT_ID: ${STAGING_MP_OAUTH_CLIENT_ID:-}
+      MP_OAUTH_CLIENT_SECRET: ${STAGING_MP_OAUTH_CLIENT_SECRET:-}
+      MP_OAUTH_SCOPES: ${STAGING_MP_OAUTH_SCOPES:-read write offline_access}
+      MERCADOPAGO_DEBUG: ${STAGING_MERCADOPAGO_DEBUG:-false}
+
+      META_PIXEL_ID: ${STAGING_META_PIXEL_ID:-}
+      META_CAPI_ACCESS_TOKEN: ${STAGING_META_CAPI_ACCESS_TOKEN:-}
+      META_CAPI_TEST_EVENT_CODE: ${STAGING_META_CAPI_TEST_EVENT_CODE:-}
+      NEXT_PUBLIC_GA_MEASUREMENT_ID: ${STAGING_NEXT_PUBLIC_GA_MEASUREMENT_ID:-}
+
+      SMTP_HOST: ${STAGING_SMTP_HOST:-}
+      SMTP_PORT: ${STAGING_SMTP_PORT:-587}
+      SMTP_USER: ${STAGING_SMTP_USER:-}
+      SMTP_PASS: ${STAGING_SMTP_PASS:-}
+      SMTP_FROM: ${STAGING_SMTP_FROM:-}
+      SUPPORT_EMAIL: ${STAGING_SUPPORT_EMAIL:-}
+
+      CRON_SECRET: ${STAGING_CRON_SECRET:?Set STAGING_CRON_SECRET in docker.env.staging}
+      INTERNAL_CRON_SECRET: ${STAGING_INTERNAL_CRON_SECRET:?Set STAGING_INTERNAL_CRON_SECRET in docker.env.staging}
+      PENDING_ORDER_AUTO_CANCEL_HOURS: ${STAGING_PENDING_ORDER_AUTO_CANCEL_HOURS:-48}
+      CHATBOT_API_SECRET: ${STAGING_CHATBOT_API_SECRET:-}
+
+      CUSTOM_DOMAIN_TARGET: ${STAGING_CUSTOM_DOMAIN_TARGET:-}
+      CUSTOM_DOMAIN_SERVER_IP: ${STAGING_CUSTOM_DOMAIN_SERVER_IP:-}
+      CUSTOM_DOMAIN_BLOCKED_ROOT_DOMAINS: ${STAGING_CUSTOM_DOMAIN_BLOCKED_ROOT_DOMAINS:-}
+
+      EPICK_BASE_URL: ${STAGING_EPICK_BASE_URL:-}
+      EPICK_PHONE: ${STAGING_EPICK_PHONE:-}
+      EPICK_PASSWORD: ${STAGING_EPICK_PASSWORD:-}
+      EPICK_WEBHOOK_URL: ${STAGING_EPICK_WEBHOOK_URL:-}
+      EPICK_SENDER_NAME: ${STAGING_EPICK_SENDER_NAME:-}
+      EPICK_SENDER_PHONE: ${STAGING_EPICK_SENDER_PHONE:-}
+      EPICK_SENDER_EMAIL: ${STAGING_EPICK_SENDER_EMAIL:-}
+      EPICK_SENDER_STREET: ${STAGING_EPICK_SENDER_STREET:-}
+      EPICK_SENDER_NUMBER: ${STAGING_EPICK_SENDER_NUMBER:-}
+      EPICK_SENDER_CITY: ${STAGING_EPICK_SENDER_CITY:-}
+      EPICK_SENDER_PROVINCE: ${STAGING_EPICK_SENDER_PROVINCE:-}
+      EPICK_SENDER_POSTAL_CODE: ${STAGING_EPICK_SENDER_POSTAL_CODE:-}
+      EPICK_SENDER_EXTRA: ${STAGING_EPICK_SENDER_EXTRA:-}
+      EPICK_SENDER_INFO: ${STAGING_EPICK_SENDER_INFO:-}
+      EPICK_ADDRESSEE_PROVINCE: ${STAGING_EPICK_ADDRESSEE_PROVINCE:-}
+      EPICK_PKG_LONG: ${STAGING_EPICK_PKG_LONG:-30}
+      EPICK_PKG_WIDTH: ${STAGING_EPICK_PKG_WIDTH:-20}
+      EPICK_PKG_HEIGHT: ${STAGING_EPICK_PKG_HEIGHT:-10}
+      EPICK_PKG_WEIGHT: ${STAGING_EPICK_PKG_WEIGHT:-1}
+
+      CORREO_ARG_DEBUG: ${STAGING_CORREO_ARG_DEBUG:-0}
+      CORREO_ARG_BASE_URL: ${STAGING_CORREO_ARG_BASE_URL:-}
+      CORREO_ARG_ENV: ${STAGING_CORREO_ARG_ENV:-qa}
+      CORREO_ARG_USER: ${STAGING_CORREO_ARG_USER:-}
+      CORREO_ARG_PASS: ${STAGING_CORREO_ARG_PASS:-}
+      CORREO_ARG_CUSTOMER_ID: ${STAGING_CORREO_ARG_CUSTOMER_ID:-}
+      CORREO_ARG_POSTAL_ORIGIN: ${STAGING_CORREO_ARG_POSTAL_ORIGIN:-}
+      CORREO_ARG_PRODUCT_TYPE: ${STAGING_CORREO_ARG_PRODUCT_TYPE:-}
+      CORREO_ARG_DELIVERY_TYPE: ${STAGING_CORREO_ARG_DELIVERY_TYPE:-}
+      CORREO_ARG_PKG_WEIGHT_G: ${STAGING_CORREO_ARG_PKG_WEIGHT_G:-1000}
+      CORREO_ARG_PKG_HEIGHT_CM: ${STAGING_CORREO_ARG_PKG_HEIGHT_CM:-10}
+      CORREO_ARG_PKG_WIDTH_CM: ${STAGING_CORREO_ARG_PKG_WIDTH_CM:-20}
+      CORREO_ARG_PKG_LENGTH_CM: ${STAGING_CORREO_ARG_PKG_LENGTH_CM:-30}
+    ports:
+      - "127.0.0.1:${STAGING_APP_PORT:-3100}:3000"
+    volumes:
+      - staging-uploads:/app/public/uploads
+    networks:
+      - staging
+    command: ["npm", "run", "start"]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"require('node:http').get('http://127.0.0.1:3000/', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+networks:
+  staging:
+    name: fika-staging-network
+
+volumes:
+  staging-mssql-data:
+    name: fika-staging-mssql-data
+  staging-uploads:
+    name: fika-staging-uploads
