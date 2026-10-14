@@ -12,6 +12,7 @@
   | "refund-completed"
   | "back-in-stock"
   | "order-shipped"
+  | "order-packed"
   | "cart-abandoned";
 
 export type EmailTemplateDefault = {
@@ -229,6 +230,21 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefault[] = [
        <p style="margin:18px 0 0;"><a href="{{productUrl}}" style="display:inline-block;background:#111;color:#fff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:700;">Ver producto</a></p>`
     ),
     text: "Hola {{customerName}}, {{productName}} volvió a estar disponible. Ver: {{productUrl}}",
+  },
+  {
+    key: "order-packed",
+    name: "Pedido empaquetado",
+    category: "Pedidos",
+    subject: "{{storeName}} · Tu pedido fue empaquetado",
+    enabled: true,
+    variables: ["customerName", "orderNumber", "orderUrl", "storeName", "storeUrl"],
+    html: layout(
+      "Tu pedido fue empaquetado",
+      `<p style="margin:0 0 18px;color:#444;">Hola {{customerName}}, tu pedido {{orderNumber}} ya fue empaquetado.</p>
+       <p style="margin:0 0 18px;color:#444;">Estamos preparando el siguiente paso según el método de envío o retiro que elegiste. Te avisaremos cuando haya novedades.</p>
+       <p style="margin:18px 0 0;"><a href="{{orderUrl}}" style="display:inline-block;background:#111;color:#fff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:700;">Ver pedido</a></p>`
+    ),
+    text: "Hola {{customerName}}, tu pedido {{orderNumber}} ya fue empaquetado. Estamos preparando el siguiente paso según el método de envío o retiro que elegiste. Te avisaremos cuando haya novedades. Ver pedido: {{orderUrl}}",
   },
   {
     key: "order-shipped",

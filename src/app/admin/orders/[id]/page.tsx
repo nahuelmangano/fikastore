@@ -62,14 +62,16 @@ export default async function AdminOrderDetailPage({
 
   if (!order) return notFound();
 
-  const [whatsappMessageTemplate, carriers] = await Promise.all([
+  const [whatsappMessageTemplate, carriers, packedEmail] = await Promise.all([
     getWhatsappMessageTemplate(),
     getShippingCarriers(),
+    prisma.emailNotification.findUnique({ where: { idempotencyKey: `order-packed:${order.id}` }, select: { status: true } }),
   ]);
   const carrier = carriers.find((item) => item.key === order.shippingMethod);
   return <AdminOrderDetail
     order={order as AdminOrderDetailPayload}
     whatsappMessageTemplate={whatsappMessageTemplate}
+    packedEmailSent={packedEmail?.status === "sent"}
     shippingCarrier={carrier ? { name: carrier.name, pricingMode: carrier.pricingMode } : undefined}
   />;
 }

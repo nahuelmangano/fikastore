@@ -108,7 +108,7 @@ export async function buildCorreoShipmentPayload(
     recipient: {
       name: order.shippingName,
       phone: order.shippingPhone || "",
-      cellPhone: "",
+      cellPhone: order.shippingPhone || "",
       email: recipientEmail,
     },
     shipping: {

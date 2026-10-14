@@ -147,9 +147,10 @@ function shippingMethodLabel(order: Pick<AdminOrder, "shippingMethod" | "shippin
   return order.shippingMethod || "No informado";
 }
 
-export default function AdminOrderDetail({ order, whatsappMessageTemplate, shippingCarrier }: {
+export default function AdminOrderDetail({ order, whatsappMessageTemplate, shippingCarrier, packedEmailSent = false }: {
   order: AdminOrder;
   whatsappMessageTemplate: string;
+  packedEmailSent?: boolean;
   shippingCarrier?: { name: string; pricingMode: "fixed" | "agreement" | "free" };
 }) {
   const [status, setStatus] = useState<string>(order.status);
@@ -159,6 +160,8 @@ export default function AdminOrderDetail({ order, whatsappMessageTemplate, shipp
   const [paidLoading, setPaidLoading] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [shipLoading, setShipLoading] = useState(false);
+  const [packedEmailLoading, setPackedEmailLoading] = useState(false);
+  const [packedNotified, setPackedNotified] = useState(packedEmailSent);
   const [deliverLoading, setDeliverLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [epick, setEpick] = useState<EPickShipmentState | null>(order.epickShipment ?? null);
@@ -346,6 +349,10 @@ export default function AdminOrderDetail({ order, whatsappMessageTemplate, shipp
               {isBranchShipping ? (
                 <>
                   <InfoLine icon={<MapPin className="h-4 w-4" />} value={`Sucursal / punto de retiro: ${order.shippingBranchName || "No informado"}`} />
+                  <InfoLine
+                    icon={<MapPin className="h-4 w-4" />}
+                    value={`Dirección: ${[order.shippingAddressLine, order.shippingCity, order.shippingProvince, order.shippingZip ? `CP ${order.shippingZip}` : ""].filter(Boolean).join(", ") || "No informada"}`}
+                  />
                   {order.shippingBranchCode ? (
                     <InfoLine muted icon={<Building2 className="h-4 w-4" />} value={`Código de sucursal: ${order.shippingBranchCode}`} />
                   ) : null}
@@ -450,7 +457,7 @@ export default function AdminOrderDetail({ order, whatsappMessageTemplate, shipp
             </div>
           )}
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <ActionCardButton
               title={paidLoading ? "Marcando..." : "Marcar como pagado"}
               description="El pedido fue pagado correctamente."
@@ -474,6 +481,29 @@ export default function AdminOrderDetail({ order, whatsappMessageTemplate, shipp
                 setStatus(data.order.status);
                 setPaymentStatus(data.payment?.status || "approved");
                 setMsg("✅ Pedido marcado como pagado.");
+              }}
+            />
+
+            <ActionCardButton
+              title={packedEmailLoading ? "Enviando..." : packedNotified ? "Aviso de empaquetado enviado" : "Avisar pedido empaquetado"}
+              description="Enviá al cliente el mail de pedido empaquetado."
+              icon={<Mail className="h-4 w-4" />}
+              tone="sand"
+              disabled={packedEmailLoading || packedNotified || status !== "paid" || !customerEmail}
+              onClick={async () => {
+                setMsg(null);
+                setPackedEmailLoading(true);
+                try {
+                  const response = await fetch(`/api/admin/orders/${order.id}/packed-email`, { method: "POST" });
+                  const data = await response.json().catch(() => ({}));
+                  if (!response.ok || !data.ok) throw new Error(data.error || "No se pudo enviar el mail.");
+                  setPackedNotified(data.status === "sent");
+                  setMsg(data.message);
+                } catch (error) {
+                  setMsg(error instanceof Error ? error.message : "No se pudo enviar el mail.");
+                } finally {
+                  setPackedEmailLoading(false);
+                }
               }}
             />
 

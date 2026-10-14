@@ -13,6 +13,7 @@ import EmptyState from "@/components/admin/data/EmptyState";
 import StatusBadge from "@/components/admin/data/StatusBadge";
 import OrderQuickFilters from "./OrderQuickFilters";
 import OrderSearchField from "./OrderSearchField";
+import OrderBulkSelection, { OrderSelectionCheckbox } from "./OrderBulkSelection";
 
 const PAGE_SIZE = 20;
 
@@ -22,6 +23,7 @@ type Params = {
   payment?: string;
   sort?: string;
   page?: string;
+  archive?: string;
 };
 
 type ListedOrder = {
@@ -32,6 +34,8 @@ type ListedOrder = {
   createdAt: Date;
   shippedAt: Date | null;
   shippingMethod: string | null;
+  shippingDeliveryType: string | null;
+  shippingTypeLabel: string;
   shippingName: string | null;
   contactEmail: string | null;
   user: { name: string | null; email: string | null } | null;
@@ -117,6 +121,15 @@ function shippingStatus(order: ListedOrder) {
   return { label: "Pendiente", variant: "neutral" as const };
 }
 
+function shippingTypeLabel(method: string | null, deliveryType: string | null, carrierNames: Map<string, string>) {
+  if (!method) return "No informado";
+  if (method === "correo") return `Correo Argentino · ${deliveryType === "S" ? "Sucursal" : "Domicilio"}`;
+  if (method === "epick") return "E-pick · Domicilio";
+  if (method === "andreani") return "Andreani · Domicilio";
+  if (method === "pickup") return "Retiro en tienda";
+  return carrierNames.get(method) || method;
+}
+
 function translateCorreo(status: string) {
   const map: Record<string, string> = { IMPORTED: "Importado" };
   return map[status] ?? status;
@@ -164,8 +177,10 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
   const payment = (resolved.payment ?? "all").toLowerCase();
   const sort = (resolved.sort ?? "newest").toLowerCase();
   const page = toInt(resolved.page ?? "1", 1);
+  const archive = resolved.archive === "archived" ? "archived" : "active";
 
   const and: Prisma.OrderWhereInput[] = [];
+  and.push({ archivedAt: archive === "archived" ? { not: null } : null });
   if (metricsStartAt) and.push({ createdAt: { gte: metricsStartAt } });
   if (q) {
     const maybeNumber = Number(q);
@@ -184,13 +199,16 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
   if (payment !== "all") and.push({ payments: { some: { status: payment } } });
 
   const where: Prisma.OrderWhereInput = and.length > 0 ? { AND: and } : {};
-  const baseParams = { q, status, payment, sort };
+  const baseParams = { q, status, payment, sort, archive };
+  const filteredTotal = await prisma.order.count({ where });
+  const totalPages = Math.max(1, Math.ceil(filteredTotal / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
 
-  const [ordersRaw, filteredTotal, totalOrders, pendingOrders, paidOrders, revenue, statusGroups, paymentGroups] = await Promise.all([
+  const [ordersRaw, totalOrders, pendingOrders, paidOrders, revenue, statusGroups, paymentGroups, carriers] = await Promise.all([
     prisma.order.findMany({
       where,
       orderBy: toOrderBy(sort),
-      skip: (page - 1) * PAGE_SIZE,
+      skip: (currentPage - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       select: {
         id: true,
@@ -200,6 +218,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
         createdAt: true,
         shippedAt: true,
         shippingMethod: true,
+        shippingDeliveryType: true,
         shippingName: true,
         contactEmail: true,
         items: {
@@ -216,7 +235,6 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
         correoShipment: { select: { status: true } },
       },
     }),
-    prisma.order.count({ where }),
     prisma.order.count({ where: metricsStartAt ? { createdAt: { gte: metricsStartAt } } : {} }),
     prisma.order.count({ where: { status: "pending_payment", ...(metricsStartAt ? { createdAt: { gte: metricsStartAt } } : {}) } }),
     prisma.order.count({ where: { status: { in: ["paid", "shipped", "delivered"] }, ...(metricsStartAt ? { createdAt: { gte: metricsStartAt } } : {}) } }),
@@ -230,20 +248,26 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
       where: metricsStartAt ? { order: { createdAt: { gte: metricsStartAt } } } : undefined,
       _count: { _all: true },
     }),
+    prisma.shippingCarrier.findMany({ select: { key: true, name: true } }),
   ]);
 
+  const carrierNames = new Map(carriers.map((carrier) => [carrier.key, carrier.name]));
   const orders: ListedOrder[] = ordersRaw.map((order) => ({
     ...order,
     total: Number(order.total),
+    shippingTypeLabel: shippingTypeLabel(order.shippingMethod, order.shippingDeliveryType, carrierNames),
   }));
-  const totalPages = Math.max(1, Math.ceil(filteredTotal / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
   const activeStatusValues = statusGroups.map((item) => item.status);
   const activePaymentValues = paymentGroups.map((item) => item.status);
   const statusCounts = Object.fromEntries(statusGroups.map((item) => [item.status, item._count._all]));
   const paidRevenue = Number(revenue._sum.total ?? 0);
 
   const columns: DataTableColumn<ListedOrder>[] = [
+    {
+      key: "selection",
+      header: <OrderSelectionCheckbox />,
+      cell: (order) => <OrderSelectionCheckbox orderId={order.id} />,
+    },
     {
       key: "order",
       header: "Pedido",
@@ -299,6 +323,15 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
         const statusInfo = orderStatus(order.status);
         return <OrderTableCellLink orderId={order.id}><StatusBadge label={statusInfo.label} variant={statusInfo.variant} /></OrderTableCellLink>;
       },
+    },
+    {
+      key: "shippingType",
+      header: "Tipo de envío",
+      cell: (order) => (
+        <OrderTableCellLink orderId={order.id}>
+          <span className="font-medium text-[var(--admin-text-soft)]">{order.shippingTypeLabel}</span>
+        </OrderTableCellLink>
+      ),
     },
     {
       key: "shipping",
@@ -363,7 +396,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
               <OrderQuickFilters
                 currentStatus={status}
                 counts={{
-                  all: totalOrders,
+                  all: statusGroups.reduce((sum, item) => sum + item._count._all, 0),
                   pending_payment: statusCounts.pending_payment ?? 0,
                   paid: statusCounts.paid ?? 0,
                   shipped: statusCounts.shipped ?? 0,
@@ -378,6 +411,13 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
 
           <form className="mt-5">
             <input type="hidden" name="page" value="1" />
+            <div className="mb-4 flex flex-wrap items-center gap-3">
+              <label htmlFor="order-archive" className="text-sm font-medium text-[var(--admin-text-soft)]">Mostrar pedidos</label>
+              <select id="order-archive" name="archive" defaultValue={archive} className="admin-input w-auto">
+                <option value="active">Sin archivar</option>
+                <option value="archived">Archivados</option>
+              </select>
+            </div>
             <div className="grid gap-3 md:grid-cols-12">
               <div className="md:col-span-5">
                 <label className="text-xs font-semibold uppercase tracking-wide text-[var(--admin-muted-2)]">Buscar</label>
@@ -438,17 +478,29 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
           </form>
         </SectionCard>
 
-        <div className="mt-6 xl:mt-4 hidden md:block">
-          {orders.length > 0 ? (
-            <DataTable columns={columns} data={orders} rowKey={(order) => order.id} caption="Pedidos" />
-          ) : (
-            <OrdersEmptyState hasFilters={Boolean(q || status !== "all" || payment !== "all")} />
-          )}
-        </div>
+        <OrderBulkSelection
+          key={JSON.stringify({ ...baseParams, page })}
+          archived={archive === "archived"}
+          orders={orders.map((order) => ({
+            id: order.id,
+            orderNumber: order.orderNumber,
+            status: order.status,
+            shippingMethod: order.shippingMethod,
+            correoShipment: order.correoShipment,
+          }))}
+        >
+          <div className="mt-6 xl:mt-4 hidden md:block">
+            {orders.length > 0 ? (
+              <DataTable columns={columns} data={orders} rowKey={(order) => order.id} caption="Pedidos" />
+            ) : (
+              <OrdersEmptyState hasFilters={Boolean(q || status !== "all" || payment !== "all" || archive === "archived")} />
+            )}
+          </div>
 
-        <div className="mt-6 xl:mt-4 space-y-3 md:hidden">
-          {orders.length > 0 ? orders.map((order) => <OrderMobileCard key={order.id} order={order} />) : <OrdersEmptyState hasFilters={Boolean(q || status !== "all" || payment !== "all")} />}
-        </div>
+          <div className="mt-6 xl:mt-4 space-y-3 md:hidden">
+            {orders.length > 0 ? orders.map((order) => <OrderMobileCard key={order.id} order={order} />) : <OrdersEmptyState hasFilters={Boolean(q || status !== "all" || payment !== "all" || archive === "archived")} />}
+          </div>
+        </OrderBulkSelection>
 
         {orders.length > 0 ? (
           <div className="mt-6 xl:mt-4 flex flex-col gap-3 rounded-3xl border border-[var(--admin-border)] bg-[var(--admin-surface)] p-4 shadow-[var(--admin-shadow)] sm:flex-row sm:items-center sm:justify-between">
@@ -515,6 +567,9 @@ function OrderMobileCard({ order }: { order: ListedOrder }) {
 
   return (
     <article className="rounded-3xl border border-[var(--admin-border)] bg-[var(--admin-surface)] p-4 shadow-[var(--admin-shadow)]">
+      <label className="mb-3 flex items-center gap-2 text-sm text-[var(--admin-muted)]">
+        <OrderSelectionCheckbox orderId={order.id} /> Seleccionar pedido
+      </label>
       <div className="flex items-start justify-between gap-3">
         <div>
           <Link href={`/admin/orders/${order.id}`} className="font-semibold text-[var(--admin-primary)]">
@@ -535,6 +590,9 @@ function OrderMobileCard({ order }: { order: ListedOrder }) {
         <StatusBadge label={paymentInfo.label} variant={paymentInfo.variant} />
         <StatusBadge label={orderInfo.label} variant={orderInfo.variant} />
         <StatusBadge label={shippingInfo.label} variant={shippingInfo.variant} />
+      </div>
+      <div className="mt-3 text-sm text-[var(--admin-text-soft)]">
+        Tipo de envío: {order.shippingTypeLabel}
       </div>
       <Link
         href={`/admin/orders/${order.id}`}

@@ -21,6 +21,14 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     return NextResponse.json({ ok: false, error: "Order not found" }, { status: 404 });
   }
 
+  if (order.shippingMethod !== "correo") {
+    return NextResponse.json({ ok: false, error: "El pedido no usa Correo Argentino." }, { status: 400 });
+  }
+
+  if (order.correoShipment?.status === "IMPORTING") {
+    return NextResponse.json({ ok: false, error: "El envío ya se está importando." }, { status: 409 });
+  }
+
   if (order.status !== "paid" && order.status !== "shipped") {
     return NextResponse.json(
       { ok: false, error: "Solo se puede importar un envío de un pedido pagado." },

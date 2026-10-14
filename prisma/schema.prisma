@@ -276,6 +276,7 @@ model Order {
 
   shippedAt     DateTime? // ✅ cuando lo marcás como enviado
   deliveredAt   DateTime?
+  archivedAt    DateTime?
   notes         String? // nota del cliente/indicaciones de envío
   merchantNotes String?   @db.NVarChar(max)
 
@@ -300,6 +301,7 @@ model Order {
   @@index([metaPurchaseSentAt])
   @@index([shippedAt])
   @@index([deliveredAt])
+  @@index([archivedAt])
 }
 
 model EPickShipment {
