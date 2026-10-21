@@ -1374,10 +1374,10 @@ export default function ModernProductEditor({
                     <span className="mt-1 text-xs text-[#927b68]">JPG, PNG o WebP</span>
                     <input type="file" accept="image/*" multiple className="hidden" onChange={(event) => {
                       const files = Array.from(event.target.files ?? []);
-                      setPendingImages((prev) => {
-                        for (const pending of prev) URL.revokeObjectURL(pending.url);
-                        return files.map(createPendingImage);
-                      });
+                      if (files.length === 0) return;
+                      const addedImages = files.map(createPendingImage);
+                      setPendingImages((prev) => [...prev, ...addedImages]);
+                      event.target.value = "";
                     }} />
                   </label>
               </div>
