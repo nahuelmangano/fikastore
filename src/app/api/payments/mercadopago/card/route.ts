@@ -24,7 +24,7 @@ import {
   buildMercadoPagoErrorDiagnostic,
   stringifyMercadoPagoErrorDiagnostic,
 } from "@/lib/mercadoPagoErrorDiagnostics";
-import { buildMercadoPagoOrderShipment } from "@/lib/mercadoPagoOrderPayload";
+import { buildMercadoPagoOrderItems, buildMercadoPagoOrderShipment } from "@/lib/mercadoPagoOrderPayload";
 
 export const runtime = "nodejs";
 
@@ -165,6 +165,13 @@ export async function POST(req: Request) {
     return bad("Este pedido fue creado con otro medio de pago.", 409);
   }
 
+  let items: ReturnType<typeof buildMercadoPagoOrderItems>;
+  try {
+    items = buildMercadoPagoOrderItems(order);
+  } catch {
+    return bad("Los importes del pedido no coinciden. Contactá a la tienda para revisarlos antes de pagar.", 409);
+  }
+
   const oauthContext = await getMercadoPagoOAuthPaymentContext();
   if (!oauthContext?.accessToken) {
     return bad("La cuenta de Mercado Pago del vendedor no está conectada por OAuth.", 503);
@@ -217,14 +224,7 @@ export async function POST(req: Request) {
         : undefined,
     },
     ...buildMercadoPagoOrderShipment(order),
-    items: order.items.map((item) => ({
-      title: item.nameSnapshot,
-      unit_price: Number(item.unitPrice).toFixed(2),
-      quantity: item.quantity,
-      external_code: item.productVariantId || item.productId,
-      description: item.nameSnapshot,
-      category_id: "fashion",
-    })),
+    items,
   };
   const requestHash = hashMercadoPagoOrderPayload(orderBody);
 
