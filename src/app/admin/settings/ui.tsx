@@ -34,6 +34,7 @@ import {
   XCircle,
   type LucideIcon,
 } from "lucide-react";
+import { splitAnnouncementBenefit } from "@/lib/announcement";
 import { sanitizeRichText } from "@/lib/richText";
 import WhatsappSettings from "./WhatsappSettings";
 
@@ -172,47 +173,11 @@ const tabs: { key: SettingsTab; label: string; icon: LucideIcon }[] = [
 
 const ANNOUNCEMENT_ICONS: LucideIcon[] = [CreditCard, Tag, Truck];
 
-function normalizeAnnouncementBenefit(text: string, index: number) {
-  const clean = text.trim();
-  const upper = clean.toUpperCase();
-
-  if (upper.includes("CUOTA")) {
-    return {
-      title: "3 CUOTAS SIN INTERÉS",
-      subtitle: upper.includes("$50") ? "desde $50.000" : clean.replace(/3\s*cuotas\s*sin\s*inter[eé]s/i, "").trim(),
-      Icon: ANNOUNCEMENT_ICONS[index] || CreditCard,
-    };
-  }
-
-  if (upper.includes("15%") || upper.includes("OFF")) {
-    return {
-      title: "15% OFF",
-      subtitle: "transferencia o efectivo",
-      Icon: ANNOUNCEMENT_ICONS[index] || Tag,
-    };
-  }
-
-  if (upper.includes("ENV")) {
-    return {
-      title: "ENVÍO GRATIS",
-      subtitle: upper.includes("SUCURSAL") ? "a sucursal desde $43.000" : clean.replace(/env[ií]os?\s*gratis/i, "").trim(),
-      Icon: ANNOUNCEMENT_ICONS[index] || Truck,
-    };
-  }
-
-  const [title, ...rest] = clean.split(/\s+-\s+|\s{2,}/);
-  return {
-    title: title || `Beneficio ${index + 1}`,
-    subtitle: rest.join(" ").trim(),
-    Icon: ANNOUNCEMENT_ICONS[index] || Tag,
-  };
-}
-
 function getAnnouncementBenefits(text: string) {
   const clean = text.trim() || "3 CUOTAS SIN INTERÉS desde $50.000 | 15% OFF transferencia o efectivo | ENVÍO GRATIS a sucursal desde $43.000";
   return clean
     .split("|")
-    .map((part, index) => normalizeAnnouncementBenefit(part, index))
+    .map((part, index) => ({ ...splitAnnouncementBenefit(part), Icon: ANNOUNCEMENT_ICONS[index] || Tag }))
     .slice(0, 3);
 }
 
@@ -222,14 +187,14 @@ function getAnnouncementParts(text: string) {
     "15% OFF transferencia o efectivo",
     "ENVÍO GRATIS a sucursal desde $43.000",
   ];
-  const parts = text.split("|").map((part) => part.trim());
-  return defaults.map((fallback, index) => parts[index] || fallback);
+  const parts = text.split(/ ?\| ?/);
+  return defaults.map((fallback, index) => parts[index] ?? fallback);
 }
 
 function patchAnnouncementPart(text: string, index: number, value: string) {
   const parts = getAnnouncementParts(text);
   parts[index] = value;
-  return parts.map((part) => part.trim()).filter(Boolean).join(" | ");
+  return parts.join(" | ");
 }
 
 function createClientId() {
@@ -2270,7 +2235,7 @@ function AnnouncementPreview({ text, compact = false }: { text: string; compact?
         <div className={["flex items-center justify-center gap-2 px-3 sm:hidden", compact ? "py-2" : "py-3"].join(" ")}>
           <mobile.Icon className="h-4 w-4 shrink-0 text-[#B9824A]" aria-hidden="true" />
           <div className="text-left leading-tight">
-            <div className="text-[11px] font-bold uppercase tracking-wide">{mobile.title}</div>
+            <div className="text-[11px] font-bold tracking-wide">{mobile.title}</div>
             {mobile.subtitle ? <div className="mt-0.5 text-[10px] font-medium text-white">{mobile.subtitle}</div> : null}
           </div>
         </div>
@@ -2281,7 +2246,7 @@ function AnnouncementPreview({ text, compact = false }: { text: string; compact?
           <div key={title} className="flex min-w-0 items-center justify-center gap-2 px-2">
             <Icon className="h-4 w-4 shrink-0 text-[#B9824A]" aria-hidden="true" />
             <div className="min-w-0 text-left leading-tight">
-              <div className="truncate text-[11px] font-bold uppercase tracking-wide">{title}</div>
+              <div className="truncate text-[11px] font-bold tracking-wide">{title}</div>
               {subtitle ? <div className="mt-0.5 truncate text-[10px] font-medium text-white">{subtitle}</div> : null}
             </div>
           </div>
