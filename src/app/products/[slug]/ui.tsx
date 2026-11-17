@@ -785,19 +785,10 @@ export default function ProductDetailClient({
                     <div className="mt-3 flex flex-wrap gap-2">
                       {option.values.map((value) => {
                         const selectedValue = selectedModernOptionValues[option.id] === value.id;
-                        const available = modernVariants.some((variant) => {
-                          if (!variant.optionValueIds.includes(value.id)) return false;
-                          return orderedModernVariantOptions.every((candidate) => {
-                            if (candidate.id === option.id) return true;
-                            const chosen = selectedModernOptionValues[candidate.id];
-                            return !chosen || variant.optionValueIds.includes(chosen);
-                          });
-                        });
                         return (
                           <button
                             key={value.id}
                             type="button"
-                            disabled={!available}
                             onClick={() =>
                               setSelectedModernOptionValues((current) => ({
                                 ...current,
@@ -808,9 +799,7 @@ export default function ProductDetailClient({
                               "rounded-xl border px-3 py-2 text-sm transition",
                               selectedValue
                                 ? "border-zinc-100 bg-zinc-100 text-zinc-900"
-                                : available
-                                  ? "border-zinc-800 bg-zinc-950 text-zinc-200 hover:bg-zinc-900/60"
-                                  : "cursor-not-allowed border-zinc-800 bg-zinc-950 text-zinc-600 opacity-50",
+                                : "border-zinc-800 bg-zinc-950 text-zinc-200 hover:bg-zinc-900/60",
                             ].join(" ")}
                           >
                             {value.value}
@@ -846,12 +835,12 @@ export default function ProductDetailClient({
                     >
                       {selectedModernVariant.stock > 0
                         ? `${selectedModernVariant.stock} disponibles`
-                        : "Esta variante no tiene stock disponible."}
+                        : "Sin stock para esta combinación."}
                     </div>
                   </div>
                 ) : (
-                  <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
-                    Esa combinación no está disponible.
+                  <div role="alert" className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+                    Sin stock para esta combinación.
                   </div>
                 )}
               </div>

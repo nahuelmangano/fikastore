@@ -227,8 +227,9 @@ export async function syncProductVariants(
   const savedVariantIds = new Set<string>();
   const savedVariants: Array<{ id: string; combinationKey: string; label: string; optionValueIds: string[] }> = [];
 
-  for (const variant of activeDrafts) {
-    const skuConflict = variant.sku
+  // Keep disabled combinations and their selections so a reload can restore their state.
+  for (const variant of generatedDrafts) {
+    const skuConflict = variant.enabled && variant.sku
       ? await tx.productVariant.findFirst({
           where: {
             sku: variant.sku,
@@ -253,7 +254,7 @@ export async function syncProductVariants(
             label: variant.label,
             stock: variant.stock,
             sku: variant.sku,
-            isActive: true,
+            isActive: variant.enabled,
             position: variant.position,
             priceOverride:
               variant.priceOverride === null ? null : new Prisma.Decimal(variant.priceOverride.toFixed(2)),
@@ -266,7 +267,7 @@ export async function syncProductVariants(
             label: variant.label,
             stock: variant.stock,
             sku: variant.sku,
-            isActive: true,
+            isActive: variant.enabled,
             position: variant.position,
             priceOverride:
               variant.priceOverride === null ? null : new Prisma.Decimal(variant.priceOverride.toFixed(2)),
@@ -274,12 +275,14 @@ export async function syncProductVariants(
         });
 
     savedVariantIds.add(savedVariant.id);
-    savedVariants.push({
-      id: savedVariant.id,
-      combinationKey: savedVariant.combinationKey,
-      label: savedVariant.label,
-      optionValueIds: variant.optionValueIds,
-    });
+    if (variant.enabled) {
+      savedVariants.push({
+        id: savedVariant.id,
+        combinationKey: savedVariant.combinationKey,
+        label: savedVariant.label,
+        optionValueIds: variant.optionValueIds,
+      });
+    }
 
     await tx.productVariantValue.deleteMany({ where: { variantId: savedVariant.id } });
     if (variant.optionValueIds.length > 0) {

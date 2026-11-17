@@ -81,7 +81,6 @@ const product = await prisma.product.findUnique({
         },
       },
       variants: {
-        where: { isActive: true },
         orderBy: [{ position: "asc" }, { createdAt: "asc" }],
         include: {
           images: {
@@ -149,6 +148,7 @@ const product = await prisma.product.findUnique({
         label: variant.label,
         sku: variant.sku,
         stock: variant.stock,
+        enabled: variant.isActive,
         priceOverride: variant.priceOverride ? Number(variant.priceOverride) : null,
         position: variant.position,
         optionValueIds: variant.values.map((value) => value.optionValueId),

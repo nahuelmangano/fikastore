@@ -65,6 +65,7 @@ type ExistingVariant = {
   label: string;
   sku?: string | null;
   stock: number;
+  enabled?: boolean;
   priceOverride?: number | null;
   position?: number;
   optionValueIds: string[];
@@ -161,6 +162,7 @@ function initialVariantDrafts(options: OptionDraft[], variants: ExistingVariant[
     variants.map((variant, index) => ({
       id: variant.id,
       stock: variant.stock,
+      enabled: variant.enabled,
       sku: variant.sku || null,
       priceOverride: variant.priceOverride ?? null,
       position: variant.position ?? index,
@@ -330,6 +332,7 @@ export default function ModernProductEditor({
       normalized,
       variantRowsRef.current.map((variant) => ({
         id: variant.id,
+        enabled: variant.enabled,
         stock: stockDraftToNumber(variant.stock),
         sku: variant.sku || null,
         priceOverride: variant.priceOverride ? Number(variant.priceOverride.replace(",", ".")) : null,
